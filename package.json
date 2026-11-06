@@ -1,0 +1,14 @@
+{
+  "name": "robincode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "RobinCode: RobinX coding agent on the RobinAI GPU model (Pi agent SDK)",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^1.5.0"
+  }
+}
