@@ -1,13 +1,18 @@
 // Tool steps: one terminal line each ([ .. ] -> [ OK ] / [FAIL] / [SKIP]) on a
-// rail, the output folding out underneath, and the approval question for
-// powershell / edit / write folding out right under the step it is about.
+// rail, a running command's last lines underneath, the output folding out
+// when opened, and the approval question for powershell / edit / write
+// folding out right under the step it is about. A long finished run of steps
+// folds into one summary line.
 import { useEffect, useRef, useState } from "react";
 import { DiffLines, editRows, writeRows } from "./Diff.jsx";
+import { CopyButton } from "./Markdown.jsx";
 import { useNow, seconds } from "./time.js";
 
 const TAG = { run: "[ .. ]", ok: "[ OK ]", fail: "[FAIL]", skip: "[SKIP]" };
 const ASKS = new Set(["powershell", "bash", "edit", "write"]);
-// the keys that answer a question, in the order of its buttons (App.jsx)
+const LIVE_LINES = 8;
+const FOLD_AT = 5; // steps in one run before a finished run folds into a summary
+// the keys that answer a question, in the order of its buttons
 export const ANSWER_KEYS = { 1: "yes", 2: "always", 3: "no" };
 
 export function describe(name, args = {}) {
@@ -22,10 +27,11 @@ export function describe(name, args = {}) {
 }
 
 // opens and closes its content by height (grid rows 0fr <-> 1fr); closed, it
-// is inert so nothing inside can be reached
-export function Fold({ open, children }) {
+// is inert so nothing inside can be reached. `grow`: also unfold when it is
+// open from its first frame (a question that came together with its step)
+export function Fold({ open, grow, children }) {
   return (
-    <div className={`fold${open ? " open" : ""}`} inert={!open}>
+    <div className={`fold${open ? " open" : ""}${grow ? " grow" : ""}`} inert={!open}>
       <div className="fold-in">{children}</div>
     </div>
   );
@@ -35,6 +41,8 @@ function Elapsed({ from }) {
   const now = useNow(1000);
   return <span className="step-ms">{seconds(now - from)}</span>;
 }
+
+const lastLines = (text, n) => text.replace(/\s+$/, "").split("\n").slice(-n).join("\n");
 
 function Approval({ tool, onDecide }) {
   const yes = useRef(null);
@@ -79,43 +87,89 @@ function Step({ tool, onDecide }) {
   // so it can fold shut again
   const [made, setMade] = useState(false);
   const asked = useRef(false);
+  const body = useRef(null);
+  const reveal = useRef(0);
   if (tool.ask) asked.current = true;
   useEffect(() => {
     if (tool.status === "fail") { setMade(true); setOpen(true); }
   }, [tool.status]);
+  useEffect(() => () => clearTimeout(reveal.current), []);
+  const toggle = () => {
+    setMade(true);
+    setOpen((v) => !v);
+    clearTimeout(reveal.current);
+    // opened near the bottom: once it has unfolded, scroll it into view
+    if (!open) reveal.current = setTimeout(() => body.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 210);
+  };
   const status = tool.ask ? "asking" : tool.status;
+  const running = tool.status === "run";
   const showDiff = tool.name === "edit" && tool.status === "ok";
-  const canOpen = !!tool.output || showDiff;
+  const canOpen = !running && (!!tool.output || showDiff);
+  const live = running && !tool.ask && !!tool.output;
   return (
     <li className={`step ${status}`}>
       <button type="button" className="step-head" aria-expanded={canOpen ? open : undefined} disabled={!canOpen}
-        onClick={() => { setMade(true); setOpen((v) => !v); }}>
+        onClick={toggle}>
         <span className="step-tag">{tool.ask ? "[ ?? ]" : TAG[tool.status]}</span>
         <span className="step-name">{tool.name}</span>
         <span className="step-what">{describe(tool.name, tool.args)}</span>
-        {tool.status === "run" && !tool.ask && tool.startedAt ? <Elapsed from={tool.startedAt} />
+        {running && !tool.ask && tool.startedAt ? <Elapsed from={tool.startedAt} />
           : tool.ms != null ? <span className="step-ms">{tool.ms < 1000 ? `${tool.ms}ms` : `${(tool.ms / 1000).toFixed(1)}초`}</span> : null}
         {canOpen && <span className="chev" aria-hidden="true" />}
       </button>
+      {/* a command's last lines while it runs; it folds away when it ends */}
+      {ASKS.has(tool.name) && (
+        <Fold open={live}>
+          <pre className="step-live" aria-live="off">{tool.output ? lastLines(tool.output, LIVE_LINES) : ""}</pre>
+        </Fold>
+      )}
       {canOpen && (
         <Fold open={open}>
           {made && (
-            <div className="step-body">
+            <div ref={body} className="step-body">
               {showDiff && <DiffLines rows={editRows(tool.args)} />}
-              {tool.output && <pre className="step-out">{tool.output}</pre>}
+              {tool.output && (
+                <div className="out">
+                  <pre className="step-out">{tool.output}</pre>
+                  <CopyButton text={tool.output} className="mini-btn out-copy" />
+                </div>
+              )}
             </div>
           )}
         </Fold>
       )}
-      {ASKS.has(tool.name) && <Fold open={!!tool.ask}>{asked.current && <Approval tool={tool} onDecide={onDecide} />}</Fold>}
+      {ASKS.has(tool.name) && <Fold open={!!tool.ask} grow>{asked.current && <Approval tool={tool} onDecide={onDecide} />}</Fold>}
     </li>
   );
 }
 
-export function ToolGroup({ tools, onDecide }) {
+// `settled`: nothing more will join this run (the answer moved on, or it ended)
+export function ToolGroup({ tools, onDecide, settled }) {
+  const [open, setOpen] = useState(false);
+  const done = tools.every((t) => t.status !== "run" && !t.ask);
+  const folds = settled && done && tools.length >= FOLD_AT;
+  const failed = tools.filter((t) => t.status === "fail").length;
+  const skipped = tools.filter((t) => t.status === "skip").length;
+  const counts = new Map();
+  for (const t of tools) counts.set(t.name, (counts.get(t.name) || 0) + 1);
+  const names = [...counts].map(([n, c]) => `${n} ${c}`);
+  if (failed) names.push(`실패 ${failed}`);
+  if (skipped) names.push(`건너뜀 ${skipped}`);
   return (
-    <ol className="steps">
-      {tools.map((t) => <Step key={t.id} tool={t} onDecide={onDecide} />)}
-    </ol>
+    <div className="group">
+      {folds && (
+        <button type="button" className={`group-head${failed ? " fail" : ""}`} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <span className="step-tag">{failed ? "[FAIL]" : "[ OK ]"}</span>
+          <span className="group-count">도구 {tools.length}번</span>
+          <span className="group-names">{names.join(" · ")}</span>
+          <span className="chev" aria-hidden="true" />
+        </button>
+      )}
+      <Fold open={!folds || open}>
+        <ol className="steps">
+          {tools.map((t) => <Step key={t.id} tool={t} onDecide={onDecide} />)}
+        </ol>
+      </Fold>
+    </div>
   );
 }

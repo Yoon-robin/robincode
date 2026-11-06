@@ -127,6 +127,13 @@ function onEvent(state, e) {
       if (!updateTool(items, e.id, { ask: true, args: e.args || {} })) addTool(items, { id: e.id, name: e.name, args: e.args || {}, status: "run", ask: true });
       return { ...state, items };
     }
+    case "tool_update": {
+      // a command's output so far, while it still runs
+      const items = state.items.slice();
+      updateTool(items, e.id, (t) => (t.status === "run" ? { output: e.output } : {}));
+      return { ...state, items };
+    }
+    case "title": return { ...state, title: e.title };
     case "tool_end": {
       const items = state.items.slice();
       updateTool(items, e.id, finished(e.isError, e.output || "", e.ms));

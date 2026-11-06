@@ -362,9 +362,9 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .step-body { margin: 4px 0 10px; }
 .fold { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.2s var(--ease); }
 .fold.open { grid-template-rows: 1fr; }
-/* a fold that is open from its first frame (a question that came together
-   with its step) still unfolds */
-@starting-style { .fold.open { grid-template-rows: 0fr; } }
+/* a question that came together with its step is open from its first frame:
+   it still unfolds */
+@starting-style { .fold.grow.open { grid-template-rows: 0fr; } }
 .fold-in { min-height: 0; overflow: hidden; }
 .step-out {
   margin: 0;
@@ -381,6 +381,48 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   scrollbar-width: thin;
 }
 .step.fail .step-out { border-color: rgb(248 113 113 / 35%); }
+.out { position: relative; }
+.out-copy { position: absolute; top: 6px; right: 6px; background: var(--card); opacity: 0; transition: opacity 0.15s, background-color 0.15s, color 0.15s; }
+.out:hover .out-copy, .out-copy:focus-visible { opacity: 1; }
+/* a running command's last lines, under its step */
+.step-live {
+  margin: 2px 0 8px;
+  padding: 7px 12px;
+  border-left: 2px solid var(--line);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--win);
+  font: 400 12px/1.55 var(--mono);
+  color: var(--soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* a long finished run of steps, folded into one line */
+.group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  text-align: left;
+  font: 400 13px/1.6 var(--mono);
+  color: var(--text);
+  transition: background-color 0.15s;
+  animation: rise 0.18s var(--ease) both;
+}
+.group-head:hover { background: var(--card); }
+.group-head .step-tag { color: var(--head); }
+.group-head.fail .step-tag { color: var(--red); }
+.group-count { flex: none; color: var(--head); }
+.group-names { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--soft); }
+.group-head .chev { margin-left: auto; }
+.group-head[aria-expanded="true"] .chev { transform: translateY(1px) rotate(-135deg); }
+/* room for the step dots, which sit just left of the rail */
+.group > .fold > .fold-in { margin-left: -8px; padding-left: 8px; }
+.group-head + .fold.open { margin-top: 4px; }
 .step-body .diff + .step-out { margin-top: 8px; }
 
 .diff {
@@ -506,14 +548,50 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .side-label { display: block; margin: 0 8px 6px; font: 400 11.5px var(--mono); color: var(--soft); letter-spacing: 0.04em; }
 .conv-list { list-style: none; margin: 0; padding: 0; }
 .conv-empty { margin: 4px 8px; font-size: 13px; color: var(--soft); }
-.conv { display: flex; align-items: center; border-radius: var(--radius-sm); transition: background-color 0.15s; animation: rise 0.18s var(--ease) both; }
+.conv-day + .conv-day { margin-top: 12px; }
+.conv {
+  --conv-bg: var(--card);
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* the height of a title and a time line, so the rename field (one line)
+     does not make the list below jump */
+  min-height: calc(16px + (14px + 12px) * 1.65);
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s;
+  animation: rise 0.18s var(--ease) both;
+}
 .conv:hover, .conv:focus-within { background: var(--card); }
-.conv[aria-current="true"] { background: var(--press); }
+.conv[aria-current="true"] { --conv-bg: var(--press); background: var(--press); }
 .conv-open { flex: 1; min-width: 0; padding: 8px 10px; border: 0; border-radius: var(--radius-sm); background: none; text-align: left; }
-.conv-del { width: 30px; height: 30px; margin-right: 4px; opacity: 0; }
-.conv-del .ico { width: 15px; height: 15px; }
-.conv:hover .conv-del, .conv:focus-within .conv-del { opacity: 1; }
-.conv-del:disabled { visibility: hidden; }
+/* rename and delete sit over the end of the title, shown on hover or focus */
+.conv-acts {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 22px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: linear-gradient(to right, transparent, var(--conv-bg) 18px);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.conv:hover .conv-acts, .conv:focus-within .conv-acts { opacity: 1; }
+.conv-act { width: 28px; height: 28px; }
+.conv-act .ico { width: 15px; height: 15px; }
+.conv-act:disabled { visibility: hidden; }
+.conv-input {
+  flex: 1;
+  min-width: 0;
+  margin: 5px 4px;
+  padding: 6px 8px;
+  border: 1px solid rgb(255 255 255 / 34%);
+  border-radius: var(--radius-sm);
+  outline: 0;
+  background: var(--win);
+  color: var(--head);
+  font-size: 14px;
+}
 .conv-title { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; color: var(--text); }
 .conv[aria-current="true"] .conv-title { color: var(--head); font-weight: 500; }
 .conv-time { display: block; font-size: 12px; color: var(--soft); }
@@ -593,5 +671,5 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   .bubble { max-width: 88%; }
 }
 @media (hover: none) {
-  .conv-del { opacity: 1; }
+  .conv-acts, .out-copy { opacity: 1; }
 }

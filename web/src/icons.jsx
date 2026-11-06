@@ -5,6 +5,7 @@ const PATHS = {
   plus: "M12 5v14M5 12h14",
   check: "M5 12.5l4.5 4.5L19 7.5",
   down: "M12 5v14M6 13l6 6 6-6",
+  edit: "M4 20h4L18.5 9.5a2.12 2.12 0 0 0-3-3L5 17v3zM13.5 7.5l3 3",
 };
 
 export function Icon({ name }) {

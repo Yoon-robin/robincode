@@ -188,7 +188,7 @@ function Conversation({ state, asking, onDecide, onPick }) {
     <div className="thread" ref={scroller} onScroll={onScroll}>
       {empty ? <Empty info={state.info} ready={state.ready && state.link} onPick={onPick} /> : (
         <div className="msgs" ref={content}>
-          {state.items.map((item) => {
+          {state.items.map((item, k) => {
             if (item.kind === "user") return <div key={item.id} className="msg msg-user"><UserBubble text={item.text} /></div>;
             if (item.kind === "assistant") {
               return (
@@ -198,7 +198,13 @@ function Conversation({ state, asking, onDecide, onPick }) {
                 </div>
               );
             }
-            if (item.kind === "tools") return <div key={item.id} className="msg msg-tools"><ToolGroup tools={item.tools} onDecide={onDecide} /></div>;
+            if (item.kind === "tools") {
+              return (
+                <div key={item.id} className="msg msg-tools">
+                  <ToolGroup tools={item.tools} onDecide={onDecide} settled={!state.busy || k < state.items.length - 1} />
+                </div>
+              );
+            }
             return <Line key={item.id} item={item} />;
           })}
           {state.busy && !asking && <StatusRow state={state} />}
@@ -267,7 +273,62 @@ function Composer({ state, box, draft, setDraft, lastSent, onSend, onStop }) {
   );
 }
 
-function Sidebar({ state, closeRef, onClose, onNew, onOpen, onDelete }) {
+// past conversations by day, newest first (the list comes sorted)
+const DAY = 86400000;
+function byDay(sessions, now) {
+  const midnight = new Date(now).setHours(0, 0, 0, 0);
+  const label = (t) => (t >= midnight ? "오늘" : t >= midnight - DAY ? "어제" : t >= midnight - 6 * DAY ? "이번 주" : "그 전");
+  const groups = [];
+  for (const s of sessions) {
+    const name = label(s.modified);
+    if (groups[groups.length - 1]?.[0] !== name) groups.push([name, []]);
+    groups[groups.length - 1][1].push(s);
+  }
+  return groups;
+}
+
+function Conv({ s, current, busy, busyNote, now, onOpen, onDelete, onRename }) {
+  const [editing, setEditing] = useState(false);
+  const done = useRef(false);
+  const finish = (value) => {
+    if (done.current) return;
+    done.current = true;
+    setEditing(false);
+    const name = value.replace(/\s+/g, " ").trim();
+    if (name && name !== s.title) onRename(s, name);
+  };
+  const edit = () => { done.current = false; setEditing(true); };
+  return (
+    <li className="conv" aria-current={current}>
+      {editing ? (
+        <input className="conv-input" defaultValue={s.title} autoFocus maxLength={80} aria-label="대화 이름" spellCheck={false}
+          onFocus={(e) => e.target.select()}
+          onBlur={(e) => finish(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            if (e.key === "Enter") { e.preventDefault(); finish(e.currentTarget.value); }
+            // Esc here only puts the name back (it must not stop the agent)
+            else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done.current = true; setEditing(false); }
+          }} />
+      ) : (
+        <>
+          <button type="button" className="conv-open" disabled={busy} title={busyNote || s.title} onClick={() => onOpen(s.path)}>
+            <span className="conv-title">{s.title}</span>
+            <span className="conv-time">{ago(s.modified, now)}</span>
+          </button>
+          <span className="conv-acts">
+            <button type="button" className="icon-btn conv-act" aria-label={`"${s.title}" 이름 바꾸기`} title="이름 바꾸기"
+              disabled={current && busy} onClick={edit}><Icon name="edit" /></button>
+            <button type="button" className="icon-btn conv-act" aria-label={`"${s.title}" 지우기`} title="지우기"
+              disabled={current && busy} onClick={() => onDelete(s)}><Icon name="close" /></button>
+          </span>
+        </>
+      )}
+    </li>
+  );
+}
+
+function Sidebar({ state, closeRef, onClose, onNew, onOpen, onDelete, onRename }) {
   const now = useNow(60000);
   const busyNote = state.busy ? "끝나거나 멈춘 뒤에 열 수 있어요" : undefined;
   return (
@@ -280,23 +341,18 @@ function Sidebar({ state, closeRef, onClose, onNew, onOpen, onDelete }) {
         <Icon name="plus" /> 새 대화
       </button>
       <nav className="conv-nav" aria-label="지난 대화">
-        <p className="side-label">지난 대화</p>
-        {state.sessions.length === 0 ? <p className="conv-empty">아직 없어요.</p> : (
-          <ul className="conv-list">
-            {state.sessions.map((s) => {
-              const current = s.path === state.sessionFile;
-              return (
-                <li key={s.path} className="conv" aria-current={current}>
-                  <button type="button" className="conv-open" disabled={state.busy} title={busyNote || s.title} onClick={() => onOpen(s.path)}>
-                    <span className="conv-title">{s.title}</span>
-                    <span className="conv-time">{ago(s.modified, now)}</span>
-                  </button>
-                  <button type="button" className="icon-btn conv-del" aria-label={`"${s.title}" 지우기`} title="지우기"
-                    disabled={current && state.busy} onClick={() => onDelete(s)}><Icon name="close" /></button>
-                </li>
-              );
-            })}
-          </ul>
+        {state.sessions.length === 0 ? <><p className="side-label">지난 대화</p><p className="conv-empty">아직 없어요.</p></> : (
+          byDay(state.sessions, now).map(([day, list]) => (
+            <section key={day} className="conv-day" aria-label={day}>
+              <p className="side-label">{day}</p>
+              <ul className="conv-list">
+                {list.map((s) => (
+                  <Conv key={s.path} s={s} current={s.path === state.sessionFile} busy={state.busy} busyNote={busyNote} now={now}
+                    onOpen={onOpen} onDelete={onDelete} onRename={onRename} />
+                ))}
+              </ul>
+            </section>
+          ))
         )}
       </nav>
       <div className="side-foot">
@@ -379,6 +435,7 @@ export default function App() {
     loadSessions();
     say("대화를 지웠어요.", { label: "되돌리기", run: () => api("/api/restore", { path: s.path }).then(loadSessions).catch(fail) });
   }).catch(fail);
+  const rename = (s, name) => api("/api/rename", { path: s.path, name }).then(loadSessions).catch(fail);
 
   const asking = askingTool(state);
   useEffect(() => {
@@ -389,11 +446,12 @@ export default function App() {
         else if (state.busy) { e.preventDefault(); stop(); }
         return;
       }
-      // 1 / 2 / 3 answer the question on screen, unless something is being typed
+      // 1 / 2 / 3 answer the question on screen, unless something is being
+      // typed (anything in the message box, or any other field at all)
       const answer = ANSWER_KEYS[e.key];
       if (!asking || !answer || e.ctrlKey || e.altKey || e.metaKey) return;
       const field = e.target.closest?.("textarea, input");
-      if (field && field.value) return;
+      if (field && (field !== box.current || field.value)) return;
       e.preventDefault();
       decide(asking.id, answer);
     };
@@ -404,7 +462,7 @@ export default function App() {
   const lastSent = [...state.items].reverse().find((x) => x.kind === "user")?.text || "";
   return (
     <div className="app" data-side={side ? "open" : undefined}>
-      <Sidebar state={state} closeRef={closeRef} onClose={() => closeSide(true)} onNew={newChat} onOpen={open} onDelete={remove} />
+      <Sidebar state={state} closeRef={closeRef} onClose={() => closeSide(true)} onNew={newChat} onOpen={open} onDelete={remove} onRename={rename} />
       <div className="scrim" onClick={() => closeSide(true)} aria-hidden="true" />
       <main className="main">
         <header className="main-head">

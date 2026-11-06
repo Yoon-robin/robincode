@@ -104,6 +104,16 @@ createServer(async (req, res) => {
   const last = messages[messages.length - 1] || {};
   const tools = (request.tools || []).map((t) => t.function?.name);
   const lastUser = textOf([...messages].reverse().find((m) => m.role === "user")?.content);
+  // "둘러봐": six tool calls in a row, one per answer, then a short summary
+  // (a long run of steps, which the window folds into one line once it ends)
+  if (/(둘러|survey)/i.test(lastUser)) {
+    const runs = messages.slice(messages.findLastIndex((m) => m.role === "user") + 1).filter((m) => m.role === "tool").length;
+    const plan = [["ls", { path: "." }], ["read", { path: "package.json" }], ["read", { path: "README.md" }],
+      ["ls", { path: "src" }], ["read", { path: "src/index.js" }], ["ls", { path: "." }]];
+    if (runs < plan.length && tools.includes(plan[runs][0])) await streamToolCall(res, plan[runs][0], plan[runs][1], usage);
+    else await streamText(res, "폴더를 다 둘러봤어요. 파일은 셋이고, 시작 파일은 `src/index.js`예요.", usage);
+    return;
+  }
   if (last.role === "tool" && /(설명|구조|explain)/i.test(lastUser)) {
     await streamText(res, EXPLAIN, usage);
     return;
@@ -125,7 +135,12 @@ createServer(async (req, res) => {
     await streamToolCall(res, "read", { path: "package.json" }, usage);
   } else if (/(명령|실행|run|command)/i.test(said) && (tools.includes("powershell") || tools.includes("bash"))) {
     const tool = tools.includes("powershell") ? "powershell" : "bash";
-    await streamToolCall(res, tool, { command: "Get-ChildItem -Name | Select-Object -First 3" }, usage);
+    // "느린 명령": prints a line every 0.35 s (the window shows them as they
+    // come) and ends with a colour code (the window must not show it)
+    const command = /(느린|천천|slow)/i.test(said)
+      ? "1..10 | ForEach-Object { \"줄 $_\"; Start-Sleep -Milliseconds 350 }; \"$([char]27)[32m끝$([char]27)[0m\""
+      : "Get-ChildItem -Name | Select-Object -First 3";
+    await streamToolCall(res, tool, { command }, usage);
   } else {
     await streamText(res, "가짜 모델이에요. 화면 시험용으로 정해진 답만 해요.\n\n- 파일 목록을 물으면 `ls` 도구를 불러요.\n- `package.json`을 읽어 달라고 하면 `read` 도구를 불러요.\n\n```js\nconsole.log(\"RobinCode\");\n```", usage);
   }

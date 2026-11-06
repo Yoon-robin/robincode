@@ -172,6 +172,14 @@ async function startSession(sessionManager) {
 }
 
 const clip = (s, n = 6000) => (s.length > n ? `${s.slice(0, n)}\n… (${s.length - n}자 더)` : s);
+// the end of a command's output while it still runs (the window shows the last lines)
+const tail = (s, n = 4000) => (s.length > n ? `…\n${s.slice(-n)}` : s);
+// colour and cursor codes from commands would show up as junk in the window
+// eslint-disable-next-line no-control-regex
+const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+// colour codes out, CRLF to LF, and a line redrawn with a bare CR (progress)
+// keeps only what was drawn last
+const plain = (s) => s.replace(ANSI, "").replace(/\r\n/g, "\n").replace(/[^\n]*\r(?=[^\n])/g, "");
 const textOf = (content) => (typeof content === "string" ? content
   : (content || []).map((p) => (p.type === "text" ? p.text : p.type === "image" ? "[그림]" : "")).join(""));
 
@@ -198,9 +206,15 @@ function onEvent(e) {
     case "tool_execution_start":
       broadcast({ t: "tool_start", id: e.toolCallId, name: e.toolName, args: e.args });
       break;
+    case "tool_execution_update": {
+      // powershell / bash send what they have so far (Pi throttles these)
+      const so = plain(textOf(e.partialResult?.content));
+      if (so) broadcast({ t: "tool_update", id: e.toolCallId, output: tail(so) });
+      break;
+    }
     case "tool_execution_end":
       broadcast({ t: "tool_end", id: e.toolCallId, name: e.toolName, isError: e.isError,
-        output: clip(textOf(e.result?.content)), ms: e.durationMs });
+        output: clip(plain(textOf(e.result?.content))), ms: e.durationMs });
       break;
     case "compaction_start": broadcast({ t: "compaction", phase: "start" }); break;
     case "compaction_end": broadcast({ t: "compaction", phase: "end", aborted: e.aborted, context: contextUsage() }); break;
@@ -227,7 +241,7 @@ function history() {
         text: (m.content || []).filter((p) => p.type === "text").map((p) => p.text).join(""),
         tools: (m.content || []).filter((p) => p.type === "toolCall").map((p) => ({ id: p.id, name: p.name, args: p.arguments })),
         error: m.stopReason === "error" ? m.errorMessage : undefined });
-    } else if (m.role === "toolResult") out.push({ role: "tool", id: m.toolCallId, name: m.toolName, isError: m.isError, output: clip(textOf(m.content)) });
+    } else if (m.role === "toolResult") out.push({ role: "tool", id: m.toolCallId, name: m.toolName, isError: m.isError, output: clip(plain(textOf(m.content))) });
   }
   return out;
 }
@@ -237,7 +251,9 @@ const state = () => {
   return {
     cwd, folder: basename(cwd) || cwd, model: "Qwen3.8-27B", fake: FAKE, gpu, mode,
     busy: !!session?.isStreaming, context: contextUsage(), history: history(),
-    sessionFile: session?.sessionFile || null, title: first ? titleOf(textOf(first.content)) : "",
+    sessionFile: session?.sessionFile || null,
+    // a name robin gave it, else its first message
+    title: session?.sessionName || (first ? titleOf(textOf(first.content)) : ""),
   };
 };
 const sessionDir = join(agentDir, "sessions");
@@ -376,6 +392,20 @@ const server = createServer(async (req, res) => {
         renameSync(found.path, found.path + DELETED);
         if (current) { mode = "ask"; await startSession(SessionManager.create(cwd, sessionDir)); }
         send(res, 200, { ok: true, current });
+        return;
+      }
+      case "/api/rename": {
+        const name = titleOf(String(body.name || ""));
+        if (!name) { send(res, 400, { error: "empty" }); return; }
+        const found = (await listSessions()).find((x) => x.path === body.path);
+        if (!found) { send(res, 404, { error: "no such conversation" }); return; }
+        // Pi keeps the name as a session_info entry in the conversation's own file
+        if (found.path === session?.sessionFile) {
+          if (session.isStreaming) { send(res, 409, { error: "busy" }); return; }
+          session.setSessionName(name);
+          broadcast({ t: "title", title: name });
+        } else SessionManager.open(found.path, sessionDir).appendSessionInfo(name);
+        send(res, 200, { ok: true, name });
         return;
       }
       case "/api/restore": {
