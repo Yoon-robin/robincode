@@ -23,6 +23,34 @@ function chunk(delta, finish = null, usage) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// a longer scripted answer with the parts the window draws (heading, table,
+// list, code), for looking at the window
+const EXPLAIN = `작은 Node 프로젝트예요. 파일은 셋이에요.
+
+### 구조
+
+| 경로 | 하는 일 |
+| --- | --- |
+| \`package.json\` | 이름 \`rc-test\`, 판 1.0.0 |
+| \`src/index.js\` | 시작 파일, 한 줄 출력 |
+| \`README.md\` | 제목만 있어요 |
+
+### 실행
+
+\`\`\`powershell
+node src\\index.js
+\`\`\`
+
+\`src/index.js\`는 이게 전부예요.
+
+\`\`\`js
+// prints a greeting
+console.log("hi");
+\`\`\`
+
+- 의존성이 없어서 \`npm install\` 없이 바로 돌아가요.
+- 시작 명령을 \`package.json\`의 \`scripts.start\`로 넣으면 \`npm start\`로 켤 수 있어요.`;
+
 async function streamText(res, text, usage) {
   sse(res, chunk({ role: "assistant", content: "" }));
   for (const piece of text.match(/.{1,6}/gsu) || []) {
@@ -75,6 +103,11 @@ createServer(async (req, res) => {
 
   const last = messages[messages.length - 1] || {};
   const tools = (request.tools || []).map((t) => t.function?.name);
+  const lastUser = textOf([...messages].reverse().find((m) => m.role === "user")?.content);
+  if (last.role === "tool" && /(설명|구조|explain)/i.test(lastUser)) {
+    await streamText(res, EXPLAIN, usage);
+    return;
+  }
   if (last.role === "tool") {
     const result = textOf(last.content);
     const lines = result.split("\n").filter(Boolean).length;
@@ -82,7 +115,9 @@ createServer(async (req, res) => {
     return;
   }
   const said = textOf(last.content);
-  if (/(고쳐|edit)/i.test(said) && tools.includes("edit")) {
+  if (/(설명|구조|explain)/i.test(said) && tools.includes("ls")) {
+    await streamToolCall(res, "ls", { path: "." }, usage);
+  } else if (/(고쳐|edit)/i.test(said) && tools.includes("edit")) {
     await streamToolCall(res, "edit", { path: "README.md", edits: [{ oldText: "# rc-test", newText: "# rc-test\n\n시험용 폴더예요." }] }, usage);
   } else if (/(목록|파일|ls|list)/i.test(said) && tools.includes("ls")) {
     await streamToolCall(res, "ls", { path: "." }, usage);
