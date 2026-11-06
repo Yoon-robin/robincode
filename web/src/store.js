@@ -151,6 +151,11 @@ function onEvent(state, e) {
   }
 }
 
+// the tool step whose question is on screen, if any
+export function askingTool(state) {
+  for (const x of state.items) if (x.kind === "tools") for (const t of x.tools) if (t.ask) return t;
+  return null;
+}
 export function askingNow(state) {
-  return state.items.some((x) => x.kind === "tools" && x.tools.some((t) => t.ask));
+  return !!askingTool(state);
 }

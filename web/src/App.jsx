@@ -1,11 +1,12 @@
 // The RobinCode window, in RobinAI's frame: past conversations, the folder and
 // the GPU on the left, the conversation and the composer on the right. On a
-// narrow window the left side folds away and the header keeps "new" and the GPU.
+// narrow window the left side becomes a drawer behind the menu button.
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { api, connect } from "./api.js";
-import { askingNow, initial, reducer } from "./store.js";
-import { Markdown } from "./Markdown.jsx";
-import { ToolGroup } from "./Tools.jsx";
+import { askingTool, initial, reducer } from "./store.js";
+import { CopyButton, Markdown } from "./Markdown.jsx";
+import { ANSWER_KEYS, ToolGroup } from "./Tools.jsx";
+import { Icon } from "./icons.jsx";
 import { ago, seconds, useNow } from "./time.js";
 
 const LOGO = [
@@ -15,6 +16,8 @@ const LOGO = [
 ];
 const SUGGESTIONS = ["이 폴더 구조 설명해 줘", "package.json 읽어 줘", "README 고쳐 줘"];
 const GPU_NAMES = { on: "켜짐", starting: "켜는 중", stopped: "멈춤", off: "꺼짐", unreachable: "확인 못 함", unknown: "확인 중" };
+const NARROW = "(max-width: 860px)";
+const isNarrow = () => window.matchMedia(NARROW).matches;
 
 function shortPath(path) {
   const parts = path.split(/[\\/]/).filter(Boolean);
@@ -58,6 +61,19 @@ function ContextMeter({ context }) {
   );
 }
 
+// text that types itself in, as the brand's terminal lines do
+function Typed({ text, delay = 0, step = 34 }) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    let k = 0;
+    let timer;
+    const tick = () => { k += 1; setShown(k); if (k < text.length) timer = setTimeout(tick, step); };
+    timer = setTimeout(tick, delay);
+    return () => clearTimeout(timer);
+  }, [text, delay, step]);
+  return <><span className="sr">{text}</span><span aria-hidden="true">{text.slice(0, shown)}</span></>;
+}
+
 function Logo() {
   return (
     <pre className="logo" aria-label="RobinCode">
@@ -66,15 +82,17 @@ function Logo() {
   );
 }
 
-function Empty({ info, onPick }) {
+// the empty conversation boots like the site's gate: the logo a line at a
+// time, the question typed in, then the note and the starters
+function Empty({ info, ready, onPick }) {
   return (
     <section className="empty">
       <Logo />
-      <p className="empty-sub"><span className="prompt">&gt;</span> 무엇을 할까요?<span className="cursor" aria-hidden="true" /></p>
+      <p className="empty-sub"><span className="prompt">&gt;</span> <Typed text="무엇을 할까요?" delay={180} /><span className="cursor" aria-hidden="true" /></p>
       <p className="empty-note">{info.folder ? <><span className="mono">{shortPath(info.cwd)}</span>에서 파일을 읽고, 찾고, 고치고, PowerShell 명령을 실행해요. 명령과 파일 수정은 실행 전에 물어봐요.</> : "연결하는 중이에요."}</p>
       <div className="starters">
         {SUGGESTIONS.map((s) => (
-          <button key={s} type="button" className="starter" onClick={() => onPick(s)}>
+          <button key={s} type="button" className="starter" disabled={!ready} onClick={() => onPick(s)}>
             <span className="prompt">&gt;</span> {s}
           </button>
         ))}
@@ -92,62 +110,106 @@ function Line({ item }) {
   );
 }
 
-function Conversation({ state, onDecide, onPick }) {
+// a long paste stays a few lines tall until it is opened
+function UserBubble({ text }) {
+  const long = text.split("\n").length > 12 || text.length > 900;
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`bubble${long && !open ? " clamped" : ""}`}>
+      <span className="bubble-text">{text}</span>
+      {long && <button type="button" className="bubble-more" onClick={() => setOpen((v) => !v)}>{open ? "접기" : "모두 보기"}</button>}
+    </div>
+  );
+}
+
+// where the next output will come: what the agent is doing, and for how long
+function StatusRow({ state }) {
+  const now = useNow(1000);
+  const what = state.phase === "tool" ? `${state.runningTool} 실행하는 중` : state.phase === "write" ? "쓰는 중" : "생각하는 중";
+  return (
+    <div className="status-row" role="status">
+      <span className="status-mark" aria-hidden="true">▌</span>
+      {what}… <span className="status-time">{seconds(now - state.startedAt)}</span>
+    </div>
+  );
+}
+
+// the last answer of each turn (before robin's next message, or the end once
+// it settled) gets a copy button; answers between tool steps do not
+function turnEnds(items, busy) {
+  const ends = new Set();
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].kind !== "assistant" || items[i].streaming) continue;
+    let j = i + 1;
+    while (j < items.length && items[j].kind !== "user" && items[j].kind !== "assistant") j++;
+    if (j < items.length ? items[j].kind === "user" : !busy) ends.add(items[i].id);
+  }
+  return ends;
+}
+
+function Conversation({ state, asking, onDecide, onPick }) {
   const scroller = useRef(null);
+  const content = useRef(null);
   const stick = useRef(true);
+  const busy = useRef(state.busy);
+  busy.current = state.busy;
   const [away, setAway] = useState(false);
   const onScroll = () => {
     const el = scroller.current;
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     setAway(!stick.current);
   };
+  // another conversation, or something robin just sent: back to the bottom
+  const last = state.items[state.items.length - 1];
+  useLayoutEffect(() => { stick.current = true; setAway(false); }, [state.sessionFile]);
   useLayoutEffect(() => {
     const el = scroller.current;
+    if (last?.kind === "user") stick.current = true;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [state.items]);
+  }, [state.items, state.busy, last]);
+  // while it runs, keep following what grows (a fold opening, a code block)
+  const empty = state.items.length === 0;
+  useEffect(() => {
+    if (empty || !content.current) return undefined;
+    const watch = new ResizeObserver(() => {
+      const el = scroller.current;
+      if (el && stick.current && busy.current) el.scrollTop = el.scrollHeight;
+    });
+    watch.observe(content.current);
+    return () => watch.disconnect();
+  }, [empty]);
   const toBottom = () => {
     stick.current = true;
     setAway(false);
     scroller.current.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
   };
+  const ends = turnEnds(state.items, state.busy);
   return (
     <div className="thread" ref={scroller} onScroll={onScroll}>
-      {state.items.length === 0 ? <Empty info={state.info} onPick={onPick} /> : (
-        <div className="msgs">
+      {empty ? <Empty info={state.info} ready={state.ready && state.link} onPick={onPick} /> : (
+        <div className="msgs" ref={content}>
           {state.items.map((item) => {
-            if (item.kind === "user") {
+            if (item.kind === "user") return <div key={item.id} className="msg msg-user"><UserBubble text={item.text} /></div>;
+            if (item.kind === "assistant") {
               return (
-                <div key={item.id} className="msg msg-user">
-                  <div className="bubble"><span className="bubble-text">{item.text}</span></div>
+                <div key={item.id} className="msg msg-ai">
+                  <Markdown text={item.text} streaming={item.streaming} />
+                  {ends.has(item.id) && item.text.trim() && <div className="msg-foot"><CopyButton text={item.text} className="act" /></div>}
                 </div>
               );
             }
-            if (item.kind === "assistant") return <div key={item.id} className="msg msg-ai"><Markdown text={item.text} streaming={item.streaming} /></div>;
             if (item.kind === "tools") return <div key={item.id} className="msg msg-tools"><ToolGroup tools={item.tools} onDecide={onDecide} /></div>;
             return <Line key={item.id} item={item} />;
           })}
+          {state.busy && !asking && <StatusRow state={state} />}
         </div>
       )}
-      {away && <button type="button" className="to-bottom" onClick={toBottom}>아래로</button>}
+      {away && <button type="button" className="to-bottom" onClick={toBottom}><Icon name="down" />아래로</button>}
     </div>
   );
 }
 
-function Status({ state }) {
-  const now = useNow(1000);
-  if (!state.busy) return null;
-  const asking = askingNow(state);
-  const what = asking ? "허락을 기다려요" : state.phase === "tool" ? `${state.runningTool} 실행하는 중` : state.phase === "write" ? "쓰는 중" : "생각하는 중";
-  return (
-    <div className={`status-line${asking ? " asking" : ""}`}>
-      <span className="status-mark" aria-hidden="true">{asking ? "?" : "▌"}</span>
-      {what}{asking ? "" : "…"} <span className="status-time">{seconds(now - state.startedAt)}</span>
-    </div>
-  );
-}
-
-function Composer({ state, draft, setDraft, onSend, onStop }) {
-  const box = useRef(null);
+function Composer({ state, box, draft, setDraft, lastSent, onSend, onStop }) {
   // grow with the text; measured again when the width changes (the first
   // measure can come before the layout has a width)
   const fit = useCallback(() => {
@@ -155,7 +217,7 @@ function Composer({ state, draft, setDraft, onSend, onStop }) {
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
-  }, []);
+  }, [box]);
   useLayoutEffect(fit, [draft, fit]);
   useEffect(() => {
     box.current?.focus();
@@ -165,26 +227,30 @@ function Composer({ state, draft, setDraft, onSend, onStop }) {
     });
     watch.observe(box.current);
     return () => watch.disconnect();
-  }, [fit]);
+  }, [box, fit]);
+  const offline = state.ready && !state.link;
   const stop = state.busy && !draft.trim();
   const auto = state.mode === "auto";
   return (
     <footer className="composer">
-      <Status state={state} />
       <form className="composer-box" onSubmit={(e) => { e.preventDefault(); stop ? onStop() : onSend(); }}>
         <textarea
           ref={box}
           rows={1}
           value={draft}
-          placeholder={state.busy ? "이어서 할 말 (끝나면 이어서 처리해요)" : "무엇을 할까요?"}
+          disabled={offline}
+          placeholder={offline ? "서버와 연결이 끊겼어요" : state.busy ? "이어서 할 말 (끝나면 이어서 처리해요)" : "무엇을 할까요?"}
           aria-label="메시지"
           spellCheck={false}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); stop ? onStop() : onSend(); }
+            if (e.nativeEvent.isComposing) return;
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); stop ? onStop() : onSend(); }
+            // like a shell: the last thing sent comes back on an empty line
+            else if (e.key === "ArrowUp" && !draft && lastSent) { e.preventDefault(); setDraft(lastSent); }
           }}
         />
-        <button type="submit" className={`btn send ${stop ? "stop" : "btn-primary"}`} disabled={!stop && !draft.trim()}>
+        <button type="submit" className={`btn send ${stop ? "stop" : "btn-primary"}`} disabled={offline || (!stop && !draft.trim())}>
           {stop ? "멈추기" : "보내기"}
         </button>
       </form>
@@ -195,42 +261,59 @@ function Composer({ state, draft, setDraft, onSend, onStop }) {
           <span className={`lamp ${auto ? "warn" : "idle"}`} aria-hidden="true" />{auto ? "바로 실행" : "묻고 실행"}
         </button>
         <ContextMeter context={state.context} />
-        <span className="keys"><kbd>Enter</kbd> 보내기 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄 바꿈 · <kbd>Esc</kbd> 멈추기</span>
+        <span className="keys"><kbd>Enter</kbd> 보내기 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄 바꿈 · <kbd>↑</kbd> 보낸 말 · <kbd>Esc</kbd> 멈추기</span>
       </div>
     </footer>
   );
 }
 
-function Sidebar({ state, onNew, onOpen }) {
+function Sidebar({ state, closeRef, onClose, onNew, onOpen, onDelete }) {
   const now = useNow(60000);
+  const busyNote = state.busy ? "끝나거나 멈춘 뒤에 열 수 있어요" : undefined;
   return (
-    <aside className="side">
+    <aside className="side" id="side" aria-label="대화 목록">
       <div className="side-head">
         <span className="brand">ROBINCODE</span>
+        <button ref={closeRef} type="button" className="icon-btn side-close" aria-label="목록 닫기" onClick={onClose}><Icon name="close" /></button>
       </div>
-      <button type="button" className="btn new-chat" onClick={onNew} disabled={state.busy}>
-        <span className="plus" aria-hidden="true">+</span> 새 대화
+      <button type="button" className="btn new-chat" onClick={onNew} disabled={state.busy} title={busyNote}>
+        <Icon name="plus" /> 새 대화
       </button>
       <nav className="conv-nav" aria-label="지난 대화">
         <p className="side-label">지난 대화</p>
         {state.sessions.length === 0 ? <p className="conv-empty">아직 없어요.</p> : (
           <ul className="conv-list">
-            {state.sessions.map((s) => (
-              <li key={s.path} className="conv" aria-current={s.path === state.sessionFile}>
-                <button type="button" className="conv-open" disabled={state.busy} onClick={() => onOpen(s.path)}>
-                  <span className="conv-title">{s.title}</span>
-                  <span className="conv-time">{ago(s.modified, now)}</span>
-                </button>
-              </li>
-            ))}
+            {state.sessions.map((s) => {
+              const current = s.path === state.sessionFile;
+              return (
+                <li key={s.path} className="conv" aria-current={current}>
+                  <button type="button" className="conv-open" disabled={state.busy} title={busyNote || s.title} onClick={() => onOpen(s.path)}>
+                    <span className="conv-title">{s.title}</span>
+                    <span className="conv-time">{ago(s.modified, now)}</span>
+                  </button>
+                  <button type="button" className="icon-btn conv-del" aria-label={`"${s.title}" 지우기`} title="지우기"
+                    disabled={current && state.busy} onClick={() => onDelete(s)}><Icon name="close" /></button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </nav>
       <div className="side-foot">
-        <div className="side-folder" title={state.info.cwd}><span className="side-label">폴더</span><span className="mono">{shortPath(state.info.cwd)}</span></div>
+        <div className="side-row" title={state.info.cwd}><span className="side-label">폴더</span><span className="mono">{shortPath(state.info.cwd)}</span></div>
+        <div className="side-row"><span className="side-label">모델</span><span className="mono">{state.info.model}</span></div>
         <Gpu gpu={state.gpu} fake={state.fake} />
       </div>
     </aside>
+  );
+}
+
+function Toast({ toast, onDone }) {
+  return (
+    <div className="toast" role="status">
+      <span>{toast.text}</span>
+      {toast.action && <button type="button" className="toast-btn" onClick={() => { onDone(); toast.action.run(); }}>{toast.action.label}</button>}
+    </div>
   );
 }
 
@@ -238,14 +321,42 @@ function Sidebar({ state, onNew, onOpen }) {
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initial);
   const [draft, setDraft] = useState("");
+  const [side, setSide] = useState(false); // the drawer, on a narrow window
+  const [toast, setToast] = useState(null);
+  const box = useRef(null);
+  const menuRef = useRef(null);
+  const closeRef = useRef(null);
+  const toastTimer = useRef(0);
 
+  const say = useCallback((text, action) => {
+    clearTimeout(toastTimer.current);
+    setToast({ id: Date.now(), text, action });
+    toastTimer.current = setTimeout(() => setToast(null), action ? 6000 : 2600);
+  }, []);
+  const fail = useCallback((e) => say(e.message === "busy" ? "도는 중이라 지금은 못 해요. 끝나거나 멈춘 뒤에 해 주세요." : `하지 못했어요: ${e.message}`), [say]);
   const loadSessions = useCallback(() => {
     api("/api/sessions").then((r) => dispatch({ type: "sessions", sessions: r.sessions })).catch(() => {});
   }, []);
 
   useEffect(() => connect((e) => dispatch({ type: "event", e }), (up) => dispatch({ type: "link", up })), []);
   useEffect(() => { if (state.ready) loadSessions(); }, [state.ready, state.sessionFile, state.busy, loadSessions]);
-  useEffect(() => { document.title = state.title ? `${state.title} · RobinCode` : `RobinCode · ${state.info.folder}`; }, [state.title, state.info.folder]);
+  // the taskbar shows it too: a question waiting, or still running
+  const waiting = !!askingTool(state);
+  useEffect(() => {
+    const name = state.title ? `${state.title} · RobinCode` : `RobinCode · ${state.info.folder}`;
+    document.title = waiting ? `[ ?? ] 허락을 기다려요 · ${name}` : state.busy ? `[ .. ] ${name}` : name;
+  }, [state.title, state.info.folder, state.busy, waiting]);
+  // the drawer means nothing on a wide window
+  useEffect(() => {
+    const query = window.matchMedia(NARROW);
+    const onChange = () => { if (!query.matches) setSide(false); };
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  const focusBox = () => requestAnimationFrame(() => box.current?.focus());
+  const openSide = () => { setSide(true); requestAnimationFrame(() => closeRef.current?.focus()); };
+  const closeSide = (toMenu) => { setSide(false); if (toMenu && isNarrow()) menuRef.current?.focus(); };
 
   const send = useCallback(async (text = draft) => {
     const t = text.trim();
@@ -260,31 +371,52 @@ export default function App() {
   const decide = useCallback((id, decision) => {
     dispatch({ type: "decided", id, decision });
     api("/api/approve", { id, decision }).catch((e) => dispatch({ type: "local-error", message: e.message }));
+    focusBox();
   }, []);
-  const newChat = () => api("/api/new").catch((e) => dispatch({ type: "local-error", message: e.message }));
-  const open = (path) => api("/api/open", { path }).catch((e) => dispatch({ type: "local-error", message: e.message }));
+  const newChat = () => api("/api/new").then(() => { closeSide(false); focusBox(); }).catch(fail);
+  const open = (path) => api("/api/open", { path }).then(() => { closeSide(false); focusBox(); }).catch(fail);
+  const remove = (s) => api("/api/delete", { path: s.path }).then(() => {
+    loadSessions();
+    say("대화를 지웠어요.", { label: "되돌리기", run: () => api("/api/restore", { path: s.path }).then(loadSessions).catch(fail) });
+  }).catch(fail);
 
+  const asking = askingTool(state);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape" && state.busy) { e.preventDefault(); stop(); } };
+    const onKey = (e) => {
+      if (e.isComposing) return;
+      if (e.key === "Escape") {
+        if (side && isNarrow()) { e.preventDefault(); closeSide(true); }
+        else if (state.busy) { e.preventDefault(); stop(); }
+        return;
+      }
+      // 1 / 2 / 3 answer the question on screen, unless something is being typed
+      const answer = ANSWER_KEYS[e.key];
+      if (!asking || !answer || e.ctrlKey || e.altKey || e.metaKey) return;
+      const field = e.target.closest?.("textarea, input");
+      if (field && field.value) return;
+      e.preventDefault();
+      decide(asking.id, answer);
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [state.busy, stop]);
+  }, [side, state.busy, asking, stop, decide]);
 
+  const lastSent = [...state.items].reverse().find((x) => x.kind === "user")?.text || "";
   return (
-    <div className="app">
-      <Sidebar state={state} onNew={newChat} onOpen={open} />
+    <div className="app" data-side={side ? "open" : undefined}>
+      <Sidebar state={state} closeRef={closeRef} onClose={() => closeSide(true)} onNew={newChat} onOpen={open} onDelete={remove} />
+      <div className="scrim" onClick={() => closeSide(true)} aria-hidden="true" />
       <main className="main">
         <header className="main-head">
-          <h1 className="main-title">{state.title || "새 대화"}</h1>
-          {/* only on a narrow window, where the left side is folded away */}
-          <div className="head-narrow">
-            <Gpu gpu={state.gpu} fake={state.fake} compact />
-            <button type="button" className="btn btn-small" onClick={newChat} disabled={state.busy}>새 대화</button>
-          </div>
+          <button ref={menuRef} type="button" className="icon-btn menu-btn" aria-label="대화 목록 열기" aria-controls="side"
+            aria-expanded={side} onClick={openSide}><Icon name="menu" /></button>
+          <h1 className="main-title" key={state.title}>{state.title || "새 대화"}</h1>
+          <div className="head-narrow"><Gpu gpu={state.gpu} fake={state.fake} compact /></div>
         </header>
-        {state.ready && !state.link && <div className="lost">RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요.</div>}
-        <Conversation state={state} onDecide={decide} onPick={(s) => send(s)} />
-        <Composer state={state} draft={draft} setDraft={setDraft} onSend={() => send()} onStop={stop} />
+        {state.ready && !state.link && <div className="lost" role="alert">RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요.</div>}
+        <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} />
+        <Composer state={state} box={box} draft={draft} setDraft={setDraft} lastSent={lastSent} onSend={() => send()} onStop={stop} />
+        {toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />}
       </main>
     </div>
   );

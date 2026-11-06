@@ -5,6 +5,7 @@ import { memo, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import hljs from "highlight.js/lib/core";
+import { Icon } from "./icons.jsx";
 import bash from "highlight.js/lib/languages/bash";
 import c from "highlight.js/lib/languages/c";
 import cpp from "highlight.js/lib/languages/cpp";
@@ -37,15 +38,16 @@ export function highlight(text, lang) {
   try { return hljs.highlight(text, { language: name, ignoreIllegals: true }).value; } catch { return null; }
 }
 
-export function CopyButton({ text, label = "복사" }) {
-  const [done, setDone] = useState(false);
+export function CopyButton({ text, label = "복사", className = "mini-btn" }) {
+  const [done, setDone] = useState(null); // null | "ok" | "fail"
+  const copy = () => navigator.clipboard.writeText(text).then(() => "ok", () => "fail").then((result) => {
+    setDone(result);
+    setTimeout(() => setDone(null), 1400);
+  });
   return (
-    <button
-      type="button"
-      className="mini-btn"
-      onClick={() => navigator.clipboard.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1400); })}
-    >
-      {done ? "복사했어요" : label}
+    <button type="button" className={className} onClick={copy}>
+      <Icon name={done === "ok" ? "check" : "copy"} />
+      <span>{done === "ok" ? "복사했어요" : done === "fail" ? "복사하지 못했어요" : label}</span>
     </button>
   );
 }

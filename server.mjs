@@ -4,7 +4,7 @@
 // tools (read, edit, write, grep, find, ls, powershell), compaction and saved
 // conversations. Everything around it is ours: the model connection, Korean
 // instructions, asking before commands and file changes, and the RobinX
-// window (ui/), served on 127.0.0.1 and opened as a Chromium app window
+// window (web/, React), served on 127.0.0.1 and opened as a Chromium app window
 // (Edge, Chrome or Brave, its own profile so closing it ends this process).
 //
 //   node server.mjs [folder] [--fake] [--no-window] [--port N]
@@ -16,7 +16,7 @@
 // docs/robincode-app.md.
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
@@ -249,6 +249,15 @@ async function listSessions() {
     .slice(0, 60)
     .map((x) => ({ path: x.path, title: titleOf(x.name || x.firstMessage || "제목 없음"), modified: x.modified.getTime(), count: x.messageCount }));
 }
+// a deleted conversation is only renamed (Pi lists *.jsonl), so the window's
+// "undo" can bring it back; the next start clears the ones older than a day
+const DELETED = ".deleted";
+try {
+  for (const name of readdirSync(sessionDir)) {
+    const file = join(sessionDir, name);
+    if (name.endsWith(`.jsonl${DELETED}`) && Date.now() - statSync(file).mtimeMs > 86400000) rmSync(file, { force: true });
+  }
+} catch { /* no conversations yet */ }
 
 // ---- the window's HTTP side ----------------------------------------------------
 const token = randomBytes(18).toString("base64url");
@@ -356,6 +365,27 @@ const server = createServer(async (req, res) => {
         if (!found) { send(res, 404, { error: "no such conversation" }); return; }
         mode = "ask";
         await startSession(SessionManager.open(found.path, sessionDir));
+        send(res, 200, { ok: true });
+        return;
+      }
+      case "/api/delete": {
+        const found = (await listSessions()).find((x) => x.path === body.path);
+        if (!found) { send(res, 404, { error: "no such conversation" }); return; }
+        const current = found.path === session?.sessionFile;
+        if (current && session.isStreaming) { send(res, 409, { error: "busy" }); return; }
+        renameSync(found.path, found.path + DELETED);
+        if (current) { mode = "ask"; await startSession(SessionManager.create(cwd, sessionDir)); }
+        send(res, 200, { ok: true, current });
+        return;
+      }
+      case "/api/restore": {
+        // only a file this server renamed: in the conversations folder, *.jsonl.deleted
+        const file = resolve(String(body.path || ""));
+        if (dirname(file) !== resolve(sessionDir) || extname(file) !== ".jsonl" || !existsSync(file + DELETED) || existsSync(file)) {
+          send(res, 404, { error: "nothing to restore" });
+          return;
+        }
+        renameSync(file + DELETED, file);
         send(res, 200, { ok: true });
         return;
       }
