@@ -20,7 +20,8 @@ export const initial = {
   current: null, // id of the assistant item being written
   sessionFile: null,
   title: "",
-  sessions: [],
+  sessions: null, // null until the list has come (no "none yet" flash)
+  retry: null, // Pi retrying a request that failed on the way: { attempt, max, at }
 };
 
 let seq = 0;
@@ -52,7 +53,7 @@ function finished(isError, output, ms) {
 function fromHistory(history) {
   const items = [];
   for (const m of history) {
-    if (m.role === "user") items.push({ kind: "user", id: nid(), text: m.text });
+    if (m.role === "user") items.push({ kind: "user", id: nid(), text: m.text, images: m.images || [] });
     else if (m.role === "assistant") {
       if (m.text) items.push({ kind: "assistant", id: nid(), text: m.text, streaming: false });
       for (const t of m.tools) addTool(items, { id: t.id, name: t.name, args: t.args || {}, status: "run" });
@@ -92,14 +93,14 @@ function onEvent(state, e) {
       return {
         ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, model: s.model }, fake: s.fake, gpu: s.gpu,
         mode: s.mode, context: s.context, busy: s.busy, startedAt: s.busy ? Date.now() : 0, phase: "think",
-        items: fromHistory(s.history), current: null, sessionFile: s.sessionFile, title: s.title,
+        items: fromHistory(s.history), current: null, sessionFile: s.sessionFile, title: s.title, retry: null,
       };
     }
     case "user": {
-      const items = [...state.items, { kind: "user", id: nid(), text: e.text }];
+      const items = [...state.items, { kind: "user", id: nid(), text: e.text, images: e.images || [] }];
       return {
-        ...state, items, busy: true, startedAt: state.busy ? state.startedAt : Date.now(), phase: "think",
-        title: state.title || e.text.replace(/\s+/g, " ").trim().slice(0, 80),
+        ...state, items, busy: true, startedAt: state.busy ? state.startedAt : Date.now(), phase: "think", retry: null,
+        title: state.title || e.text.replace(/\s+/g, " ").trim().slice(0, 80) || (e.images?.length ? "그림" : ""),
       };
     }
     case "assistant_start": return { ...state, current: null, phase: "think" };
@@ -111,7 +112,7 @@ function onEvent(state, e) {
         current = nid();
         items.push({ kind: "assistant", id: current, text: e.delta, streaming: true });
       } else items[k] = { ...items[k], text: items[k].text + e.delta };
-      return { ...state, items, current, phase: "write" };
+      return { ...state, items, current, phase: "write", retry: null };
     }
     case "assistant_end": {
       const items = state.items.map((x) => (x.id === state.current ? { ...x, streaming: false } : x));
@@ -149,9 +150,17 @@ function onEvent(state, e) {
       const items = state.items.map((x) => (x.kind === "tools" && x.tools.some((t) => t.ask)
         ? { ...x, tools: x.tools.map((t) => (t.ask ? { ...t, ask: false } : t)) } : x));
       if (e.aborted) items.push(line("[SKIP]", "멈췄어요.", "skip"));
-      return { ...state, items, busy: false, current: null, context: e.context ?? state.context };
+      return { ...state, items, busy: false, current: null, retry: null, context: e.context ?? state.context };
     }
     case "error": return { ...state, items: [...state.items, line("[FAIL]", e.message, "fail")] };
+    case "retry": {
+      // the failed try's error line goes: Pi drops that answer and asks again
+      const items = state.items.slice();
+      const last = items[items.length - 1];
+      if (last?.kind === "line" && last.tone === "fail") items.pop();
+      return { ...state, items, current: null, phase: "think", retry: { attempt: e.attempt, max: e.max, at: Date.now() + (e.delayMs || 0) } };
+    }
+    case "retry_end": return { ...state, retry: null };
     case "gpu": return { ...state, gpu: e.gpu, fake: e.fake };
     case "mode": return { ...state, mode: e.mode };
     default: return state;

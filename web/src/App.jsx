@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { api, connect } from "./api.js";
 import { askingTool, initial, reducer } from "./store.js";
+import { Composer, PICTURE_TYPES } from "./Composer.jsx";
 import { CopyButton, Markdown } from "./Markdown.jsx";
 import { ANSWER_KEYS, ToolGroup } from "./Tools.jsx";
 import { Icon } from "./icons.jsx";
@@ -110,21 +111,49 @@ function Line({ item }) {
   );
 }
 
-// a long paste stays a few lines tall until it is opened
-function UserBubble({ text }) {
+// a long paste stays a few lines tall until it is opened; pictures sit above
+// the words, small until one is pressed
+function UserBubble({ text, images = [] }) {
   const long = text.split("\n").length > 12 || text.length > 900;
   const [open, setOpen] = useState(false);
+  const [big, setBig] = useState(-1);
   return (
-    <div className={`bubble${long && !open ? " clamped" : ""}`}>
-      <span className="bubble-text">{text}</span>
-      {long && <button type="button" className="bubble-more" onClick={() => setOpen((v) => !v)}>{open ? "접기" : "모두 보기"}</button>}
+    <div className="bubble-col">
+      {images.length > 0 && (
+        <div className="bubble-pics">
+          {images.map((im, k) => (
+            <button key={k} type="button" className={`bubble-pic${big === k ? " big" : ""}`} aria-pressed={big === k}
+              title={big === k ? "작게" : "크게"} onClick={() => setBig((v) => (v === k ? -1 : k))}>
+              <img src={`data:${im.mimeType};base64,${im.data}`} alt={`보낸 그림 ${k + 1}`} />
+            </button>
+          ))}
+        </div>
+      )}
+      {text && (
+        <div className={`bubble${long && !open ? " clamped" : ""}`}>
+          <span className="bubble-text">{text}</span>
+          {long && <button type="button" className="bubble-more" onClick={() => setOpen((v) => !v)}>{open ? "접기" : "모두 보기"}</button>}
+        </div>
+      )}
     </div>
   );
 }
 
 // where the next output will come: what the agent is doing, and for how long
 function StatusRow({ state }) {
-  const now = useNow(1000);
+  const now = useNow(500);
+  const r = state.retry;
+  if (r) {
+    // the model's connection dropped and Pi asks again by itself (the tick
+    // can be up to half a second old, so the clock is read here)
+    const wait = Math.ceil((r.at - Math.max(now, Date.now())) / 1000);
+    return (
+      <div className="status-row warn" role="status">
+        <span className="status-mark" aria-hidden="true">▌</span>
+        {wait > 0 ? `모델 연결이 끊겨서 ${wait}초 뒤 다시 해 봐요` : "다시 해 보는 중"}… <span className="status-time">{r.attempt}/{r.max}</span>
+      </div>
+    );
+  }
   const what = state.phase === "tool" ? `${state.runningTool} 실행하는 중` : state.phase === "write" ? "쓰는 중" : "생각하는 중";
   return (
     <div className="status-row" role="status">
@@ -189,7 +218,7 @@ function Conversation({ state, asking, onDecide, onPick }) {
       {empty ? <Empty info={state.info} ready={state.ready && state.link} onPick={onPick} /> : (
         <div className="msgs" ref={content}>
           {state.items.map((item, k) => {
-            if (item.kind === "user") return <div key={item.id} className="msg msg-user"><UserBubble text={item.text} /></div>;
+            if (item.kind === "user") return <div key={item.id} className="msg msg-user"><UserBubble text={item.text} images={item.images} /></div>;
             if (item.kind === "assistant") {
               return (
                 <div key={item.id} className="msg msg-ai">
@@ -215,64 +244,6 @@ function Conversation({ state, asking, onDecide, onPick }) {
   );
 }
 
-function Composer({ state, box, draft, setDraft, lastSent, onSend, onStop }) {
-  // grow with the text; measured again when the width changes (the first
-  // measure can come before the layout has a width)
-  const fit = useCallback(() => {
-    const el = box.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [box]);
-  useLayoutEffect(fit, [draft, fit]);
-  useEffect(() => {
-    box.current?.focus();
-    let width = 0;
-    const watch = new ResizeObserver(([entry]) => {
-      if (Math.abs(entry.contentRect.width - width) > 1) { width = entry.contentRect.width; fit(); }
-    });
-    watch.observe(box.current);
-    return () => watch.disconnect();
-  }, [box, fit]);
-  const offline = state.ready && !state.link;
-  const stop = state.busy && !draft.trim();
-  const auto = state.mode === "auto";
-  return (
-    <footer className="composer">
-      <form className="composer-box" onSubmit={(e) => { e.preventDefault(); stop ? onStop() : onSend(); }}>
-        <textarea
-          ref={box}
-          rows={1}
-          value={draft}
-          disabled={offline}
-          placeholder={offline ? "서버와 연결이 끊겼어요" : state.busy ? "이어서 할 말 (끝나면 이어서 처리해요)" : "무엇을 할까요?"}
-          aria-label="메시지"
-          spellCheck={false}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
-            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); stop ? onStop() : onSend(); }
-            // like a shell: the last thing sent comes back on an empty line
-            else if (e.key === "ArrowUp" && !draft && lastSent) { e.preventDefault(); setDraft(lastSent); }
-          }}
-        />
-        <button type="submit" className={`btn send ${stop ? "stop" : "btn-primary"}`} disabled={offline || (!stop && !draft.trim())}>
-          {stop ? "멈추기" : "보내기"}
-        </button>
-      </form>
-      <div className="composer-foot">
-        <button type="button" className={`mode${auto ? " auto" : ""}`} aria-pressed={auto}
-          title={auto ? "명령과 파일 수정을 묻지 않고 실행해요. 누르면 다시 물어요." : "명령 실행과 파일 수정 전에 물어요. 누르면 묻지 않아요."}
-          onClick={() => api("/api/mode", { mode: auto ? "ask" : "auto" }).catch(() => {})}>
-          <span className={`lamp ${auto ? "warn" : "idle"}`} aria-hidden="true" />{auto ? "바로 실행" : "묻고 실행"}
-        </button>
-        <ContextMeter context={state.context} />
-        <span className="keys"><kbd>Enter</kbd> 보내기 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄 바꿈 · <kbd>↑</kbd> 보낸 말 · <kbd>Esc</kbd> 멈추기</span>
-      </div>
-    </footer>
-  );
-}
-
 // past conversations by day, newest first (the list comes sorted)
 const DAY = 86400000;
 function byDay(sessions, now) {
@@ -287,7 +258,14 @@ function byDay(sessions, now) {
   return groups;
 }
 
-function Conv({ s, current, busy, busyNote, now, onOpen, onDelete, onRename }) {
+// the first place the words are, marked
+function Mark({ text, q }) {
+  const at = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
+  if (at < 0) return text;
+  return <>{text.slice(0, at)}<mark>{text.slice(at, at + q.length)}</mark>{text.slice(at + q.length)}</>;
+}
+
+function Conv({ s, q, current, busy, busyNote, now, onOpen, onDelete, onRename }) {
   const [editing, setEditing] = useState(false);
   const done = useRef(false);
   const finish = (value) => {
@@ -313,8 +291,10 @@ function Conv({ s, current, busy, busyNote, now, onOpen, onDelete, onRename }) {
       ) : (
         <>
           <button type="button" className="conv-open" disabled={busy} title={busyNote || s.title} onClick={() => onOpen(s.path)}>
-            <span className="conv-title">{s.title}</span>
-            <span className="conv-time">{ago(s.modified, now)}</span>
+            <span className="conv-title"><Mark text={s.title} q={q} /></span>
+            {s.snippet
+              ? <span className="conv-snip"><Mark text={s.snippet.text} q={q} /></span>
+              : <span className="conv-time">{ago(s.modified, now)}</span>}
           </button>
           <span className="conv-acts">
             <button type="button" className="icon-btn conv-act" aria-label={`"${s.title}" 이름 바꾸기`} title="이름 바꾸기"
@@ -328,9 +308,36 @@ function Conv({ s, current, busy, busyNote, now, onOpen, onDelete, onRename }) {
   );
 }
 
-function Sidebar({ state, closeRef, onClose, onNew, onOpen, onDelete, onRename }) {
+// up and down between the conversations in the list
+function moveInList(e) {
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  const all = [...e.currentTarget.querySelectorAll(".conv-open:not(:disabled)")];
+  const k = all.indexOf(document.activeElement);
+  if (k < 0) return;
+  e.preventDefault();
+  all[Math.max(0, Math.min(all.length - 1, k + (e.key === "ArrowDown" ? 1 : -1)))]?.focus();
+}
+
+function Sidebar({ state, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch }) {
   const now = useNow(60000);
   const busyNote = state.busy ? "끝나거나 멈춘 뒤에 열 수 있어요" : undefined;
+  const nav = useRef(null);
+  // words to find: the server looks in every conversation's names and text
+  const [q, setQ] = useState("");
+  const [found, setFound] = useState(null);
+  const words = q.replace(/\s+/g, " ").trim();
+  useEffect(() => {
+    if (!words) { setFound(null); return undefined; }
+    let live = true;
+    const id = setTimeout(() => {
+      api("/api/sessions", { q: words }).then((r) => { if (live) setFound({ q: words, list: r.sessions }); }).catch(() => {});
+    }, 120);
+    return () => { live = false; clearTimeout(id); };
+  }, [words, state.sessions]);
+  const conv = (s, hit) => (
+    <Conv key={s.path} s={s} q={hit} current={s.path === state.sessionFile} busy={state.busy} busyNote={busyNote} now={now}
+      onOpen={onOpen} onDelete={onDelete} onRename={onRename} />
+  );
   return (
     <aside className="side" id="side" aria-label="대화 목록">
       <div className="side-head">
@@ -340,17 +347,33 @@ function Sidebar({ state, closeRef, onClose, onNew, onOpen, onDelete, onRename }
       <button type="button" className="btn new-chat" onClick={onNew} disabled={state.busy} title={busyNote}>
         <Icon name="plus" /> 새 대화
       </button>
-      <nav className="conv-nav" aria-label="지난 대화">
-        {state.sessions.length === 0 ? <><p className="side-label">지난 대화</p><p className="conv-empty">아직 없어요.</p></> : (
+      <div className="conv-search">
+        <Icon name="search" />
+        <input ref={searchRef} value={q} placeholder="지난 대화 찾기" aria-label="지난 대화 찾기" spellCheck={false}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            // Esc here clears the words, then leaves (it must not stop the agent)
+            if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); if (q) setQ(""); else onLeaveSearch(); }
+            else if (e.key === "Enter" && found?.list.length && !state.busy) { e.preventDefault(); onOpen(found.list[0].path); setQ(""); }
+            else if (e.key === "ArrowDown") { e.preventDefault(); nav.current?.querySelector(".conv-open:not(:disabled)")?.focus(); }
+          }} />
+        {q ? <button type="button" className="icon-btn search-x" aria-label="찾기 지우기" onClick={() => { setQ(""); searchRef.current?.focus(); }}><Icon name="close" /></button>
+          : <kbd className="search-key">Ctrl K</kbd>}
+      </div>
+      <nav ref={nav} className="conv-nav" aria-label="지난 대화" onKeyDown={moveInList}>
+        {words && found ? (
+          <section className="conv-day" aria-label="찾은 대화">
+            <p className="side-label" aria-live="polite">{found.list.length ? `찾은 대화 ${found.list.length}개` : `"${found.q}"가 든 대화가 없어요.`}</p>
+            <ul className="conv-list">{found.list.map((s) => conv(s, found.q))}</ul>
+          </section>
+        ) : state.sessions === null ? null : state.sessions.length === 0 ? (
+          <><p className="side-label">지난 대화</p><p className="conv-empty">아직 없어요.</p></>
+        ) : (
           byDay(state.sessions, now).map(([day, list]) => (
             <section key={day} className="conv-day" aria-label={day}>
               <p className="side-label">{day}</p>
-              <ul className="conv-list">
-                {list.map((s) => (
-                  <Conv key={s.path} s={s} current={s.path === state.sessionFile} busy={state.busy} busyNote={busyNote} now={now}
-                    onOpen={onOpen} onDelete={onDelete} onRename={onRename} />
-                ))}
-              </ul>
+              <ul className="conv-list">{list.map((s) => conv(s, ""))}</ul>
             </section>
           ))
         )}
@@ -379,9 +402,13 @@ export default function App() {
   const [draft, setDraft] = useState("");
   const [side, setSide] = useState(false); // the drawer, on a narrow window
   const [toast, setToast] = useState(null);
+  const [drag, setDrag] = useState(false);
   const box = useRef(null);
   const menuRef = useRef(null);
   const closeRef = useRef(null);
+  const searchRef = useRef(null);
+  const attachRef = useRef(null); // the composer's "add these pictures"
+  const dragDepth = useRef(0);
   const toastTimer = useRef(0);
 
   const say = useCallback((text, action) => {
@@ -414,15 +441,20 @@ export default function App() {
   const openSide = () => { setSide(true); requestAnimationFrame(() => closeRef.current?.focus()); };
   const closeSide = (toMenu) => { setSide(false); if (toMenu && isNarrow()) menuRef.current?.focus(); };
 
-  const send = useCallback(async (text = draft) => {
+  // true once the server took it; on a failure the words go back in the box
+  const send = useCallback(async (text, pictures = []) => {
     const t = text.trim();
-    if (!t) return;
+    if (!t && !pictures.length) return false;
     setDraft("");
-    try { await api("/api/prompt", { text: t }); } catch (e) {
+    try {
+      await api("/api/prompt", { text: t, images: pictures.map(({ mimeType, data }) => ({ mimeType, data })) });
+      return true;
+    } catch (e) {
       dispatch({ type: "local-error", message: `보내지 못했어요: ${e.message}` });
       setDraft(t);
+      return false;
     }
-  }, [draft]);
+  }, []);
   const stop = useCallback(() => { api("/api/abort").catch(() => {}); }, []);
   const decide = useCallback((id, decision) => {
     dispatch({ type: "decided", id, decision });
@@ -441,6 +473,13 @@ export default function App() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.isComposing) return;
+      // Ctrl+K: find a past conversation (the drawer opens on a narrow window)
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (isNarrow()) setSide(true);
+        requestAnimationFrame(() => { searchRef.current?.focus(); searchRef.current?.select(); });
+        return;
+      }
       if (e.key === "Escape") {
         if (side && isNarrow()) { e.preventDefault(); closeSide(true); }
         else if (state.busy) { e.preventDefault(); stop(); }
@@ -460,11 +499,25 @@ export default function App() {
   }, [side, state.busy, asking, stop, decide]);
 
   const lastSent = [...state.items].reverse().find((x) => x.kind === "user")?.text || "";
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+  const dropProps = {
+    onDragEnter: (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth.current += 1; setDrag(true); },
+    onDragOver: (e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } },
+    onDragLeave: (e) => { if (!hasFiles(e)) return; dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDrag(false); },
+    onDrop: (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDrag(false);
+      attachRef.current?.(e.dataTransfer.files);
+    },
+  };
   return (
     <div className="app" data-side={side ? "open" : undefined}>
-      <Sidebar state={state} closeRef={closeRef} onClose={() => closeSide(true)} onNew={newChat} onOpen={open} onDelete={remove} onRename={rename} />
+      <Sidebar state={state} closeRef={closeRef} searchRef={searchRef} onClose={() => closeSide(true)} onNew={newChat} onOpen={open}
+        onDelete={remove} onRename={rename} onLeaveSearch={() => { if (isNarrow()) closeSide(true); else focusBox(); }} />
       <div className="scrim" onClick={() => closeSide(true)} aria-hidden="true" />
-      <main className="main">
+      <main className="main" {...dropProps}>
         <header className="main-head">
           <button ref={menuRef} type="button" className="icon-btn menu-btn" aria-label="대화 목록 열기" aria-controls="side"
             aria-expanded={side} onClick={openSide}><Icon name="menu" /></button>
@@ -473,8 +526,14 @@ export default function App() {
         </header>
         {state.ready && !state.link && <div className="lost" role="alert">RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요.</div>}
         <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} />
-        <Composer state={state} box={box} draft={draft} setDraft={setDraft} lastSent={lastSent} onSend={() => send()} onStop={stop} />
-        {toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />}
+        <Composer state={state} meter={<ContextMeter context={state.context} />} box={box} draft={draft} setDraft={setDraft} lastSent={lastSent}
+          attachRef={attachRef} onSend={send} onStop={stop} onError={say}
+          notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />} />
+        {drag && (
+          <div className="drop" aria-hidden="true">
+            <p><Icon name="image" />여기에 놓으면 그림을 붙여요 <span className="drop-note">{PICTURE_TYPES.map((t) => t.slice(6).toUpperCase()).join("·")} · 4장까지</span></p>
+          </div>
+        )}
       </main>
     </div>
   );

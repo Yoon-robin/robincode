@@ -77,6 +77,8 @@ async function streamToolCall(res, name, args, usage) {
   res.end();
 }
 
+const failedAt = new Map(); // "끊김" message -> when its first try failed
+
 function textOf(content) {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) return content.map((p) => p.text || "").join("");
@@ -96,12 +98,27 @@ createServer(async (req, res) => {
   for await (const part of req) body += part;
   const request = JSON.parse(body);
   const messages = request.messages || [];
+  const last = messages[messages.length - 1] || {};
+  // "끊김": the first try of each such message fails with a 503, as a dropped
+  // GPU tunnel would (Pi retries it by itself, and the retry goes through)
+  if (last.role === "user" && /(끊김|끊겨|dropped)/i.test(textOf(last.content))) {
+    const key = `${messages.length}:${textOf(last.content)}`;
+    // Pi's retry comes within seconds; the same words in a later test fail again
+    if (!(Date.now() - (failedAt.get(key) || 0) < 10000)) {
+      failedAt.set(key, Date.now());
+      await sleep(400);
+      res.writeHead(503, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "503 Service Unavailable (fake)", type: "server_error" } }));
+      return;
+    }
+  }
+  // pictures come as image_url parts (Pi sends them as data URLs)
+  const pictures = last.role === "user" && Array.isArray(last.content) ? last.content.filter((p) => p.type === "image_url").length : 0;
   const promptTokens = Math.round(JSON.stringify(messages).length / 3.2);
   const usage = { prompt_tokens: promptTokens, completion_tokens: 40, total_tokens: promptTokens + 40 };
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
   await sleep(300);
 
-  const last = messages[messages.length - 1] || {};
   const tools = (request.tools || []).map((t) => t.function?.name);
   const lastUser = textOf([...messages].reverse().find((m) => m.role === "user")?.content);
   // "둘러봐": six tool calls in a row, one per answer, then a short summary
@@ -125,7 +142,14 @@ createServer(async (req, res) => {
     return;
   }
   const said = textOf(last.content);
-  if (/(설명|구조|explain)/i.test(said) && tools.includes("ls")) {
+  const pointed = said.match(/@(\S+)/)?.[1];
+  if (pictures) {
+    await streamText(res, `그림 ${pictures}장을 받았어요. 가짜 모델이라 그림 안은 못 봐요.`, usage);
+  } else if (/(끊김|끊겨|dropped)/i.test(said)) {
+    await streamText(res, "다시 연결돼서 답해요. 첫 요청은 503으로 끊겼어요.", usage);
+  } else if (pointed && tools.includes(pointed.endsWith("/") ? "ls" : "read")) {
+    await streamToolCall(res, pointed.endsWith("/") ? "ls" : "read", { path: pointed }, usage);
+  } else if (/(설명|구조|explain)/i.test(said) && tools.includes("ls")) {
     await streamToolCall(res, "ls", { path: "." }, usage);
   } else if (/(고쳐|edit)/i.test(said) && tools.includes("edit")) {
     await streamToolCall(res, "edit", { path: "README.md", edits: [{ oldText: "# rc-test", newText: "# rc-test\n\n시험용 폴더예요." }] }, usage);

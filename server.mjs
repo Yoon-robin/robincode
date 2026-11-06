@@ -105,7 +105,8 @@ const KOREAN = `## RobinCode
 - 사용자는 robin이에요. 답은 한국어 해요체로 짧고 분명하게 써요. 코드, 명령, 파일 이름, 식별자는 그대로 둬요.
 - 이 PC는 Windows예요. 명령은 powershell 도구(Windows PowerShell 5.1)로 실행해요. 파일 경로는 Windows 경로를 써요.
 - 파일을 고치기 전에 먼저 읽고, 고친 뒤에는 무엇을 바꿨는지 한두 줄로 말해요.
-- 모르는 건 지어내지 말고 확인하거나 모른다고 말해요.`;
+- 모르는 건 지어내지 말고 확인하거나 모른다고 말해요.
+- robin이 \`@경로\`로 가리킨 파일·폴더는 이 폴더 기준 경로예요. 필요하면 먼저 read·ls로 봐요.`;
 
 let session;
 let runtime;
@@ -182,11 +183,16 @@ const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b
 const plain = (s) => s.replace(ANSI, "").replace(/\r\n/g, "\n").replace(/[^\n]*\r(?=[^\n])/g, "");
 const textOf = (content) => (typeof content === "string" ? content
   : (content || []).map((p) => (p.type === "text" ? p.text : p.type === "image" ? "[그림]" : "")).join(""));
+// robin's own words, and the pictures robin attached (drawn in the window)
+const wordsOf = (content) => (typeof content === "string" ? content
+  : (content || []).filter((p) => p.type === "text").map((p) => p.text).join(""));
+const imagesOf = (content) => (Array.isArray(content)
+  ? content.filter((p) => p.type === "image").map((p) => ({ mimeType: p.mimeType, data: p.data })) : []);
 
 function onEvent(e) {
   switch (e.type) {
     case "message_start":
-      if (e.message.role === "user") broadcast({ t: "user", text: textOf(e.message.content) });
+      if (e.message.role === "user") broadcast({ t: "user", text: wordsOf(e.message.content), images: imagesOf(e.message.content) });
       if (e.message.role === "assistant") broadcast({ t: "assistant_start" });
       break;
     case "message_update": {
@@ -216,6 +222,12 @@ function onEvent(e) {
       broadcast({ t: "tool_end", id: e.toolCallId, name: e.toolName, isError: e.isError,
         output: clip(plain(textOf(e.result?.content))), ms: e.durationMs });
       break;
+    // Pi retries a request that failed on the way (503, connection lost, …)
+    // by itself, up to 3 times; the failed answer is dropped from the context
+    case "auto_retry_start":
+      broadcast({ t: "retry", attempt: e.attempt, max: e.maxAttempts, delayMs: e.delayMs, error: e.errorMessage });
+      break;
+    case "auto_retry_end": broadcast({ t: "retry_end", success: e.success }); break;
     case "compaction_start": broadcast({ t: "compaction", phase: "start" }); break;
     case "compaction_end": broadcast({ t: "compaction", phase: "end", aborted: e.aborted, context: contextUsage() }); break;
     case "agent_settled": broadcast({ t: "settled", aborted: e.aborted, context: contextUsage() }); break;
@@ -235,7 +247,7 @@ function contextUsage() {
 function history() {
   const out = [];
   for (const m of session?.messages || []) {
-    if (m.role === "user") out.push({ role: "user", text: textOf(m.content) });
+    if (m.role === "user") out.push({ role: "user", text: wordsOf(m.content), images: imagesOf(m.content) });
     else if (m.role === "assistant") {
       out.push({ role: "assistant",
         text: (m.content || []).filter((p) => p.type === "text").map((p) => p.text).join(""),
@@ -248,23 +260,43 @@ function history() {
 const titleOf = (text) => text.replace(/\s+/g, " ").trim().slice(0, 80);
 const state = () => {
   const first = (session?.messages || []).find((m) => m.role === "user");
+  const firstWords = first ? titleOf(wordsOf(first.content)) : "";
   return {
     cwd, folder: basename(cwd) || cwd, model: "Qwen3.8-27B", fake: FAKE, gpu, mode,
     busy: !!session?.isStreaming, context: contextUsage(), history: history(),
     sessionFile: session?.sessionFile || null,
     // a name robin gave it, else its first message
-    title: session?.sessionName || (first ? titleOf(textOf(first.content)) : ""),
+    title: session?.sessionName || firstWords || (first ? "그림" : ""),
   };
 };
 const sessionDir = join(agentDir, "sessions");
-async function listSessions() {
-  const list = await SessionManager.list(cwd, sessionDir);
-  return list
+async function allSessions() {
+  return (await SessionManager.list(cwd, sessionDir))
     .filter((x) => x.messageCount > 0)
-    .sort((a, b) => b.modified - a.modified)
-    .slice(0, 60)
-    .map((x) => ({ path: x.path, title: titleOf(x.name || x.firstMessage || "제목 없음"), modified: x.modified.getTime(), count: x.messageCount }));
+    .sort((a, b) => b.modified - a.modified);
 }
+const brief = (x) => ({ path: x.path, title: titleOf(x.name || x.firstMessage || "제목 없음"), modified: x.modified.getTime(), count: x.messageCount });
+// a little of the text around the first place the words were found
+function snippetOf(text, needle) {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const at = flat.toLowerCase().indexOf(needle);
+  if (at < 0) return null;
+  const start = Math.max(0, at - 16);
+  const end = Math.min(flat.length, at + needle.length + 48);
+  const lead = start ? "…" : "";
+  return { text: `${lead}${flat.slice(start, end)}${end < flat.length ? "…" : ""}`, at: at - start + lead.length, len: needle.length };
+}
+// the newest 60, or with words: every conversation whose name or text has them
+async function listSessions(q = "") {
+  const needle = String(q).replace(/\s+/g, " ").trim().toLowerCase().slice(0, 100);
+  const all = await allSessions();
+  if (!needle) return all.slice(0, 60).map(brief);
+  return all
+    .filter((x) => `${x.name || ""}\n${x.firstMessage || ""}\n${x.allMessagesText || ""}`.toLowerCase().includes(needle))
+    .slice(0, 40)
+    .map((x) => ({ ...brief(x), snippet: snippetOf(x.allMessagesText || x.firstMessage || "", needle) }));
+}
+const findSession = async (path) => (await allSessions()).find((x) => x.path === path);
 // a deleted conversation is only renamed (Pi lists *.jsonl), so the window's
 // "undo" can bring it back; the next start clears the ones older than a day
 const DELETED = ".deleted";
@@ -302,10 +334,77 @@ function staticFile(pathname) {
   const file = resolve(DIST, `.${pathname === "/" ? "/index.html" : decodeURIComponent(pathname)}`);
   return file.startsWith(DIST + sep) && existsSync(file) ? file : null;
 }
+// pictures come inside the JSON (base64), so a prompt can be a few MB
 async function readJson(req) {
   let body = "";
-  for await (const part of req) { body += part; if (body.length > 1e6) throw new Error("too large"); }
+  for await (const part of req) { body += part; if (body.length > 40e6) throw new Error("too large"); }
   return body ? JSON.parse(body) : {};
+}
+// up to 4 pictures, each a PNG / JPEG / WebP / GIF under 8 MB of base64
+const PICTURE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+function picturesOf(list) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, 4)
+    .filter((x) => PICTURE_TYPES.has(x?.mimeType) && typeof x.data === "string" && x.data.length < 8e6 && /^[A-Za-z0-9+/]+={0,2}$/.test(x.data))
+    .map((x) => ({ type: "image", data: x.data, mimeType: x.mimeType }));
+}
+
+// ---- files in the folder, for @ in the composer --------------------------------
+// git's own list when the folder is in a repository (it knows .gitignore),
+// else a walk that skips the usual heavy folders; kept for 15 s
+const SKIP_DIRS = new Set([".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", "target", ".cache"]);
+let fileCache = { at: 0, list: [] };
+function gitFiles() {
+  return new Promise((done) => {
+    execFile("git", ["-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+      { timeout: 10000, windowsHide: true, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+      (error, stdout) => done(error ? null : stdout.split("\0").filter(Boolean)));
+  });
+}
+function walkFiles(limit = 20000) {
+  const out = [];
+  const stack = [""];
+  while (stack.length && out.length < limit) {
+    const rel = stack.pop();
+    let entries;
+    try { entries = readdirSync(join(cwd, rel), { withFileTypes: true }); } catch { continue; }
+    for (const d of entries) {
+      const p = rel ? `${rel}/${d.name}` : d.name;
+      if (d.isDirectory()) { if (!SKIP_DIRS.has(d.name)) stack.push(p); } else out.push(p);
+    }
+  }
+  return out;
+}
+async function folderFiles() {
+  if (Date.now() - fileCache.at < 15000) return fileCache.list;
+  const files = (await gitFiles()) || walkFiles();
+  // the folders too (from the files' own paths), written with a trailing /
+  const dirs = new Set();
+  for (const f of files) {
+    for (let k = f.indexOf("/"); k > 0; k = f.indexOf("/", k + 1)) dirs.add(`${f.slice(0, k)}/`);
+  }
+  fileCache = { at: Date.now(), list: [...dirs, ...files] };
+  return fileCache.list;
+}
+// the name starting with the words first, then the name having them, then the
+// path; with no words, the shallow ones first
+function matchFiles(all, q) {
+  const needle = q.toLowerCase().replace(/\\/g, "/");
+  const scored = [];
+  for (const p of all) {
+    const low = p.toLowerCase();
+    const bare = low.endsWith("/") ? low.slice(0, -1) : low;
+    const name = bare.slice(bare.lastIndexOf("/") + 1);
+    let score;
+    if (!needle) score = bare.split("/").length * 1000 + p.length;
+    else if (name.startsWith(needle)) score = p.length;
+    else if (name.includes(needle)) score = 1000 + p.length;
+    else if (low.includes(needle)) score = 2000 + p.length;
+    else continue;
+    scored.push([score, p]);
+  }
+  scored.sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : 1));
+  return scored.slice(0, 30).map(([, p]) => p);
 }
 function send(res, code, obj) {
   res.writeHead(code, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
@@ -349,9 +448,11 @@ const server = createServer(async (req, res) => {
     switch (url.pathname) {
       case "/api/prompt": {
         const text = String(body.text || "").trim();
-        if (!text) { send(res, 400, { error: "empty" }); return; }
-        if (session.isStreaming) await session.followUp(text);
-        else session.prompt(text).catch((e) => broadcast({ t: "error", message: e.message }));
+        const images = picturesOf(body.images);
+        if (!text && !images.length) { send(res, 400, { error: "empty" }); return; }
+        const said = text || "이 그림을 봐 주세요.";
+        if (session.isStreaming) await session.followUp(said, images.length ? images : undefined);
+        else session.prompt(said, images.length ? { images } : undefined).catch((e) => broadcast({ t: "error", message: e.message }));
         send(res, 200, { ok: true });
         return;
       }
@@ -372,12 +473,15 @@ const server = createServer(async (req, res) => {
         send(res, 200, { mode });
         return;
       case "/api/sessions":
-        send(res, 200, { sessions: await listSessions(), current: session?.sessionFile || null });
+        send(res, 200, { sessions: await listSessions(body.q), current: session?.sessionFile || null, q: String(body.q || "") });
+        return;
+      case "/api/files":
+        send(res, 200, { files: matchFiles(await folderFiles(), String(body.q || "").slice(0, 200)) });
         return;
       case "/api/open": {
         if (session.isStreaming) { send(res, 409, { error: "busy" }); return; }
         // only a conversation from our own list, never a path the page made up
-        const found = (await listSessions()).find((x) => x.path === body.path);
+        const found = await findSession(body.path);
         if (!found) { send(res, 404, { error: "no such conversation" }); return; }
         mode = "ask";
         await startSession(SessionManager.open(found.path, sessionDir));
@@ -385,7 +489,7 @@ const server = createServer(async (req, res) => {
         return;
       }
       case "/api/delete": {
-        const found = (await listSessions()).find((x) => x.path === body.path);
+        const found = await findSession(body.path);
         if (!found) { send(res, 404, { error: "no such conversation" }); return; }
         const current = found.path === session?.sessionFile;
         if (current && session.isStreaming) { send(res, 409, { error: "busy" }); return; }
@@ -397,7 +501,7 @@ const server = createServer(async (req, res) => {
       case "/api/rename": {
         const name = titleOf(String(body.name || ""));
         if (!name) { send(res, 400, { error: "empty" }); return; }
-        const found = (await listSessions()).find((x) => x.path === body.path);
+        const found = await findSession(body.path);
         if (!found) { send(res, 404, { error: "no such conversation" }); return; }
         // Pi keeps the name as a session_info entry in the conversation's own file
         if (found.path === session?.sessionFile) {
