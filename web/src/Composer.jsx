@@ -76,7 +76,7 @@ function Mentions({ list, q, pick, onPick, onHover }) {
   );
 }
 
-export function Composer({ state, meter, notice, box, draft, setDraft, lastSent, attachRef, onSend, onStop, onError }) {
+export function Composer({ state, meter, notice, box, draft, setDraft, lastSent, attachRef, picturesRef, onSend, onStop, onError }) {
   const [pictures, setPictures] = useState([]);
   const [mention, setMention] = useState(null);
   const [files, setFiles] = useState(null);
@@ -118,6 +118,12 @@ export function Composer({ state, meter, notice, box, draft, setDraft, lastSent,
     box.current?.focus();
   }, [pictures.length, onError, box]);
   useEffect(() => { attachRef.current = addFiles; }, [attachRef, addFiles]);
+  // pictures put back in the box (a message taken back to change)
+  useEffect(() => {
+    picturesRef.current = (list) => setPictures(list.slice(0, MAX_PICTURES).map((im, k) => ({
+      id: `${Date.now()}-${k}`, mimeType: im.mimeType, data: im.data, url: `data:${im.mimeType};base64,${im.data}`,
+    })));
+  }, [picturesRef]);
 
   // ---- @ files
   const look = (el) => {
@@ -159,7 +165,7 @@ export function Composer({ state, meter, notice, box, draft, setDraft, lastSent,
   const think = state.thinking;
   const submit = () => {
     if (stop) { onStop(); return; }
-    if (empty) return;
+    if (empty || state.compacting) return;
     const sent = pictures;
     setPictures([]);
     setMention(null);
@@ -188,7 +194,8 @@ export function Composer({ state, meter, notice, box, draft, setDraft, lastSent,
           rows={1}
           value={draft}
           disabled={offline}
-          placeholder={offline ? "서버와 연결이 끊겼어요" : state.busy ? "이어서 할 말 (끝나면 이어서 처리해요)" : "무엇을 할까요? (@ 파일, 그림 붙여넣기)"}
+          placeholder={offline ? "서버와 연결이 끊겼어요" : state.compacting ? "앞부분을 요약하는 중이에요 (Esc로 멈춰요)"
+            : state.busy ? "이어서 할 말 (끝나면 이어서 처리해요)" : "무엇을 할까요? (@ 파일, 그림 붙여넣기)"}
           aria-label="메시지"
           aria-autocomplete="list"
           aria-expanded={open}
@@ -223,7 +230,7 @@ export function Composer({ state, meter, notice, box, draft, setDraft, lastSent,
         </button>
         <input ref={fileInput} type="file" accept={PICTURE_TYPES.join(",")} multiple hidden
           onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
-        <button type="submit" className={`btn send ${stop ? "stop" : "btn-primary"}`} disabled={offline || (!stop && empty)}>
+        <button type="submit" className={`btn send ${stop ? "stop" : "btn-primary"}`} disabled={offline || (!stop && (empty || state.compacting))}>
           {stop ? "멈추기" : "보내기"}
         </button>
       </form>

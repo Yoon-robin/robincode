@@ -50,14 +50,47 @@ function Gpu({ gpu, fake, compact }) {
   );
 }
 
-function ContextMeter({ context }) {
+// how full the model's context is; pressed, it says more and can summarize
+// the start of the conversation now
+function ContextMeter({ context, busy, onCompact }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
+    // Esc here only closes this (it must not stop the agent)
+    const esc = (e) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setOpen(false);
+      wrap.current?.querySelector(".ctx")?.focus();
+    };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc, true);
+    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc, true); };
+  }, [open]);
   const p = context?.percent ?? 0;
   const tone = p >= 90 ? "bad" : p >= 75 ? "warn" : "";
+  const about = context?.approx ? "약 " : "";
   return (
-    <span className={`ctx ${tone}`} title={context ? `${context.tokens.toLocaleString()} / ${context.limit.toLocaleString()} 토큰 — 여기서 앞부분을 요약해 줄여요` : "아직 대화가 없어요"}>
-      <span className="ctx-label">맥락</span>
-      <span className="ctx-track"><span className="ctx-fill" style={{ width: `${p}%` }} /></span>
-      <span className="ctx-value">{p}%</span>
+    <span className="ctx-wrap" ref={wrap}>
+      <button type="button" className={`ctx ${tone}`} aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)}
+        title={context ? `${about}${context.tokens.toLocaleString()} / ${context.limit.toLocaleString()} 토큰` : "아직 대화가 없어요"}>
+        <span className="ctx-label">맥락</span>
+        <span className="ctx-track"><span className="ctx-fill" style={{ width: `${p}%` }} /></span>
+        <span className="ctx-value">{about}{p}%</span>
+      </button>
+      {open && (
+        <div className="ctx-pop" role="dialog" aria-label="맥락">
+          <p className="ctx-pop-head"><span>맥락</span><b>{about}{p}%</b></p>
+          <p className="ctx-pop-num">{context ? `${about}${context.tokens.toLocaleString()} / ${context.limit.toLocaleString()} 토큰` : "아직 대화가 없어요."}</p>
+          <p className="ctx-pop-note">끝까지 차면 앞부분을 저절로 요약해요. 지금 요약하면 모델은 앞부분을 요약으로만 기억하고, 그만큼 더 오래 이어서 일해요.</p>
+          <button type="button" className="btn ctx-go" disabled={busy || !context} onClick={() => { setOpen(false); onCompact(); }}>
+            앞부분 지금 요약하기
+          </button>
+          {busy && <p className="ctx-pop-note">도는 중이라 끝난 뒤에 할 수 있어요.</p>}
+        </div>
+      )}
     </span>
   );
 }
@@ -102,9 +135,12 @@ function Empty({ info, ready, onPick }) {
   );
 }
 
+// drawn again in place, or summarized away: the classes the items carry
+const marks = (item) => `${item.still ? " still" : ""}${item.old ? " old" : ""}`;
+
 function Line({ item }) {
   return (
-    <div className={`line ${item.tone}`}>
+    <div className={`line ${item.tone}${marks(item)}`}>
       <span className="line-tag">{item.tag}</span>
       <span>{item.text}</span>
     </div>
@@ -182,6 +218,9 @@ function NotifyRow({ notify, onToggle }) {
   );
 }
 
+// tools whose work going back does not undo
+const CHANGES = new Set(["edit", "write", "powershell", "bash"]);
+
 // a turn's time and the model's speed, under its last answer
 function TurnMeta({ stats }) {
   const time = stats.ms < 10000 ? `${(stats.ms / 1000).toFixed(1)}초` : seconds(stats.ms);
@@ -207,7 +246,8 @@ function StatusRow({ state }) {
       </div>
     );
   }
-  const what = state.phase === "tool" ? `${state.runningTool} 실행하는 중` : state.phase === "write" ? "쓰는 중" : "생각하는 중";
+  const what = state.phase === "tool" ? `${state.runningTool} 실행하는 중` : state.phase === "write" ? "쓰는 중"
+    : state.phase === "compact" ? "앞부분을 요약하는 중" : "생각하는 중";
   return (
     <div className="status-row" role="status">
       <span className="status-mark" aria-hidden="true">▌</span>
@@ -229,7 +269,7 @@ function turnEnds(items, busy) {
   return ends;
 }
 
-function Conversation({ state, asking, onDecide, onPick }) {
+function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry }) {
   const scroller = useRef(null);
   const content = useRef(null);
   const stick = useRef(true);
@@ -266,19 +306,36 @@ function Conversation({ state, asking, onDecide, onPick }) {
     scroller.current.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
   };
   const ends = turnEnds(state.items, state.busy);
+  // the answer that can be asked for again: the conversation's last
+  const lastAnswer = state.items.findLast((x) => x.kind === "assistant" || x.kind === "user");
   return (
     <div className="thread" ref={scroller} onScroll={onScroll}>
       {empty ? <Empty info={state.info} ready={state.ready && state.link} onPick={onPick} /> : (
         <div className="msgs" ref={content}>
           {state.items.map((item, k) => {
-            if (item.kind === "user") return <div key={item.id} className="msg msg-user"><UserBubble text={item.text} images={item.images} /></div>;
+            if (item.kind === "user") {
+              return (
+                <div key={item.id} className={`msg msg-user${marks(item)}`}>
+                  {item.entryId && !state.busy && (
+                    <button type="button" className="icon-btn msg-edit" aria-label="이 말 고쳐서 다시 보내기"
+                      title="고쳐서 다시 보내기 (이 말 앞으로 돌아가요)" onClick={() => onRewind(item)}><Icon name="edit" /></button>
+                  )}
+                  <UserBubble text={item.text} images={item.images} />
+                </div>
+              );
+            }
             if (item.kind === "assistant") {
               return (
-                <div key={item.id} className="msg msg-ai">
+                <div key={item.id} className={`msg msg-ai${marks(item)}`}>
                   <Markdown text={item.text} streaming={item.streaming} />
                   {ends.has(item.id) && item.text.trim() && (
                     <div className="msg-foot">
                       <CopyButton text={item.text} className="act" />
+                      {item === lastAnswer && !state.busy && (
+                        <button type="button" className="act" title="마지막 말을 다시 보내서 새로 답하게 해요" onClick={onRetry}>
+                          <Icon name="retry" /><span>다시 답하기</span>
+                        </button>
+                      )}
                       {item.meta && <TurnMeta stats={item.meta} />}
                     </div>
                   )}
@@ -287,7 +344,7 @@ function Conversation({ state, asking, onDecide, onPick }) {
             }
             if (item.kind === "tools") {
               return (
-                <div key={item.id} className="msg msg-tools">
+                <div key={item.id} className={`msg msg-tools${marks(item)}`}>
                   <ToolGroup tools={item.tools} onDecide={onDecide} settled={!state.busy || k < state.items.length - 1} />
                 </div>
               );
@@ -463,6 +520,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [drag, setDrag] = useState(false);
   const [notify, setNotify] = useState(notifyNow);
+  const picturesRef = useRef(null); // the composer's "these are the pictures"
   const box = useRef(null);
   const menuRef = useRef(null);
   const closeRef = useRef(null);
@@ -528,6 +586,25 @@ export default function App() {
     say("대화를 지웠어요.", { label: "되돌리기", run: () => api("/api/restore", { path: s.path }).then(loadSessions).catch(fail) });
   }).catch(fail);
   const rename = (s, name) => api("/api/rename", { path: s.path, name }).then(loadSessions).catch(fail);
+  // back to just before one of robin's messages, its words (and pictures) in
+  // the box to change and send again; files the tools changed stay changed
+  const rewind = async (item) => {
+    const before = draft;
+    const from = state.items.findIndex((x) => x.id === item.id);
+    const touched = state.items.slice(from).some((x) => x.kind === "tools" && x.tools.some((t) => CHANGES.has(t.name) && t.status === "ok"));
+    try {
+      const r = await api("/api/rewind", { id: item.entryId });
+      setDraft(r.text || "");
+      picturesRef.current?.(r.images || []);
+      focusBox();
+      say(touched ? "이 말 앞으로 돌아왔어요. 파일에 한 일은 그대로예요." : "이 말 앞으로 돌아왔어요. 고쳐서 보내세요.", {
+        label: "되돌리기",
+        run: () => api("/api/rewind", { id: r.back }).then(() => { setDraft(before); picturesRef.current?.([]); focusBox(); }).catch(fail),
+      });
+    } catch (e) { fail(e); }
+  };
+  const retry = () => api("/api/retry").catch(fail);
+  const compact = () => api("/api/compact").catch((e) => (e.message === "busy" ? fail(e) : say(e.message)));
 
   const asking = askingTool(state);
   const toggleNotify = async () => {
@@ -608,9 +685,9 @@ export default function App() {
           <div className="head-narrow"><Gpu gpu={state.gpu} fake={state.fake} compact /></div>
         </header>
         {state.ready && !state.link && <div className="lost" role="alert">RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요.</div>}
-        <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} />
-        <Composer state={state} meter={<ContextMeter context={state.context} />} box={box} draft={draft} setDraft={setDraft} lastSent={lastSent}
-          attachRef={attachRef} onSend={send} onStop={stop} onError={say}
+        <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} onRewind={rewind} onRetry={retry} />
+        <Composer state={state} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}
+          setDraft={setDraft} lastSent={lastSent} attachRef={attachRef} picturesRef={picturesRef} onSend={send} onStop={stop} onError={say}
           notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />} />
         {drag && (
           <div className="drop" aria-hidden="true">

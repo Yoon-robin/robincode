@@ -128,6 +128,11 @@ createServer(async (req, res) => {
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
   await sleep(300);
 
+  // Pi's compaction asks for a summary of the conversation so far
+  if (/summarization assistant/i.test(textOf(messages[0]?.content))) {
+    await streamText(res, "## 목표\n가짜 모델로 RobinCode 창을 시험해요.\n\n## 한 일\n- 폴더의 파일을 읽고 목록을 봤어요.\n\n## 다음\n- robin이 다음에 시키는 것.", usage);
+    return;
+  }
   const tools = (request.tools || []).map((t) => t.function?.name);
   const lastUser = textOf([...messages].reverse().find((m) => m.role === "user")?.content);
   if (request.chat_template_kwargs?.enable_thinking) {

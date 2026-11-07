@@ -24,15 +24,18 @@ export const initial = {
   title: "",
   sessions: null, // null until the list has come (no "none yet" flash)
   retry: null, // Pi retrying a request that failed on the way: { attempt, max, at }
+  compacting: false, // Pi summarizing the start of the conversation
+  compactOnly: false, // ...and that is all that is going on (not a turn)
 };
 
 let seq = 0;
 const nid = () => `i${++seq}`;
 
-function addTool(items, tool) {
+// `group`: what a new group gets (its id from the saved conversation, and its flags)
+function addTool(items, tool, group) {
   const last = items[items.length - 1];
   if (last?.kind === "tools") items[items.length - 1] = { ...last, tools: [...last.tools, tool] };
-  else items.push({ kind: "tools", id: nid(), tools: [tool] });
+  else items.push({ kind: "tools", id: nid(), ...group, tools: [tool] });
 }
 function updateTool(items, id, change) {
   for (let i = items.length - 1; i >= 0; i--) {
@@ -56,18 +59,32 @@ function finished(isError, output, ms) {
 const THINK = "생각";
 const thinkStep = (text, extra) => ({ id: nid(), name: THINK, think: true, args: {}, output: text, ...extra });
 
-function fromHistory(history) {
+// The saved conversation as items. Ids come from its entries, so drawing it
+// again (after going back, or a compaction) keeps every item where it was;
+// `still`: drawn in place, without coming up again. `old`: the start that
+// the model now only has as a summary
+function fromHistory(history, still = false) {
   const items = [];
+  const id = (prefix, m) => (m.key ? `${prefix}-${m.key}` : nid());
+  const flags = (m) => ({ ...(still && { still }), ...(m.old && { old: true }) });
   for (const m of history) {
-    if (m.role === "user") items.push({ kind: "user", id: nid(), text: m.text, images: m.images || [] });
+    if (m.role === "user") items.push({ kind: "user", id: id("u", m), entryId: m.id, text: m.text, images: m.images || [], ...flags(m) });
     else if (m.role === "assistant") {
-      if (m.thinking) addTool(items, thinkStep(m.thinking, { status: "ok" }));
-      if (m.text) items.push({ kind: "assistant", id: nid(), text: m.text, streaming: false });
-      for (const t of m.tools) addTool(items, { id: t.id, name: t.name, args: t.args || {}, status: "run" });
-      if (m.error) items.push({ kind: "line", id: nid(), tag: "[FAIL]", text: m.error, tone: "fail" });
+      if (m.thinking) addTool(items, { ...thinkStep(m.thinking, { status: "ok" }), id: id("t", m) }, { id: id("g", m), ...flags(m) });
+      if (m.text) items.push({ kind: "assistant", id: id("a", m), text: m.text, streaming: false, ...flags(m) });
+      for (const t of m.tools) addTool(items, { id: t.id, name: t.name, args: t.args || {}, status: "run" }, { id: `g-${t.id}`, ...flags(m) });
+      if (m.error) items.push({ kind: "line", id: id("e", m), tag: "[FAIL]", text: m.error, tone: "fail", ...flags(m) });
     } else if (m.role === "tool") {
       if (!updateTool(items, m.id, finished(m.isError, m.output))) {
-        addTool(items, { id: m.id, name: m.name, args: {}, ...finished(m.isError, m.output) });
+        addTool(items, { id: m.id, name: m.name, args: {}, ...finished(m.isError, m.output) }, { id: `g-${m.id}`, ...flags(m) });
+      }
+    } else if (m.role === "compaction") {
+      items.push({ kind: "line", id: id("c", m), tag: "[ OK ]", tone: "",
+        text: m.faded ? "앞부분을 요약했어요. 흐린 부분은 모델이 요약으로만 기억해요." : "앞부분을 요약해서 줄였어요.", ...(still && { still }) });
+    } else if (m.role === "stats") {
+      // under the last answer of its turn
+      for (let i = items.length - 1; i >= 0 && items[i].kind !== "user"; i--) {
+        if (items[i].kind === "assistant") { items[i] = { ...items[i], meta: m.stats }; break; }
       }
     }
   }
@@ -107,8 +124,9 @@ function onEvent(state, e) {
       const s = e.state;
       return {
         ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, model: s.model }, fake: s.fake, gpu: s.gpu,
-        mode: s.mode, thinking: !!s.thinking, think: null, context: s.context, busy: s.busy, startedAt: s.busy ? Date.now() : 0, phase: "think",
-        items: fromHistory(s.history), current: null, sessionFile: s.sessionFile, title: s.title, retry: null,
+        mode: s.mode, thinking: !!s.thinking, think: null, context: s.context, busy: s.busy, startedAt: s.busy ? Date.now() : 0,
+        phase: s.compacting ? "compact" : "think", compacting: !!s.compacting, compactOnly: !!s.compacting,
+        items: fromHistory(s.history, !!e.quiet), current: null, sessionFile: s.sessionFile, title: s.title, retry: null,
       };
     }
     case "user": {
@@ -166,24 +184,39 @@ function onEvent(state, e) {
       updateTool(items, e.id, finished(e.isError, e.output || "", e.ms));
       return { ...state, items, phase: "think" };
     }
-    case "compaction":
-      if (e.phase === "start") return { ...state, items: [...state.items, line("[ .. ]", "대화가 길어서 앞부분을 요약하는 중이에요.")] };
-      return {
-        ...state, context: e.context ?? state.context,
-        items: [...state.items, e.aborted ? line("[SKIP]", "요약을 멈췄어요.", "skip") : line("[ OK ]", "앞부분을 요약해서 줄였어요.")],
-      };
+    case "compaction": {
+      // the status row says it while it runs (by hand, or because the context is full)
+      if (e.phase === "start") {
+        return { ...state, compacting: true, compactOnly: !state.busy, busy: true, startedAt: state.busy ? state.startedAt : Date.now(), phase: "compact" };
+      }
+      const after = { ...state, compacting: false, compactOnly: false, busy: state.compactOnly ? false : state.busy, phase: "think", context: e.context ?? state.context };
+      // too short to compact: the window says so in a note, not here
+      if (e.error?.small) return after;
+      const said = e.aborted ? line("[SKIP]", "요약을 멈췄어요.", "skip")
+        : e.error ? line("[FAIL]", e.error.message, "fail") : line("[ OK ]", "앞부분을 요약해서 줄였어요.");
+      return { ...after, items: [...state.items, said] };
+    }
     case "settled": {
       state = endThink(state);
       const items = state.items.map((x) => (x.kind === "tools" && x.tools.some((t) => t.ask)
         ? { ...x, tools: x.tools.map((t) => (t.ask ? { ...t, ask: false } : t)) } : x));
       if (e.aborted) items.push(line("[SKIP]", "멈췄어요.", "skip"));
+      // robin's messages from this turn get their ids (to go back to them)
+      if (e.users) {
+        let j = e.users.length - 1;
+        for (let i = items.length - 1; i >= 0 && j >= 0; i--) {
+          if (items[i].kind !== "user") continue;
+          if (items[i].entryId !== e.users[j]) items[i] = { ...items[i], entryId: e.users[j] };
+          j--;
+        }
+      }
       // the turn's time and speed go under its last answer
       if (e.stats && !e.aborted) {
         for (let i = items.length - 1; i >= 0 && items[i].kind !== "user"; i--) {
           if (items[i].kind === "assistant") { items[i] = { ...items[i], meta: e.stats }; break; }
         }
       }
-      return { ...state, items, busy: false, current: null, retry: null, think: null, context: e.context ?? state.context };
+      return { ...state, items, busy: state.compacting, compactOnly: state.compacting, current: null, retry: null, think: null, context: e.context ?? state.context };
     }
     case "error": return { ...state, items: [...state.items, line("[FAIL]", e.message, "fail")] };
     case "retry": {

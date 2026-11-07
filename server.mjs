@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import {
   createAgentSession,
   DefaultResourceLoader,
+  estimateTokens,
   ModelRuntime,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
@@ -177,6 +178,9 @@ async function startSession(sessionManager) {
   });
   session?.dispose();
   session = created.session;
+  // a turn cut off by the switch must not lend its start to the next one
+  turn = null;
+  gen = null;
   // an old conversation may have saved another level: robin's choice wins
   if (session.thinkingLevel !== thinkingLevel()) session.setThinkingLevel(thinkingLevel());
   session.subscribe(onEvent);
@@ -253,8 +257,12 @@ function onEvent(e) {
       broadcast({ t: "retry", attempt: e.attempt, max: e.maxAttempts, delayMs: e.delayMs, error: e.errorMessage });
       break;
     case "auto_retry_end": broadcast({ t: "retry_end", success: e.success }); break;
-    case "compaction_start": broadcast({ t: "compaction", phase: "start" }); break;
-    case "compaction_end": broadcast({ t: "compaction", phase: "end", aborted: e.aborted, context: contextUsage() }); break;
+    case "compaction_start": broadcast({ t: "compaction", phase: "start", reason: e.reason }); break;
+    case "compaction_end":
+      broadcast({ t: "compaction", phase: "end", aborted: e.aborted, error: !e.aborted && !e.result ? compactionError(e.errorMessage) : undefined,
+        context: contextUsage() });
+      if (e.result && !session.isStreaming) broadcast({ t: "reset", state: state(), quiet: true });
+      break;
     case "agent_settled": {
       const stats = turn && {
         ms: Date.now() - turn.start,
@@ -263,10 +271,23 @@ function onEvent(e) {
         tps: turn.genMs >= 1000 && turn.tokens ? Math.round(turn.tokens / (turn.genMs / 1000)) : null,
       };
       turn = null;
-      broadcast({ t: "settled", aborted: e.aborted, context: contextUsage(), stats });
+      // kept in the conversation's file (not seen by the model), so the
+      // window shows it again when the conversation is opened later
+      if (stats && !e.aborted) {
+        try { session.sessionManager.appendCustomEntry(STATS, stats); } catch (err) { log("시간을 남기지 못했어요:", err.message); }
+      }
+      broadcast({ t: "settled", aborted: e.aborted, context: contextUsage(), stats,
+        users: branch().filter((x) => x.type === "message" && x.message.role === "user").map((x) => x.id) });
       break;
     }
   }
+}
+const STATS = "robincode-stats";
+// Pi's reasons for not compacting, said plainly
+function compactionError(message = "") {
+  if (/too small/i.test(message)) return { small: true, message: "아직 줄일 만큼 길지 않아요." };
+  if (/Already compacted/i.test(message)) return { small: true, message: "방금 줄여서 더 줄일 게 없어요." };
+  return { message: `요약하지 못했어요: ${message.replace(/^Compaction failed:\s*/, "")}` };
 }
 // Pi compacts once the context passes the window minus its reserve (16384 by
 // default), so the bar is full at that point, not at the window's end
@@ -274,32 +295,49 @@ const RESERVE = 16384;
 function contextUsage() {
   try {
     const u = session?.getContextUsage();
-    if (!u || u.tokens == null) return null;
+    if (!u) return null;
+    // right after a compaction Pi has no count until the next answer: a rough one
+    const approx = u.tokens == null;
+    const tokens = approx ? (session.messages || []).reduce((n, m) => n + estimateTokens(m), 0) : u.tokens;
+    if (!tokens) return null;
     const limit = Math.max(1, u.contextWindow - RESERVE);
-    return { tokens: u.tokens, window: u.contextWindow, limit, percent: Math.min(100, Math.round((u.tokens / limit) * 100)) };
+    return { tokens, window: u.contextWindow, limit, percent: Math.min(100, Math.round((tokens / limit) * 100)), approx };
   } catch { return null; }
+}
+function branch() {
+  try { return session?.sessionManager.getBranch() || []; } catch { return []; }
 }
 function history() {
   const out = [];
-  for (const m of session?.messages || []) {
-    if (m.role === "user") out.push({ role: "user", text: wordsOf(m.content), images: imagesOf(m.content) });
+  const entries = branch();
+  const compaction = entries.findLast((x) => x.type === "compaction");
+  const kept = compaction ? entries.findIndex((x) => x.id === compaction.firstKeptEntryId) : -1;
+  entries.forEach((entry, k) => {
+    const key = entry.id;
+    const old = k < kept;
+    if (entry.type === "compaction") { out.push({ role: "compaction", key, faded: kept > 0 }); return; }
+    if (entry.type === "custom" && entry.customType === STATS) { out.push({ role: "stats", key, stats: entry.data }); return; }
+    if (entry.type !== "message") return;
+    const m = entry.message;
+    if (m.role === "user") out.push({ role: "user", key, old, id: entry.id, text: wordsOf(m.content), images: imagesOf(m.content) });
     else if (m.role === "assistant") {
-      out.push({ role: "assistant",
+      out.push({ role: "assistant", key, old,
         thinking: (m.content || []).filter((p) => p.type === "thinking" && !p.redacted).map((p) => p.thinking).join("").trim(),
         text: (m.content || []).filter((p) => p.type === "text").map((p) => p.text).join(""),
         tools: (m.content || []).filter((p) => p.type === "toolCall").map((p) => ({ id: p.id, name: p.name, args: p.arguments })),
         error: m.stopReason === "error" ? m.errorMessage : undefined });
-    } else if (m.role === "toolResult") out.push({ role: "tool", id: m.toolCallId, name: m.toolName, isError: m.isError, output: clip(plain(textOf(m.content))) });
-  }
+    } else if (m.role === "toolResult") out.push({ role: "tool", key, old, id: m.toolCallId, name: m.toolName, isError: m.isError, output: clip(plain(textOf(m.content))) });
+  });
   return out;
 }
 const titleOf = (text) => text.replace(/\s+/g, " ").trim().slice(0, 80);
+const busyNow = () => !!(session?.isStreaming || session?.isCompacting);
 const state = () => {
-  const first = (session?.messages || []).find((m) => m.role === "user");
+  const first = branch().find((x) => x.type === "message" && x.message.role === "user")?.message;
   const firstWords = first ? titleOf(wordsOf(first.content)) : "";
   return {
     cwd, folder: basename(cwd) || cwd, model: "Qwen3.8-27B", fake: FAKE, gpu, mode, thinking: !!settings.thinking,
-    busy: !!session?.isStreaming, context: contextUsage(), history: history(),
+    busy: busyNow(), compacting: !!session?.isCompacting, context: contextUsage(), history: history(),
     sessionFile: session?.sessionFile || null,
     // a name robin gave it, else its first message
     title: session?.sessionName || firstWords || (first ? "그림" : ""),
@@ -487,6 +525,15 @@ const server = createServer(async (req, res) => {
         const images = picturesOf(body.images);
         if (!text && !images.length) { send(res, 400, { error: "empty" }); return; }
         const said = text || "이 그림을 봐 주세요.";
+        if (session.isCompacting) { send(res, 409, { error: "compacting" }); return; }
+        // gone back to before the first message and saying something else:
+        // Pi's list names a conversation after the file's first message (the
+        // old one), so the new first message becomes its name
+        const isUser = (x) => x.type === "message" && x.message.role === "user";
+        if (!session.isStreaming && !session.sessionName && !branch().some(isUser) && session.sessionManager.getEntries().some(isUser)) {
+          session.setSessionName(titleOf(text) || "그림");
+          broadcast({ t: "title", title: session.sessionName });
+        }
         if (session.isStreaming) await session.followUp(said, images.length ? images : undefined);
         else session.prompt(said, images.length ? { images } : undefined).catch((e) => broadcast({ t: "error", message: e.message }));
         send(res, 200, { ok: true });
@@ -494,6 +541,7 @@ const server = createServer(async (req, res) => {
       }
       case "/api/abort":
         for (const resolveDecision of pending.values()) resolveDecision("no");
+        if (session.isCompacting) session.abortCompaction();
         await session.abort();
         send(res, 200, { ok: true });
         return;
@@ -501,6 +549,44 @@ const server = createServer(async (req, res) => {
         const decide = pending.get(String(body.id));
         if (decide) decide(["yes", "no", "always"].includes(body.decision) ? body.decision : "no");
         send(res, 200, { ok: !!decide });
+        return;
+      }
+      case "/api/rewind": {
+        // back to just before one of robin's messages (its words go back in
+        // the box), or, to undo that, back to where the conversation was.
+        // The other way stays in the file; files the tools changed stay changed
+        if (busyNow()) { send(res, 409, { error: "busy" }); return; }
+        const target = session.sessionManager.getEntry(String(body.id || ""));
+        if (!target) { send(res, 404, { error: "no such message" }); return; }
+        const back = session.sessionManager.getLeafId();
+        await session.navigateTree(target.id);
+        broadcast({ t: "reset", state: state(), quiet: true });
+        const mine = target.type === "message" && target.message.role === "user";
+        send(res, 200, { back, text: mine ? wordsOf(target.message.content) : "", images: mine ? imagesOf(target.message.content) : [] });
+        return;
+      }
+      case "/api/retry": {
+        // the last answer again: back to before robin's last message, then the same message
+        if (busyNow()) { send(res, 409, { error: "busy" }); return; }
+        const last = branch().reverse().find((x) => x.type === "message" && x.message.role === "user");
+        if (!last) { send(res, 400, { error: "nothing to retry" }); return; }
+        const text = wordsOf(last.message.content);
+        const images = imagesOf(last.message.content);
+        await session.navigateTree(last.id);
+        broadcast({ t: "reset", state: state(), quiet: true });
+        session.prompt(text || "이 그림을 봐 주세요.", images.length ? { images } : undefined).catch((e) => broadcast({ t: "error", message: e.message }));
+        send(res, 200, { ok: true });
+        return;
+      }
+      case "/api/compact": {
+        // summarize the start of the conversation now, not only when it is full
+        if (busyNow()) { send(res, 409, { error: "busy" }); return; }
+        const running = session.compact();
+        running.catch(() => { /* compaction_end says how it went */ });
+        // too short to compact fails at once, before the model is asked
+        const early = await Promise.race([running.then(() => null, (e) => e), new Promise((r) => setTimeout(() => r(null), 300))]);
+        if (early) { send(res, 400, { error: compactionError(early.message).message }); return; }
+        send(res, 200, { ok: true });
         return;
       }
       case "/api/thinking":
@@ -523,7 +609,7 @@ const server = createServer(async (req, res) => {
         send(res, 200, { files: matchFiles(await folderFiles(), String(body.q || "").slice(0, 200)) });
         return;
       case "/api/open": {
-        if (session.isStreaming) { send(res, 409, { error: "busy" }); return; }
+        if (busyNow()) { send(res, 409, { error: "busy" }); return; }
         // only a conversation from our own list, never a path the page made up
         const found = await findSession(body.path);
         if (!found) { send(res, 404, { error: "no such conversation" }); return; }
@@ -536,7 +622,7 @@ const server = createServer(async (req, res) => {
         const found = await findSession(body.path);
         if (!found) { send(res, 404, { error: "no such conversation" }); return; }
         const current = found.path === session?.sessionFile;
-        if (current && session.isStreaming) { send(res, 409, { error: "busy" }); return; }
+        if (current && busyNow()) { send(res, 409, { error: "busy" }); return; }
         renameSync(found.path, found.path + DELETED);
         if (current) { mode = "ask"; await startSession(SessionManager.create(cwd, sessionDir)); }
         send(res, 200, { ok: true, current });
@@ -549,7 +635,7 @@ const server = createServer(async (req, res) => {
         if (!found) { send(res, 404, { error: "no such conversation" }); return; }
         // Pi keeps the name as a session_info entry in the conversation's own file
         if (found.path === session?.sessionFile) {
-          if (session.isStreaming) { send(res, 409, { error: "busy" }); return; }
+          if (busyNow()) { send(res, 409, { error: "busy" }); return; }
           session.setSessionName(name);
           broadcast({ t: "title", title: name });
         } else SessionManager.open(found.path, sessionDir).appendSessionInfo(name);
