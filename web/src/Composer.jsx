@@ -156,6 +156,7 @@ export function Composer({ state, meter, notice, box, draft, setDraft, lastSent,
   const empty = !draft.trim() && !pictures.length;
   const stop = state.busy && empty;
   const auto = state.mode === "auto";
+  const think = state.thinking;
   const submit = () => {
     if (stop) { onStop(); return; }
     if (empty) return;
@@ -231,6 +232,12 @@ export function Composer({ state, meter, notice, box, draft, setDraft, lastSent,
           title={auto ? "명령과 파일 수정을 묻지 않고 실행해요. 누르면 다시 물어요." : "명령 실행과 파일 수정 전에 물어요. 누르면 묻지 않아요."}
           onClick={() => api("/api/mode", { mode: auto ? "ask" : "auto" }).catch(() => {})}>
           <span className={`lamp ${auto ? "warn" : "idle"}`} aria-hidden="true" />{auto ? "바로 실행" : "묻고 실행"}
+        </button>
+        {/* Qwen thinks before it answers: slower, better on hard work */}
+        <button type="button" className={`mode${think ? " on" : ""}`} aria-pressed={think}
+          title={think ? "모델이 답하기 전에 먼저 생각해요. 느리지만 어려운 일에 나아요. 누르면 바로 답해요." : "모델이 바로 답해요. 누르면 답하기 전에 먼저 생각해요(느리지만 어려운 일에 나아요)."}
+          onClick={() => api("/api/thinking", { on: !think }).catch((e) => onError(`바꾸지 못했어요: ${e.message}`))}>
+          <span className={`lamp ${think ? "on" : "idle"}`} aria-hidden="true" />{think ? "생각 켬" : "생각 끔"}
         </button>
         {meter}
         <span className="keys"><kbd>Enter</kbd> 보내기 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄 바꿈 · <kbd>@</kbd> 파일 · <kbd>↑</kbd> 보낸 말 · <kbd>Esc</kbd> 멈추기</span>

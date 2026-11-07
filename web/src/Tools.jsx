@@ -1,8 +1,9 @@
 // Tool steps: one terminal line each ([ .. ] -> [ OK ] / [FAIL] / [SKIP]) on a
 // rail, a running command's last lines underneath, the output folding out
 // when opened, and the approval question for powershell / edit / write
-// folding out right under the step it is about. A long finished run of steps
-// folds into one summary line.
+// folding out right under the step it is about. With thinking on, what the
+// model thinks is a step too ("생각"), its newest lines showing while it
+// thinks. A long finished run of steps folds into one summary line.
 import { useEffect, useRef, useState } from "react";
 import { DiffLines, editRows, writeRows } from "./Diff.jsx";
 import { CopyButton } from "./Markdown.jsx";
@@ -11,6 +12,8 @@ import { useNow, seconds } from "./time.js";
 const TAG = { run: "[ .. ]", ok: "[ OK ]", fail: "[FAIL]", skip: "[SKIP]" };
 const ASKS = new Set(["powershell", "bash", "edit", "write"]);
 const LIVE_LINES = 8;
+const THINK_LINES = 4;
+const THINK_CHARS = 360; // a thought can be one long line
 const FOLD_AT = 5; // steps in one run before a finished run folds into a summary
 // the keys that answer a question, in the order of its buttons
 export const ANSWER_KEYS = { 1: "yes", 2: "always", 3: "no" };
@@ -43,6 +46,11 @@ function Elapsed({ from }) {
 }
 
 const lastLines = (text, n) => text.replace(/\s+$/, "").split("\n").slice(-n).join("\n");
+const thoughtTail = (text) => {
+  const t = lastLines(text, THINK_LINES).replace(/^\s+/, "");
+  return t.length > THINK_CHARS ? `…${t.slice(-THINK_CHARS)}` : t;
+};
+const firstLine = (text) => (text || "").trim().split("\n")[0];
 
 function Approval({ tool, onDecide }) {
   const yes = useRef(null);
@@ -103,24 +111,28 @@ function Step({ tool, onDecide }) {
   };
   const status = tool.ask ? "asking" : tool.status;
   const running = tool.status === "run";
+  const think = !!tool.think;
   const showDiff = tool.name === "edit" && tool.status === "ok";
   const canOpen = !running && (!!tool.output || showDiff);
   const live = running && !tool.ask && !!tool.output;
   return (
-    <li className={`step ${status}`}>
+    <li className={`step ${status}${think ? " think" : ""}`}>
       <button type="button" className="step-head" aria-expanded={canOpen ? open : undefined} disabled={!canOpen}
         onClick={toggle}>
         <span className="step-tag">{tool.ask ? "[ ?? ]" : TAG[tool.status]}</span>
         <span className="step-name">{tool.name}</span>
-        <span className="step-what">{describe(tool.name, tool.args)}</span>
+        <span className="step-what">{think ? (running ? "" : firstLine(tool.output)) : describe(tool.name, tool.args)}</span>
         {running && !tool.ask && tool.startedAt ? <Elapsed from={tool.startedAt} />
           : tool.ms != null ? <span className="step-ms">{tool.ms < 1000 ? `${tool.ms}ms` : `${(tool.ms / 1000).toFixed(1)}초`}</span> : null}
         {canOpen && <span className="chev" aria-hidden="true" />}
       </button>
-      {/* a command's last lines while it runs; it folds away when it ends */}
-      {ASKS.has(tool.name) && (
+      {/* a command's last lines while it runs (or the newest of a thought);
+          it folds away when it ends */}
+      {(ASKS.has(tool.name) || think) && (
         <Fold open={live}>
-          <pre className="step-live" aria-live="off">{tool.output ? lastLines(tool.output, LIVE_LINES) : ""}</pre>
+          {think
+            ? <p className="step-live think-live" aria-live="off">{tool.output ? thoughtTail(tool.output) : ""}</p>
+            : <pre className="step-live" aria-live="off">{tool.output ? lastLines(tool.output, LIVE_LINES) : ""}</pre>}
         </Fold>
       )}
       {canOpen && (
@@ -128,7 +140,8 @@ function Step({ tool, onDecide }) {
           {made && (
             <div ref={body} className="step-body">
               {showDiff && <DiffLines rows={editRows(tool.args)} />}
-              {tool.output && (
+              {think && <p className="think-out">{tool.output}</p>}
+              {!think && tool.output && (
                 <div className="out">
                   <pre className="step-out">{tool.output}</pre>
                   <CopyButton text={tool.output} className="mini-btn out-copy" />
@@ -150,8 +163,10 @@ export function ToolGroup({ tools, onDecide, settled }) {
   const folds = settled && done && tools.length >= FOLD_AT;
   const failed = tools.filter((t) => t.status === "fail").length;
   const skipped = tools.filter((t) => t.status === "skip").length;
+  const real = tools.filter((t) => !t.think).length;
   const counts = new Map();
-  for (const t of tools) counts.set(t.name, (counts.get(t.name) || 0) + 1);
+  // the tools first, the thoughts after them
+  for (const t of [...tools.filter((x) => !x.think), ...tools.filter((x) => x.think)]) counts.set(t.name, (counts.get(t.name) || 0) + 1);
   const names = [...counts].map(([n, c]) => `${n} ${c}`);
   if (failed) names.push(`실패 ${failed}`);
   if (skipped) names.push(`건너뜀 ${skipped}`);
@@ -160,7 +175,7 @@ export function ToolGroup({ tools, onDecide, settled }) {
       {folds && (
         <button type="button" className={`group-head${failed ? " fail" : ""}`} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
           <span className="step-tag">{failed ? "[FAIL]" : "[ OK ]"}</span>
-          <span className="group-count">도구 {tools.length}번</span>
+          <span className="group-count">{real ? `도구 ${real}번` : `생각 ${tools.length}번`}</span>
           <span className="group-names">{names.join(" · ")}</span>
           <span className="chev" aria-hidden="true" />
         </button>

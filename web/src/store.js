@@ -11,6 +11,8 @@ export const initial = {
   fake: false,
   gpu: { state: "unknown" },
   mode: "ask",
+  thinking: false, // the model thinks before it answers (robin's switch)
+  think: null, // id of the thinking step being written
   context: null,
   busy: false,
   startedAt: 0,
@@ -50,11 +52,16 @@ function finished(isError, output, ms) {
   return { status: skipped ? "skip" : isError ? "fail" : "ok", output: skipped ? "" : output, ms, ask: false };
 }
 
+// what the model thought before an answer: a step on the tool rail
+const THINK = "생각";
+const thinkStep = (text, extra) => ({ id: nid(), name: THINK, think: true, args: {}, output: text, ...extra });
+
 function fromHistory(history) {
   const items = [];
   for (const m of history) {
     if (m.role === "user") items.push({ kind: "user", id: nid(), text: m.text, images: m.images || [] });
     else if (m.role === "assistant") {
+      if (m.thinking) addTool(items, thinkStep(m.thinking, { status: "ok" }));
       if (m.text) items.push({ kind: "assistant", id: nid(), text: m.text, streaming: false });
       for (const t of m.tools) addTool(items, { id: t.id, name: t.name, args: t.args || {}, status: "run" });
       if (m.error) items.push({ kind: "line", id: nid(), tag: "[FAIL]", text: m.error, tone: "fail" });
@@ -68,6 +75,14 @@ function fromHistory(history) {
 }
 
 const line = (tag, text, tone = "") => ({ kind: "line", id: nid(), tag, text, tone });
+
+// the thinking step ends once anything else comes from the model
+function endThink(state) {
+  if (!state.think) return state;
+  const items = state.items.slice();
+  updateTool(items, state.think, (t) => ({ status: "ok", ms: Date.now() - (t.startedAt || Date.now()) }));
+  return { ...state, items, think: null };
+}
 
 export function reducer(state, action) {
   switch (action.type) {
@@ -92,7 +107,7 @@ function onEvent(state, e) {
       const s = e.state;
       return {
         ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, model: s.model }, fake: s.fake, gpu: s.gpu,
-        mode: s.mode, context: s.context, busy: s.busy, startedAt: s.busy ? Date.now() : 0, phase: "think",
+        mode: s.mode, thinking: !!s.thinking, think: null, context: s.context, busy: s.busy, startedAt: s.busy ? Date.now() : 0, phase: "think",
         items: fromHistory(s.history), current: null, sessionFile: s.sessionFile, title: s.title, retry: null,
       };
     }
@@ -104,7 +119,15 @@ function onEvent(state, e) {
       };
     }
     case "assistant_start": return { ...state, current: null, phase: "think" };
+    case "thinking": {
+      const items = state.items.slice();
+      if (state.think && updateTool(items, state.think, (t) => ({ output: (t.output || "") + e.delta }))) return { ...state, items, phase: "think" };
+      const step = thinkStep(e.delta, { status: "run", startedAt: Date.now() });
+      addTool(items, step);
+      return { ...state, items, think: step.id, phase: "think", retry: null };
+    }
     case "text": {
+      state = endThink(state);
       const items = state.items.slice();
       let current = state.current;
       const k = current ? items.findIndex((x) => x.id === current) : -1;
@@ -115,15 +138,18 @@ function onEvent(state, e) {
       return { ...state, items, current, phase: "write", retry: null };
     }
     case "assistant_end": {
+      state = endThink(state);
       const items = state.items.map((x) => (x.id === state.current ? { ...x, streaming: false } : x));
       return { ...state, items, current: null, phase: "think", context: e.context ?? state.context };
     }
     case "tool_start": {
+      state = endThink(state);
       const items = state.items.slice();
       if (!updateTool(items, e.id, { status: "run" })) addTool(items, { id: e.id, name: e.name, args: e.args || {}, status: "run", startedAt: Date.now() });
       return { ...state, items, phase: "tool", runningTool: e.name };
     }
     case "approve": {
+      state = endThink(state);
       const items = state.items.slice();
       if (!updateTool(items, e.id, { ask: true, args: e.args || {} })) addTool(items, { id: e.id, name: e.name, args: e.args || {}, status: "run", ask: true });
       return { ...state, items };
@@ -147,14 +173,22 @@ function onEvent(state, e) {
         items: [...state.items, e.aborted ? line("[SKIP]", "요약을 멈췄어요.", "skip") : line("[ OK ]", "앞부분을 요약해서 줄였어요.")],
       };
     case "settled": {
+      state = endThink(state);
       const items = state.items.map((x) => (x.kind === "tools" && x.tools.some((t) => t.ask)
         ? { ...x, tools: x.tools.map((t) => (t.ask ? { ...t, ask: false } : t)) } : x));
       if (e.aborted) items.push(line("[SKIP]", "멈췄어요.", "skip"));
-      return { ...state, items, busy: false, current: null, retry: null, context: e.context ?? state.context };
+      // the turn's time and speed go under its last answer
+      if (e.stats && !e.aborted) {
+        for (let i = items.length - 1; i >= 0 && items[i].kind !== "user"; i--) {
+          if (items[i].kind === "assistant") { items[i] = { ...items[i], meta: e.stats }; break; }
+        }
+      }
+      return { ...state, items, busy: false, current: null, retry: null, think: null, context: e.context ?? state.context };
     }
     case "error": return { ...state, items: [...state.items, line("[FAIL]", e.message, "fail")] };
     case "retry": {
       // the failed try's error line goes: Pi drops that answer and asks again
+      state = endThink(state);
       const items = state.items.slice();
       const last = items[items.length - 1];
       if (last?.kind === "line" && last.tone === "fail") items.pop();
@@ -163,6 +197,7 @@ function onEvent(state, e) {
     case "retry_end": return { ...state, retry: null };
     case "gpu": return { ...state, gpu: e.gpu, fake: e.fake };
     case "mode": return { ...state, mode: e.mode };
+    case "thinking_mode": return { ...state, thinking: e.on };
     default: return state;
   }
 }

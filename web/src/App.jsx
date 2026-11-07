@@ -6,7 +6,7 @@ import { api, connect } from "./api.js";
 import { askingTool, initial, reducer } from "./store.js";
 import { Composer, PICTURE_TYPES } from "./Composer.jsx";
 import { CopyButton, Markdown } from "./Markdown.jsx";
-import { ANSWER_KEYS, ToolGroup } from "./Tools.jsx";
+import { ANSWER_KEYS, ToolGroup, describe } from "./Tools.jsx";
 import { Icon } from "./icons.jsx";
 import { ago, seconds, useNow } from "./time.js";
 
@@ -139,6 +139,59 @@ function UserBubble({ text, images = [] }) {
   );
 }
 
+// Windows notifications while robin looks at another window: a question
+// waiting, or the turn over. Off until robin turns them on (the browser asks
+// once; the window keeps its address between runs, so it stays allowed)
+const NOTIFY_KEY = "robincode.notify";
+const HAS_NOTIFY = typeof Notification !== "undefined";
+function notifyNow() {
+  if (!HAS_NOTIFY) return "none";
+  if (Notification.permission === "denied") return "blocked";
+  let on = false;
+  try { on = localStorage.getItem(NOTIFY_KEY) === "1"; } catch { /* storage off */ }
+  return on && Notification.permission === "granted" ? "on" : "off";
+}
+function keepNotify(on) {
+  try { localStorage.setItem(NOTIFY_KEY, on ? "1" : "0"); } catch { /* storage off */ }
+}
+function ping(title, body) {
+  if (document.hasFocus()) return;
+  try {
+    const n = new Notification(title, { body, tag: "robincode", silent: true, icon: "/favicon.ico" });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch { /* not allowed any more */ }
+}
+// an answer's first line, without the Markdown marks
+const firstWords = (text) => (text || "").trim().split("\n")[0].replace(/[#*`>_|]+/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
+
+function NotifyRow({ notify, onToggle }) {
+  if (notify === "none") return null;
+  const on = notify === "on";
+  const blocked = notify === "blocked";
+  return (
+    <div className="side-row">
+      <span className="side-label">알림</span>
+      <span className="notify">
+        <button type="button" className={`mode${on ? " on" : ""}`} aria-pressed={on} disabled={blocked} onClick={onToggle}
+          title={on ? "다른 창을 보고 있을 때 허락이 필요하거나 끝나면 Windows 알림으로 알려요. 누르면 꺼요." : "누르면 다른 창을 보고 있을 때 허락이 필요하거나 끝나면 Windows 알림으로 알려요."}>
+          <span className={`lamp ${on ? "on" : "idle"}`} aria-hidden="true" />{on ? "켬" : blocked ? "막힘" : "끔"}
+        </button>
+        <span className="notify-note">{blocked ? "창의 사이트 설정에서 알림을 허용해 주세요" : "다른 창일 때 허락·끝남"}</span>
+      </span>
+    </div>
+  );
+}
+
+// a turn's time and the model's speed, under its last answer
+function TurnMeta({ stats }) {
+  const time = stats.ms < 10000 ? `${(stats.ms / 1000).toFixed(1)}초` : seconds(stats.ms);
+  return (
+    <span className="msg-meta" title={`이번 차례에 걸린 시간 ${time}${stats.tokens ? `, 모델이 쓴 토큰 ${stats.tokens.toLocaleString()}개` : ""}`}>
+      {time}{stats.tps ? ` · 초당 ${stats.tps}토큰` : ""}
+    </span>
+  );
+}
+
 // where the next output will come: what the agent is doing, and for how long
 function StatusRow({ state }) {
   const now = useNow(500);
@@ -223,7 +276,12 @@ function Conversation({ state, asking, onDecide, onPick }) {
               return (
                 <div key={item.id} className="msg msg-ai">
                   <Markdown text={item.text} streaming={item.streaming} />
-                  {ends.has(item.id) && item.text.trim() && <div className="msg-foot"><CopyButton text={item.text} className="act" /></div>}
+                  {ends.has(item.id) && item.text.trim() && (
+                    <div className="msg-foot">
+                      <CopyButton text={item.text} className="act" />
+                      {item.meta && <TurnMeta stats={item.meta} />}
+                    </div>
+                  )}
                 </div>
               );
             }
@@ -236,7 +294,7 @@ function Conversation({ state, asking, onDecide, onPick }) {
             }
             return <Line key={item.id} item={item} />;
           })}
-          {state.busy && !asking && <StatusRow state={state} />}
+          {state.busy && !asking && !state.think && <StatusRow state={state} />}
         </div>
       )}
       {away && <button type="button" className="to-bottom" onClick={toBottom}><Icon name="down" />아래로</button>}
@@ -318,7 +376,7 @@ function moveInList(e) {
   all[Math.max(0, Math.min(all.length - 1, k + (e.key === "ArrowDown" ? 1 : -1)))]?.focus();
 }
 
-function Sidebar({ state, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch }) {
+function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch }) {
   const now = useNow(60000);
   const busyNote = state.busy ? "끝나거나 멈춘 뒤에 열 수 있어요" : undefined;
   const nav = useRef(null);
@@ -379,6 +437,7 @@ function Sidebar({ state, closeRef, searchRef, onClose, onNew, onOpen, onDelete,
         )}
       </nav>
       <div className="side-foot">
+        <NotifyRow notify={notify} onToggle={onNotify} />
         <div className="side-row" title={state.info.cwd}><span className="side-label">폴더</span><span className="mono">{shortPath(state.info.cwd)}</span></div>
         <div className="side-row"><span className="side-label">모델</span><span className="mono">{state.info.model}</span></div>
         <Gpu gpu={state.gpu} fake={state.fake} />
@@ -403,6 +462,7 @@ export default function App() {
   const [side, setSide] = useState(false); // the drawer, on a narrow window
   const [toast, setToast] = useState(null);
   const [drag, setDrag] = useState(false);
+  const [notify, setNotify] = useState(notifyNow);
   const box = useRef(null);
   const menuRef = useRef(null);
   const closeRef = useRef(null);
@@ -470,6 +530,29 @@ export default function App() {
   const rename = (s, name) => api("/api/rename", { path: s.path, name }).then(loadSessions).catch(fail);
 
   const asking = askingTool(state);
+  const toggleNotify = async () => {
+    if (notify === "on") { keepNotify(false); setNotify("off"); return; }
+    const answer = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+    keepNotify(answer === "granted");
+    setNotify(answer === "granted" ? "on" : answer === "denied" ? "blocked" : "off");
+  };
+  // a question just came, or the turn just ended
+  const seen = useRef({ waiting: false, busy: false });
+  useEffect(() => {
+    const was = seen.current;
+    seen.current = { waiting, busy: state.busy };
+    if (notify !== "on") return;
+    const where = state.title || state.info.folder;
+    if (waiting && !was.waiting && asking) {
+      ping("허락을 기다려요", `${where}\n${asking.name} ${describe(asking.name, asking.args)}`.trim());
+    } else if (was.busy && !state.busy) {
+      const last = state.items[state.items.length - 1];
+      const answer = [...state.items].reverse().find((x) => x.kind === "assistant");
+      if (last?.kind === "line" && last.tone === "skip") return; // robin stopped it, here
+      ping(last?.kind === "line" && last.tone === "fail" ? "막혔어요" : "끝났어요",
+        `${where}\n${last?.kind === "line" ? last.text : firstWords(answer?.text)}`.trim());
+    }
+  }, [waiting, state.busy]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const onKey = (e) => {
       if (e.isComposing) return;
@@ -514,7 +597,7 @@ export default function App() {
   };
   return (
     <div className="app" data-side={side ? "open" : undefined}>
-      <Sidebar state={state} closeRef={closeRef} searchRef={searchRef} onClose={() => closeSide(true)} onNew={newChat} onOpen={open}
+      <Sidebar state={state} notify={notify} onNotify={toggleNotify} closeRef={closeRef} searchRef={searchRef} onClose={() => closeSide(true)} onNew={newChat} onOpen={open}
         onDelete={remove} onRename={rename} onLeaveSearch={() => { if (isNarrow()) closeSide(true); else focusBox(); }} />
       <div className="scrim" onClick={() => closeSide(true)} aria-hidden="true" />
       <main className="main" {...dropProps}>

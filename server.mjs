@@ -111,6 +111,15 @@ const KOREAN = `## RobinCode
 let session;
 let runtime;
 let mode = "ask"; // ask: commands and file changes wait for a yes; auto: run everything
+// the window's own settings (thinking on/off), in RobinCode's folder
+const settingsFile = join(appDir, "robincode.json");
+let settings = {};
+try { settings = JSON.parse(readFileSync(settingsFile, "utf8")) || {}; } catch { /* first run */ }
+const saveSettings = () => { try { writeFileSync(settingsFile, JSON.stringify(settings, null, 2)); } catch (e) { log("설정을 저장하지 못했어요:", e.message); } };
+// Qwen thinks before it answers (Pi sends chat_template_kwargs.enable_thinking):
+// slower, better on hard work. Off unless robin turns it on
+const THINK_LEVEL = "medium";
+const thinkingLevel = () => (settings.thinking ? THINK_LEVEL : "off");
 const pending = new Map(); // toolCallId -> resolve(decision)
 const ASK_TOOLS = new Set(["powershell", "bash", "edit", "write"]);
 
@@ -162,12 +171,14 @@ async function startSession(sessionManager) {
   });
   await resourceLoader.reload();
   const created = await createAgentSession({
-    cwd, agentDir, model, modelRuntime: runtime, thinkingLevel: "off", resourceLoader,
+    cwd, agentDir, model, modelRuntime: runtime, thinkingLevel: thinkingLevel(), resourceLoader,
     tools: ["read", "edit", "write", "grep", "find", "ls", "powershell"],
     sessionManager: sessionManager || SessionManager.create(cwd, sessionDir),
   });
   session?.dispose();
   session = created.session;
+  // an old conversation may have saved another level: robin's choice wins
+  if (session.thinkingLevel !== thinkingLevel()) session.setThinkingLevel(thinkingLevel());
   session.subscribe(onEvent);
   broadcast({ t: "reset", state: state() });
 }
@@ -189,14 +200,23 @@ const wordsOf = (content) => (typeof content === "string" ? content
 const imagesOf = (content) => (Array.isArray(content)
   ? content.filter((p) => p.type === "image").map((p) => ({ mimeType: p.mimeType, data: p.data })) : []);
 
+// a turn (robin's message until the agent settles): how long it took, and the
+// model's speed, from each answer's first token to its end
+let turn = null;
+let gen = null;
+const STREAMED = new Set(["text_delta", "thinking_delta", "toolcall_delta"]);
 function onEvent(e) {
   switch (e.type) {
     case "message_start":
-      if (e.message.role === "user") broadcast({ t: "user", text: wordsOf(e.message.content), images: imagesOf(e.message.content) });
-      if (e.message.role === "assistant") broadcast({ t: "assistant_start" });
+      if (e.message.role === "user") {
+        turn ??= { start: Date.now(), tokens: 0, genMs: 0 };
+        broadcast({ t: "user", text: wordsOf(e.message.content), images: imagesOf(e.message.content) });
+      }
+      if (e.message.role === "assistant") { gen = { first: 0 }; broadcast({ t: "assistant_start" }); }
       break;
     case "message_update": {
       const a = e.assistantMessageEvent;
+      if (gen && !gen.first && STREAMED.has(a.type)) gen.first = Date.now();
       if (a.type === "text_delta") broadcast({ t: "text", delta: a.delta });
       if (a.type === "thinking_delta") broadcast({ t: "thinking", delta: a.delta });
       break;
@@ -204,6 +224,11 @@ function onEvent(e) {
     case "message_end":
       if (e.message.role === "assistant") {
         const m = e.message;
+        if (turn && gen?.first && m.stopReason !== "error") {
+          turn.tokens += m.usage?.output || 0;
+          turn.genMs += Date.now() - gen.first;
+        }
+        gen = null;
         // a stop by robin ends as "aborted" and gets its own [SKIP] line on settle
         if (m.stopReason === "error") broadcast({ t: "error", message: m.errorMessage || "모델이 오류로 끝났어요." });
         broadcast({ t: "assistant_end", context: contextUsage() });
@@ -230,7 +255,17 @@ function onEvent(e) {
     case "auto_retry_end": broadcast({ t: "retry_end", success: e.success }); break;
     case "compaction_start": broadcast({ t: "compaction", phase: "start" }); break;
     case "compaction_end": broadcast({ t: "compaction", phase: "end", aborted: e.aborted, context: contextUsage() }); break;
-    case "agent_settled": broadcast({ t: "settled", aborted: e.aborted, context: contextUsage() }); break;
+    case "agent_settled": {
+      const stats = turn && {
+        ms: Date.now() - turn.start,
+        tokens: turn.tokens,
+        // under a second of output says nothing about the speed
+        tps: turn.genMs >= 1000 && turn.tokens ? Math.round(turn.tokens / (turn.genMs / 1000)) : null,
+      };
+      turn = null;
+      broadcast({ t: "settled", aborted: e.aborted, context: contextUsage(), stats });
+      break;
+    }
   }
 }
 // Pi compacts once the context passes the window minus its reserve (16384 by
@@ -250,6 +285,7 @@ function history() {
     if (m.role === "user") out.push({ role: "user", text: wordsOf(m.content), images: imagesOf(m.content) });
     else if (m.role === "assistant") {
       out.push({ role: "assistant",
+        thinking: (m.content || []).filter((p) => p.type === "thinking" && !p.redacted).map((p) => p.thinking).join("").trim(),
         text: (m.content || []).filter((p) => p.type === "text").map((p) => p.text).join(""),
         tools: (m.content || []).filter((p) => p.type === "toolCall").map((p) => ({ id: p.id, name: p.name, args: p.arguments })),
         error: m.stopReason === "error" ? m.errorMessage : undefined });
@@ -262,7 +298,7 @@ const state = () => {
   const first = (session?.messages || []).find((m) => m.role === "user");
   const firstWords = first ? titleOf(wordsOf(first.content)) : "";
   return {
-    cwd, folder: basename(cwd) || cwd, model: "Qwen3.8-27B", fake: FAKE, gpu, mode,
+    cwd, folder: basename(cwd) || cwd, model: "Qwen3.8-27B", fake: FAKE, gpu, mode, thinking: !!settings.thinking,
     busy: !!session?.isStreaming, context: contextUsage(), history: history(),
     sessionFile: session?.sessionFile || null,
     // a name robin gave it, else its first message
@@ -467,6 +503,14 @@ const server = createServer(async (req, res) => {
         send(res, 200, { ok: !!decide });
         return;
       }
+      case "/api/thinking":
+        // it takes effect from the model's next request
+        settings.thinking = !!body.on;
+        saveSettings();
+        session.setThinkingLevel(thinkingLevel());
+        broadcast({ t: "thinking_mode", on: settings.thinking });
+        send(res, 200, { on: settings.thinking });
+        return;
       case "/api/mode":
         mode = body.mode === "auto" ? "auto" : "ask";
         broadcast({ t: "mode", mode });
@@ -568,8 +612,19 @@ process.on("SIGINT", shutdown);
 try {
   await connectModel();
   await startSession();
-  port = Number(option("--port")) || 0;
-  await new Promise((r) => server.listen(port, "127.0.0.1", r));
+  // the window keeps its address between runs (what it saved and the
+  // notifications robin allowed belong to it), unless that port is taken
+  const listen = (p) => new Promise((ok, no) => {
+    const onError = (e) => { server.off("listening", onListening); no(e); };
+    const onListening = () => { server.off("error", onError); ok(); };
+    server.once("error", onError).once("listening", onListening).listen(p, "127.0.0.1");
+  });
+  const asked = Number(option("--port"));
+  if (asked) await listen(asked);
+  else {
+    try { await listen(settings.port || 0); } catch { await listen(0); }
+    if (settings.port !== server.address().port) { settings.port = server.address().port; saveSettings(); }
+  }
   port = server.address().port;
   const url = `http://127.0.0.1:${port}/#t=${token}`;
   log(`RobinCode ${FAKE ? "(가짜 모델) " : ""}폴더 ${cwd}`);

@@ -51,8 +51,17 @@ console.log("hi");
 - 의존성이 없어서 \`npm install\` 없이 바로 돌아가요.
 - 시작 명령을 \`package.json\`의 \`scripts.start\`로 넣으면 \`npm start\`로 켤 수 있어요.`;
 
-async function streamText(res, text, usage) {
+// with thinking on (Pi sends chat_template_kwargs.enable_thinking), the answer
+// starts with a few lines of reasoning_content, as llama-server sends Qwen's
+async function opening(res) {
   sse(res, chunk({ role: "assistant", content: "" }));
+  for (const piece of (res.thought || "").match(/.{1,6}/gsu) || []) {
+    sse(res, chunk({ reasoning_content: piece }));
+    await sleep(40);
+  }
+}
+async function streamText(res, text, usage) {
+  await opening(res);
   for (const piece of text.match(/.{1,6}/gsu) || []) {
     sse(res, chunk({ content: piece }));
     await sleep(25);
@@ -63,7 +72,7 @@ async function streamText(res, text, usage) {
   res.end();
 }
 async function streamToolCall(res, name, args, usage) {
-  sse(res, chunk({ role: "assistant", content: "" }));
+  await opening(res);
   const id = `call_${Math.random().toString(36).slice(2, 10)}`;
   const json = JSON.stringify(args);
   sse(res, chunk({ tool_calls: [{ index: 0, id, type: "function", function: { name, arguments: "" } }] }));
@@ -121,6 +130,11 @@ createServer(async (req, res) => {
 
   const tools = (request.tools || []).map((t) => t.function?.name);
   const lastUser = textOf([...messages].reverse().find((m) => m.role === "user")?.content);
+  if (request.chat_template_kwargs?.enable_thinking) {
+    res.thought = last.role === "tool"
+      ? "결과를 받았어요.\n이걸로 충분한지 보고, 모자라면 하나 더 보고, 아니면 robin에게 짧게 정리해 주면 되겠어요."
+      : `robin이 "${lastUser.slice(0, 30)}"라고 했어요.\n무엇을 먼저 봐야 할지 정리해 볼게요.\n폴더 안을 보고 필요한 파일을 읽은 다음 답하면 되겠어요.`;
+  }
   // "둘러봐": six tool calls in a row, one per answer, then a short summary
   // (a long run of steps, which the window folds into one line once it ends)
   if (/(둘러|survey)/i.test(lastUser)) {
