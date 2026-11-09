@@ -431,6 +431,10 @@ const SAMPLE_PLAIN = { temperature: 0.7, top_p: 0.8, top_k: 20, min_p: 0, presen
 const SAME_CALLS = 3;
 const LOOP_SAY = "같은 말을 되풀이해서 멈췄어요. 다시 보내거나 말을 바꿔 물어봐 주세요.";
 const LOOP_CALLS = "같은 도구를 같은 값으로 계속 불러서 멈췄어요. 다시 보내거나 말을 바꿔 물어봐 주세요.";
+// the first loop in robin's turn: cut, and the turn goes on without thinking
+// (where Qwen loops) with a note to the model; a second one stops it
+const LOOP_RETRY = "같은 생각을 되풀이해서 끊었어요. 생각을 끄고 이어 가요.";
+const UNLOOP = "(RobinCode 알림) 방금 답에서 같은 생각을 되풀이해서 RobinCode가 끊었어요. 그 생각은 다시 하지 마세요. 지금까지 도구 결과로 확인된 것만 가지고 다음 한 걸음을 하세요. 기억나지 않는 건 추측하지 말고 도구로 찾아보고, 그래도 모르면 robin에게 짧게 물어보세요.";
 const LOOP_CUT = "답이 한 번에 쓸 수 있는 길이(16384토큰)를 넘어서 잘렸어요.";
 const NOTE = "robincode-note";
 // The end of what the model is writing says the same thing over and over:
@@ -449,14 +453,14 @@ function looping(s, times) {
     const stop = t.length - need + p;
     let i = t.length - 1;
     while (i >= stop && t[i] === t[i - p]) i--;
-    if (i < stop) return true;
+    if (i < stop) return `조각 ${p}자`;
   }
   const seen = new Map();
   for (const piece of s.replace(CODE_FENCE, "\n").slice(-6000).split(/(?<=[.!?。])\s+|\n/)) {
     const k = piece.replace(/\s+/g, " ").trim();
     if (k.length < 15 || CODE_CHARS.test(k)) continue;
     const n = (seen.get(k) || 0) + 1;
-    if (n >= times) return true;
+    if (n >= times) return `문장 ${k.length}자 ${n}번`;
     seen.set(k, n);
   }
   return false;
@@ -466,7 +470,7 @@ function looping(s, times) {
 function stopLoop(conv, why) {
   if (conv.stopWhy) return;
   conv.stopWhy = why;
-  log("되풀이로 멈춤:", why === LOOP_CALLS ? "도구" : "말");
+  if (why === LOOP_CALLS) log("되풀이로 멈춤: 같은 도구 호출");
   setTimeout(() => { conv.session.abort().catch(() => {}); }, 0);
 }
 
@@ -481,6 +485,7 @@ const approvalsFor = (conv) => ({
     pi.on("before_provider_request", (event) => {
       const p = event.payload;
       if (!p || typeof p !== "object" || !Array.isArray(p.messages)) return undefined;
+      if (conv.noThink) return { ...p, ...SAMPLE_PLAIN, chat_template_kwargs: { ...p.chat_template_kwargs, enable_thinking: false } };
       return { ...p, ...(p.chat_template_kwargs?.enable_thinking ? SAMPLE_THINK : SAMPLE_PLAIN) };
     });
     pi.on("tool_call", async (event) => {
@@ -624,7 +629,8 @@ function syncFiles() {
 }
 
 // a conversation that is not on screen and has nothing going on is let go
-const running = (conv) => !!(conv?.session?.isStreaming || conv?.session?.isCompacting);
+// (resuming: between a cut loop and the turn going on)
+const running = (conv) => !!(conv?.resuming || conv?.session?.isStreaming || conv?.session?.isCompacting);
 const othersRunning = () => [...convs].filter((c) => c !== cur && running(c)).length;
 function letGo(conv) {
   if (!conv || conv === cur || running(conv) || !convs.has(conv)) return;
@@ -733,9 +739,10 @@ function onEvent(conv, e) {
   switch (e.type) {
     case "message_start":
       if (e.message.role === "user") {
-        if (!conv.turn) { conv.turn = { start: Date.now(), tokens: 0, genMs: 0 }; conv.calls = null; conv.stopWhy = null; setTimeout(sayRunning, 0); }
+        if (!conv.turn) { conv.turn = { start: Date.now(), tokens: 0, genMs: 0 }; conv.calls = null; conv.stopWhy = null; conv.loops = 0; conv.noThink = false; setTimeout(sayRunning, 0); }
         broadcast({ t: "user", text: wordsOf(e.message.content), images: imagesOf(e.message.content) });
       }
+      if (e.message.role === "custom" || e.message.role === "assistant") conv.resuming = false;
       if (e.message.role === "assistant") { conv.gen = { first: 0 }; conv.live = { thinking: "", text: "" }; broadcast({ t: "assistant_start" }); }
       break;
     case "message_update": {
@@ -749,7 +756,14 @@ function onEvent(conv, e) {
         const size = live.thinking.length + live.text.length;
         if (size - (live.checked || 0) >= 200) {
           live.checked = size;
-          if (looping(live.thinking, 6) || looping(live.text, 10)) stopLoop(conv, LOOP_SAY);
+          const hit = looping(live.thinking, 6) || looping(live.text, 10);
+          if (hit) {
+            const again = conv.loops > 0;
+            conv.loops = (conv.loops || 0) + 1;
+            log(`되풀이 ${again ? "다시, 멈춤" : "끊고 이어 감"}: ${live.text.length ? "답" : "생각"} ${hit}, 생각 ${live.thinking.length}자·답 ${live.text.length}자${conv.noThink ? ", 생각 끈 채" : ""}`);
+            if (!again) conv.noThink = true;
+            stopLoop(conv, again ? LOOP_SAY : LOOP_RETRY);
+          }
         }
       }
       break;
@@ -800,6 +814,23 @@ function onEvent(conv, e) {
       setTimeout(afterwards(conv), 0);
       break;
     case "agent_settled": {
+      // a first loop: the turn goes on (no settled, no stats yet)
+      if (e.aborted && conv.stopWhy === LOOP_RETRY) {
+        conv.stopWhy = null;
+        conv.live = null;
+        conv.calls = null;
+        conv.resuming = true;
+        try { conv.session.sessionManager.appendCustomEntry(NOTE, { text: LOOP_RETRY, tone: "skip" }); } catch (err) { log("끊은 까닭을 남기지 못했어요:", err.message); }
+        broadcast({ t: "loop_retry", text: LOOP_RETRY });
+        conv.session.sendCustomMessage({ customType: "robincode-unloop", content: UNLOOP, display: false }, { triggerTurn: true }).catch((err) => {
+          log("되풀이 뒤 이어 가지 못했어요:", err.message);
+          conv.resuming = false;
+          conv.turn = null;
+          broadcast({ t: "settled", aborted: true, why: LOOP_SAY, context: contextUsage() });
+          setTimeout(afterwards(conv), 0);
+        });
+        break;
+      }
       const { turn } = conv;
       const stats = turn && {
         ms: Date.now() - turn.start,
@@ -916,7 +947,7 @@ function history() {
     const old = k < kept;
     if (entry.type === "compaction") { out.push({ role: "compaction", key, faded: kept > 0 }); return; }
     if (entry.type === "custom" && entry.customType === STATS) { out.push({ role: "stats", key, stats: entry.data }); return; }
-    if (entry.type === "custom" && entry.customType === NOTE) { out.push({ role: "note", key, text: entry.data?.text || "" }); return; }
+    if (entry.type === "custom" && entry.customType === NOTE) { out.push({ role: "note", key, text: entry.data?.text || "", tone: entry.data?.tone || "fail" }); return; }
     if (entry.type !== "message") return;
     const m = entry.message;
     if (m.role === "user") out.push({ role: "user", key, old, id: entry.id, text: wordsOf(m.content), images: imagesOf(m.content), alt: side.get(entry.id) ?? null });

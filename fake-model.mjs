@@ -191,11 +191,16 @@ createServer(async (req, res) => {
     // "긴 답": about 8 s of writing (a conversation that goes on while robin is in another)
     const words = "천천히 길게 답하는 중이에요. 다른 대화로 가도 이 답은 계속 써져요. ";
     await streamText(res, words.repeat(8), usage, 120);
+  } else if (/^\(RobinCode 알림\)/.test(said) && !/계속 되풀이/.test(textOf([...messages].reverse().find((m) => m.role === "user" && !/^\(RobinCode 알림\)/.test(textOf(m.content)))?.content))) {
+    // RobinCode cut a loop and said so: this time it answers
+    await streamText(res, "되풀이를 멈추고 확인된 것만으로 답해요.", usage);
   } else if (/(되풀이|loop)/i.test(said)) {
     // "되풀이": the same thought over and over until max_tokens (finish
-    // "length"), as the real model sometimes does with thinking on
+    // "length"), as the real model sometimes does with thinking on; with
+    // thinking off in the answer ("계속 되풀이": again after RobinCode's note)
     sse(res, chunk({ role: "assistant", content: "" }));
-    for (let i = 0; i < 600; i++) { sse(res, chunk({ reasoning_content: "잠깐, 다시 확인해 볼게요. " })); await sleep(20); }
+    const field = request.chat_template_kwargs?.enable_thinking ? "reasoning_content" : "content";
+    for (let i = 0; i < 600; i++) { sse(res, chunk({ [field]: "잠깐, 다시 확인해 볼게요. " })); await sleep(20); }
     sse(res, chunk({}, "length"));
     sse(res, { ...chunk({}, null, usage), choices: [] });
     res.write("data: [DONE]\n\n");

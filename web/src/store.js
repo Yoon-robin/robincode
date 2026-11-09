@@ -85,7 +85,8 @@ function fromHistory(history, still = false) {
       items.push({ kind: "line", id: id("c", m), tag: "[ OK ]", tone: "",
         text: m.faded ? "앞부분을 요약했어요. 흐린 부분은 모델이 요약으로만 기억해요." : "앞부분을 요약해서 줄였어요.", ...(still && { still }) });
     } else if (m.role === "note") {
-      items.push({ kind: "line", id: id("n", m), tag: "[FAIL]", text: m.text, tone: "fail", ...flags(m) });
+      const skip = m.tone === "skip";
+      items.push({ kind: "line", id: id("n", m), tag: skip ? "[SKIP]" : "[FAIL]", text: m.text, tone: skip ? "skip" : "fail", ...flags(m) });
     } else if (m.role === "stats") {
       // under the last answer of its turn
       for (let i = items.length - 1; i >= 0 && items[i].kind !== "user"; i--) {
@@ -254,6 +255,11 @@ function onEvent(state, e) {
         }
       }
       return { ...state, items, busy: state.compacting, compactOnly: state.compacting, current: null, retry: null, think: null, context: e.context ?? state.context };
+    }
+    // a loop was cut and the turn goes on (still busy)
+    case "loop_retry": {
+      state = endThink(state);
+      return { ...state, items: [...state.items, line("[SKIP]", e.text, "skip")], current: null, phase: "think" };
     }
     case "error": return { ...state, items: [...state.items, line("[FAIL]", e.message, "fail")] };
     case "retry": {
