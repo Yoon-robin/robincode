@@ -1,0 +1,16 @@
+{
+  "name": "robincode-desktop",
+  "productName": "RobinCode",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RobinCode.exe: the window around robincode/server.mjs",
+  "main": "loader.cjs",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-packager . RobinCode --platform=win32 --arch=x64 --out=out --overwrite --asar --icon=../../ops/windows/robincode.ico --app-copyright=yoonrobin.xyz --win32metadata.FileDescription=RobinCode --win32metadata.ProductName=RobinCode --ignore=^/out --ignore=^/main.cjs --ignore=^/build.cmd --ignore=^/node_modules"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.9.3"
+  }
+}
