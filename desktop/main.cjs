@@ -13,10 +13,13 @@
 //   ROBINCODE_SHELL_TEST  the window stays hidden and the sound off (tests);
 //                         ROBINCODE_SHELL_DEBUG_PORT opens DevTools' port
 //   ROBINCODE_HOME        settings and the log (default %LOCALAPPDATA%\RobinCode)
+// An installed copy (the zip from ai.yoonrobin.xyz: version.json in `dir`)
+// also updates itself (update.cjs) and puts its shortcuts on the desktop and
+// the Start menu the first time.
 const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, screen, shell } = require("electron");
 const { execFileSync, spawn } = require("node:child_process");
 const { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
-const { join } = require("node:path");
+const { dirname, join } = require("node:path");
 
 const LOADING = `<!doctype html><meta charset="utf-8"><title>RobinCode</title>
 <style>
@@ -34,6 +37,8 @@ const LOADING = `<!doctype html><meta charset="utf-8"><title>RobinCode</title>
 
 module.exports = function start(dir) {
   const TEST = !!process.env.ROBINCODE_SHELL_TEST;
+  let mine = null; // { version, build, electron } of an installed copy
+  try { mine = JSON.parse(readFileSync(join(dir, "version.json"), "utf8")); } catch { /* the repository */ }
   const extra = (process.env.ROBINCODE_SHELL_ARGS || "").split(" ").filter(Boolean);
   const home = process.env.ROBINCODE_HOME || join(process.env.LOCALAPPDATA || app.getPath("appData"), "RobinCode");
   mkdirSync(home, { recursive: true });
@@ -65,6 +70,31 @@ module.exports = function start(dir) {
       appendFileSync(logFile, text);
     } catch { /* no log, no matter */ }
   };
+  // ---- an installed copy: updates and shortcuts ----------------------------------
+  let updates = null;
+  let updateState = mine ? { version: mine.version } : null;
+  if (mine) {
+    const { updater } = require("./update.cjs");
+    updates = updater({ mine, home, log, tell: (s) => { updateState = s; win?.webContents.send("robincode:update", s); } });
+  }
+  const downloaded = mine && dir.startsWith(join(home, "versions"));
+  function shortcuts() {
+    // where the zip was unpacked: robin double-clicks it there the first time
+    const exe = process.execPath;
+    const places = [join(app.getPath("desktop"), "RobinCode.lnk"),
+      join(app.getPath("appData"), "Microsoft", "Windows", "Start Menu", "Programs", "RobinCode.lnk")];
+    for (const lnk of places) {
+      let target = null;
+      try { target = shell.readShortcutLink(lnk).target; } catch { /* none yet */ }
+      if (target && existsSync(target)) continue; // robin's own, or the repository's exe
+      try {
+        shell.writeShortcutLink(lnk, target ? "replace" : "create", { target: exe, cwd: dirname(exe), icon: exe, iconIndex: 0,
+          appUserModelId: "xyz.yoonrobin.robincode", description: "RobinCode" });
+      } catch (e) { log(`[창] 바로가기를 만들지 못했어요: ${e.message}
+`); }
+    }
+  }
+
   const status = (text) => {
     if (!loaded && win) win.webContents.executeJavaScript(`document.getElementById("t") && (document.getElementById("t").textContent = ${JSON.stringify(text)})`).catch(() => {});
   };
@@ -106,6 +136,18 @@ module.exports = function start(dir) {
     server.on("exit", (code) => {
       server = null;
       if (quitting) return;
+      // a downloaded version that does not even start: back to the one before
+      if (code && !loaded && downloaded && !TEST) {
+        const { markBad } = require("./update.cjs");
+        if (markBad(dir, `서버가 코드 ${code}로 끝남`)) {
+          log(`[창] 새 판 ${mine.version}이 켜지지 않아서 전 판으로 다시 켜요.
+`);
+          quitting = true;
+          app.relaunch();
+          app.quit();
+          return;
+        }
+      }
       // the server ended by itself: its window went (it waits 10 s), or it failed
       if (code && !TEST) dialog.showErrorBox("RobinCode", `RobinCode가 멈췄어요(코드 ${code}).\n\n${said.trim().split(/\r?\n/).slice(-8).join("\n")}\n\n기록: ${logFile}`);
       app.quit();
@@ -141,8 +183,26 @@ module.exports = function start(dir) {
     return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
   });
 
+  ipcMain.handle("robincode:update-state", () => updateState);
+  ipcMain.handle("robincode:update-check", async () => (updates ? updates.check() : updateState));
+  // "다시 켜기": the new version from the next start, now
+  ipcMain.handle("robincode:relaunch", (e) => {
+    if (!ours(e.senderFrame?.url || "")) return false;
+    quitting = true;
+    stopServer();
+    app.relaunch();
+    app.quit();
+    return true;
+  });
+
   app.whenReady().then(() => {
     nativeTheme.themeSource = "dark"; // a dark title bar
+    if (mine && !TEST) shortcuts();
+    // a look for a new version once the window is up, then every 6 hours
+    if (updates && (!TEST || process.env.ROBINCODE_UPDATE_DIST)) {
+      setTimeout(() => updates.check(), TEST ? 3000 : 20000);
+      setInterval(() => updates.check(), 6 * 3600e3).unref?.();
+    }
     // where it was last time, if that still fits on a screen
     const area = screen.getPrimaryDisplay().workArea;
     let bounds = { width: Math.min(1180, area.width), height: Math.min(860, area.height) };
@@ -153,7 +213,7 @@ module.exports = function start(dir) {
     } catch { /* first time */ }
     win = new BrowserWindow({
       ...bounds, minWidth: 420, minHeight: 480, show: false, title: "RobinCode", backgroundColor: "#070707",
-      icon: join(dir, "..", "ops", "windows", "robincode.ico"), autoHideMenuBar: true,
+      icon: existsSync(join(dir, "robincode.ico")) ? join(dir, "robincode.ico") : join(dir, "..", "ops", "windows", "robincode.ico"), autoHideMenuBar: true,
       webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false, preload: join(__dirname, "preload.cjs") },
     });
     win.once("ready-to-show", () => { if (!TEST) win.show(); });

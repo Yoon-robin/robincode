@@ -7,7 +7,7 @@
   "main": "loader.cjs",
   "scripts": {
     "start": "electron .",
-    "build": "electron-packager . RobinCode --platform=win32 --arch=x64 --out=out --overwrite --asar --icon=../../ops/windows/robincode.ico --app-copyright=yoonrobin.xyz --win32metadata.FileDescription=RobinCode --win32metadata.ProductName=RobinCode --ignore=^/out --ignore=^/main.cjs --ignore=^/build.cmd --ignore=^/node_modules"
+    "build": "electron-packager . RobinCode --platform=win32 --arch=x64 --out=out --overwrite --asar --icon=../../ops/windows/robincode.ico --app-copyright=yoonrobin.xyz --win32metadata.FileDescription=RobinCode --win32metadata.ProductName=RobinCode --ignore=^/out --ignore=^/main.cjs --ignore=^/preload.cjs --ignore=^/update.cjs --ignore=^/build.cmd --ignore=^/node_modules"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",

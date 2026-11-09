@@ -49,7 +49,11 @@ const given = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--port
 // null until a folder is chosen on the folder screen (--pick)
 let cwd = PICK && !given ? null : resolve(given || process.cwd());
 // the folder the list always has: this repository
-const HOME_REPO = resolve(here, "..");
+// an installed copy (RobinCode from ai.yoonrobin.xyz, version.json beside this
+// file): its packages and build came with it, and there is no repository to
+// update from GitHub or to put on the folder list (RobinCode.exe updates it)
+const INSTALLED = existsSync(join(here, "version.json"));
+const HOME_REPO = INSTALLED ? null : resolve(here, "..");
 const MODEL_ID = "qwen3.8-27b-uncensored-aggressive";
 // ROBINCODE_HOME moves settings, saved conversations and the window profile (tests)
 const appDir = process.env.ROBINCODE_HOME || join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "RobinCode");
@@ -107,6 +111,7 @@ const steps = { packages: false, built: false, agent: false, model: false };
 async function getReady() {
   const lock = join(here, "package-lock.json");
   const stamp = join(here, "node_modules", ".package-lock.json");
+  if (INSTALLED) steps.packages = steps.built = true;
   if (!steps.packages) {
     // the first time, or when package-lock.json changed since the last install
     // (a git pull; npm ci writes node_modules\.package-lock.json)
@@ -861,12 +866,14 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=
 // the folder screen is web/picker, built into ops/windows/robincode-picker
 // (in git, robincode.cmd shows it too), with Korean Pretendard from RobinMail
 const DIST = join(here, "web", "dist");
-const PICKER = resolve(here, "..", "ops", "windows", "robincode-picker");
-const PRETENDARD = resolve(here, "..", "robinmail", "plugins", "robinmail", "fonts", "pretendard");
+const PICKER = INSTALLED ? join(here, "picker") : resolve(here, "..", "ops", "windows", "robincode-picker");
+// an installed copy carries these itself (scripts/release-robincode.mjs)
+const PRETENDARD = INSTALLED ? join(here, "fonts", "pretendard") : resolve(here, "..", "robinmail", "plugins", "robinmail", "fonts", "pretendard");
+const ASSETS = INSTALLED ? join(here, "assets") : join(here, "..", "assets");
 const SHARED = {
-  "/fonts/pretendard-latin.woff2": join(here, "..", "assets", "pretendard-latin.woff2"),
-  "/fonts/robin-term.woff2": join(here, "..", "assets", "robin-term.woff2"),
-  "/favicon.ico": join(here, "..", "assets", "favicon.ico"),
+  "/fonts/pretendard-latin.woff2": join(ASSETS, "pretendard-latin.woff2"),
+  "/fonts/robin-term.woff2": join(ASSETS, "robin-term.woff2"),
+  "/favicon.ico": join(ASSETS, "favicon.ico"),
 };
 function inside(base, rel) {
   const file = resolve(base, `.${rel}`);
@@ -928,7 +935,7 @@ async function pickerCall(req, res, url) {
     }
     case "browse": {
       const start = String(body.start || "");
-      const r = await browseFolder(folderExists(start) ? start : cwd || HOME_REPO);
+      const r = await browseFolder(folderExists(start) ? start : cwd || HOME_REPO || homedir());
       if (r.error) { send(res, 500, { error: r.error }); return; }
       // only named: the page opens it as any other folder (and shows the getting ready)
       send(res, 200, { path: r.path ? cleanPath(r.path) : null, pick: true });
@@ -1325,7 +1332,7 @@ if (PARENT) {
 // (modules already loaded are the old ones); the packages and the build follow
 // on their own (getReady compares times). Anything odd: carry on as it is.
 async function selfUpdate() {
-  if (!PICK || process.env.ROBINCODE_NO_UPDATE || process.env.ROBINCODE_UPDATED) return;
+  if (!PICK || INSTALLED || process.env.ROBINCODE_NO_UPDATE || process.env.ROBINCODE_UPDATED) return;
   if (FAKE && !process.env.ROBINCODE_UPDATE) return; // tests: only when asked (ROBINCODE_UPDATE=1)
   const git = (...a) => run("git", ["-C", HOME_REPO, ...a], 20000);
   const branchNow = (await git("rev-parse", "--abbrev-ref", "HEAD")).out.trim();

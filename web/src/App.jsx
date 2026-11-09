@@ -615,8 +615,42 @@ function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew,
         </div>
         <div className="side-row"><span className="side-label">모델</span><span className="mono">{state.info.model}</span></div>
         <Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} onOpen={onGpu} />
+        <UpdateRow />
       </div>
     </aside>
+  );
+}
+
+// an installed RobinCode (the zip from ai.yoonrobin.xyz) says its version and
+// a new one it downloaded (RobinCode.exe's update.cjs); the repository's says nothing
+function UpdateRow() {
+  const shell = window.robincodeShell;
+  const [u, setU] = useState(null);
+  useEffect(() => {
+    if (!shell?.updateState) return undefined;
+    shell.updateState().then(setU).catch(() => {});
+    return shell.onUpdate(setU);
+  }, [shell]);
+  if (!u?.version) return null;
+  return (
+    <div className="side-row update-row">
+      <span className="side-label">판</span>
+      <span className="update-line">
+        <span className="mono">{u.version}</span>
+        {u.ready && u.ready !== u.version ? (
+          <span className="update-new">
+            새 판 <span className="mono">{u.ready}</span> 받아 둠
+            <button type="button" className="mini-btn" onClick={() => shell.relaunch()} title="지금 다시 켜서 새 판으로 바꿔요. 안 누르면 다음에 켤 때 바뀌어요.">다시 켜기</button>
+          </span>
+        ) : u.shell ? (
+          <span className="update-new warn">새 판 <span className="mono">{u.shell}</span>은 <a href="https://ai.yoonrobin.xyz/" target="_blank" rel="noreferrer">ai.yoonrobin.xyz</a>에서 다시 받아야 해요</span>
+        ) : u.checking ? (
+          <span className="update-faint">새 판 확인 중<span className="cursor" aria-hidden="true" /></span>
+        ) : u.error ? (
+          <span className="update-faint" title={u.error}>새 판을 확인하지 못했어요</span>
+        ) : null}
+      </span>
+    </div>
   );
 }
 
