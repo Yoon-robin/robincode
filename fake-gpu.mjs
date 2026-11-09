@@ -22,6 +22,8 @@ switch (cmd) {
     else if (st.state === "starting") console.log("GPU 서버: 켜는 중이에요.\n요금: 켜 둔 동안 시간당 $0.51");
     else console.log('GPU 서버: 꺼져 있어요(빌린 GPU 없음, 요금 0). RobinAI 화면은 "꺼짐"이에요.');
     console.log(`남은 크레딧: $${st.credit.toFixed(2)}${st.state === "running" ? ` → 지금 상태로 약 ${Math.floor(st.credit / 0.51)}시간` : " (빌리면 RTX 5090은 시간당 약 $0.5)"}`);
+    if (st.state === "running") console.log("자동 끄기: 안 쓴 지 4분 — 30분이 되면 꺼요");
+    else if (st.state === "none") console.log("자동 끄기: 켜면 30분 동안 아무도 안 쓸 때 알아서 꺼요");
     break;
   case "offers":
     await sleep(300);

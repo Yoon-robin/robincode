@@ -205,6 +205,12 @@ function parseGpu(text) {
       g.left = `약 ${m[1]}${m[2]}`;
       g.hours = m[2] === "분" ? 0 : m[2] === "일" ? Number(m[1]) * 24 : Number(m[1]);
     }
+    // the server deletes an unused GPU by itself (robinai-gpu autooff, cron)
+    if ((m = l.match(/^자동 끄기: (.+)$/))) {
+      g.autooff = m[1].trim();
+      const n = g.autooff.match(/(\d+)분(?:이 되면| 동안 아무도)/);
+      if (n) g.idleLimit = Number(n[1]);
+    }
   }
   return g;
 }

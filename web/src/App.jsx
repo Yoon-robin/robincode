@@ -628,6 +628,7 @@ function GpuPanel({ gpu, job, onClose }) {
           {rented && gpu.rate && <span>시간당 ${gpu.rate}</span>}
           {gpu.credit != null && <span className={credit != null && credit < 1 ? "warn" : ""}>크레딧 ${gpu.credit}{gpu.left ? ` · ${gpu.left}` : ""}</span>}
         </div>
+        {gpu.autooff && <p className="gpu-note gpu-autooff">자동 끄기 · {gpu.autooff}</p>}
 
         {showJob && <JobLog job={job} />}
 
@@ -657,7 +658,7 @@ function GpuPanel({ gpu, job, onClose }) {
             )}
             {chosen && (sure === "rent" ? (
               <div className="gpu-confirm">
-                <p>빌리면 시간당 <b>${chosen.hour}</b>가 크레딧에서 계속 나가요. 이미지와 모델을 받는 데 약 {chosen.mins + 3}분 걸려요. 다 쓰면 꼭 끄세요.</p>
+                <p>빌리면 시간당 <b>${chosen.hour}</b>가 크레딧에서 계속 나가요. 이미지와 모델을 받는 데 약 {chosen.mins + 3}분 걸려요. 다 쓰면 끄세요{gpu.idleLimit ? <>. 깜빡해도 {gpu.idleLimit}분 동안 아무도 안 쓰면 서버가 알아서 지워요.</> : "."}</p>
                 <div className="gpu-actions">
                   <button type="button" className="btn" onClick={() => setSure(null)}>취소</button>
                   <button type="button" className="btn btn-primary" autoFocus onClick={() => run("rent", chosen.offer)}>빌리기 · 시간당 ${chosen.hour}</button>
