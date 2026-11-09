@@ -25,7 +25,7 @@ import { execFile, spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 // no fs.rmSync: on Node 24.13 for Windows it kills the process on any path with
 // Korean in it (2026-11-09); fs.promises.rm and unlinkSync are fine
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { connect } from "node:net";
@@ -211,7 +211,7 @@ async function keepTunnel() {
 // reached, instead of Pi's three retries and "Connection error."
 async function modelProblem() {
   if (FAKE || await health(modelPort)) return null;
-  await refreshGpu();
+  if (!(await refreshGpu())) return { message: "서버(ssh contabo)에 닿지 않아요. 인터넷 연결을 봐 주세요." };
   const s = gpu.state;
   if (s === "off") return { gpuOff: true, message: "GPU가 꺼져 있어요. 켜고 나서 보내 주세요." };
   if (s === "starting") return { gpuOff: true, message: "GPU를 켜는 중이에요. 준비되면 보내 주세요." };
@@ -297,11 +297,22 @@ function parseGpu(text) {
   }
   return g;
 }
+// true when the server answered. Two misses in a row say "확인 못 함" (one
+// kept the last answer, so with the internet gone it said "켜짐" for hours);
+// an answer that comes after a newer one is dropped
+let gpuAsked = 0;
+let gpuTaken = 0;
+let gpuMisses = 0;
 async function refreshGpu() {
+  const n = ++gpuAsked;
   const r = await gpuRun("status");
-  if (r.ok && /GPU 서버: /.test(r.out)) gpu = parseGpu(r.out);
-  else if (gpu.state === "unknown") gpu = { state: "unreachable" };
+  const ok = r.ok && /GPU 서버: /.test(r.out);
+  if (n < gpuTaken) return ok;
+  gpuTaken = n;
+  if (ok) { gpu = parseGpu(r.out); gpuMisses = 0; }
+  else if (++gpuMisses >= 2 || gpu.state === "unknown") gpu = { state: "unreachable", credit: gpu.credit };
   broadcast({ t: "gpu", gpu, fake: FAKE });
+  return ok;
 }
 // near the automatic off (robinai-gpu autooff deletes an unused GPU) the
 // minutes are read every 20 s, so the window's warning and its "계속 켜 두기"
@@ -390,6 +401,9 @@ const saveSettings = () => { try { writeFileSync(settingsFile, JSON.stringify(se
 const THINK_LEVEL = "medium";
 const thinkingLevel = () => (settings.thinking ? THINK_LEVEL : "off");
 const pending = new Map(); // toolCallId -> resolve(decision)
+// the questions waiting, for a window that connects again (a reloaded page
+// lost the buttons, and the agent waited for an answer nobody could give)
+const asking = new Map(); // toolCallId -> { id, name, args }
 const ASK_TOOLS = new Set(["powershell", "bash", "edit", "write"]);
 
 const approvals = {
@@ -400,9 +414,11 @@ const approvals = {
       // the file as it is right before the change runs (after robin said yes)
       const going = () => { if (FILE_TOOLS.has(event.toolName)) beforeChange(event.toolCallId, event.input?.path); return undefined; };
       if (mode === "auto" || !ASK_TOOLS.has(event.toolName)) return going();
+      asking.set(event.toolCallId, { id: event.toolCallId, name: event.toolName, args: event.input });
       broadcast({ t: "approve", id: event.toolCallId, name: event.toolName, args: event.input });
       const decision = await new Promise((r) => pending.set(event.toolCallId, r));
       pending.delete(event.toolCallId);
+      asking.delete(event.toolCallId);
       if (decision === "always") { mode = "auto"; broadcast({ t: "mode", mode }); return going(); }
       if (decision === "yes") return going();
       return { block: true, reason: "robin이 이 도구 호출을 허락하지 않았어요. 다른 방법을 물어보거나 멈추세요." };
@@ -559,6 +575,8 @@ async function startSession(sessionManager) {
     tools: ["read", "edit", "write", "grep", "find", "ls", "powershell"],
     sessionManager: sessionManager || SessionManager.create(cwd, sessionDir),
   });
+  // a question still waiting in the old conversation: no (its turn ends)
+  for (const resolveDecision of pending.values()) resolveDecision("no");
   session?.dispose();
   session = created.session;
   // a turn cut off by the switch must not lend its start to the next one
@@ -765,7 +783,7 @@ const state = () => {
   return {
     cwd, folder: cwd ? basename(cwd) || cwd : "", model: "Qwen3.8-27B", fake: FAKE, gpuFake: !!FAKE_GPU, gpu, gpuJob: job, mode, thinking: !!settings.thinking,
     busy: busyNow(), compacting: !!session?.isCompacting, context: contextUsage(), history: history(),
-    sessionFile: session?.sessionFile || null,
+    sessionFile: session?.sessionFile || null, asking: [...asking.values()],
     // a name robin gave it, else its first message
     title: session?.sessionName || firstWords || (first ? "그림" : ""),
   };
@@ -1175,6 +1193,9 @@ const server = createServer(async (req, res) => {
         const current = found.path === session?.sessionFile;
         if (current && busyNow()) { send(res, 409, { error: "busy" }); return; }
         renameSync(found.path, found.path + DELETED);
+        // the day before it goes for good counts from now (a rename keeps the
+        // old time, and a conversation last used a week ago went at the next start)
+        try { const now = new Date(); utimesSync(found.path + DELETED, now, now); } catch { }
         if (current) { mode = "ask"; await startSession(SessionManager.create(cwd, sessionDir)); }
         send(res, 200, { ok: true, current });
         return;
@@ -1205,6 +1226,8 @@ const server = createServer(async (req, res) => {
         return;
       }
       case "/api/new":
+        // like open and delete: a turn that is running is not cut off unseen
+        if (busyNow()) { send(res, 409, { error: "busy" }); return; }
         mode = "ask"; // "allow all" was for that conversation only
         await startSession(SessionManager.create(cwd, sessionDir));
         send(res, 200, { ok: true });
@@ -1216,7 +1239,7 @@ const server = createServer(async (req, res) => {
       case "/api/gpu-keep": {
         // "계속 켜 두기": the server counts the unused minutes from 0 again
         if (FAKE && !FAKE_GPU) { send(res, 400, { error: "가짜 모델로 시험 중이에요." }); return; }
-        const r = await gpuRun("keep");
+        const r = await gpuRun("keep", 100000); // it waits up to 90 s for an automatic off running now
         await refreshGpu();
         if (!r.ok) { send(res, 502, { error: r.out.trim() || "서버에 닿지 않아요(ssh contabo)." }); return; }
         send(res, 200, { ok: true, said: r.out.trim() });
@@ -1274,6 +1297,25 @@ function shutdown() {
   process.exit(0);
 }
 process.on("SIGINT", shutdown);
+// a crash still ends what this started (the ssh tunnel and GPU ssh were left
+// running until the PC restarted)
+const crash = (e) => {
+  try { log("멈췄어요:", e?.stack || e); } catch { }
+  for (const c of children) { try { c.kill(); } catch { } }
+  process.exit(1);
+};
+process.on("uncaughtException", crash);
+process.on("unhandledRejection", crash);
+// RobinCode.exe names itself (ROBINCODE_PARENT): when it is gone without
+// closing this (it crashed, or was ended in Task Manager), so is this server.
+// Without it the server kept the tunnel and asked the GPU's status every
+// minute, and the next start had to take another port
+const PARENT = Number(process.env.ROBINCODE_PARENT) || 0;
+if (PARENT) {
+  setInterval(() => {
+    try { process.kill(PARENT, 0); } catch (e) { if (e.code === "ESRCH") { log("RobinCode.exe가 없어져서 끝내요."); shutdown(); } }
+  }, 5000).unref();
+}
 
 // ---- the newest RobinCode from GitHub, before anything is loaded ---------------
 // The other PC (Blitz) had to `git pull` by hand to get a new version. From the

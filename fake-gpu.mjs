@@ -15,6 +15,8 @@ const STEP = Number(process.env.ROBINCODE_FAKE_GPU_STEP) || 400;
 let st = { state: "none", credit: 3.2, idle: 4 };
 try { st = { ...st, ...JSON.parse(readFileSync(file, "utf8")) }; } catch { /* first call */ }
 const save = () => writeFileSync(file, JSON.stringify(st));
+// tests: the server cannot be reached (ssh fails), for every command
+if (st.down) { console.error("ssh: connect to host contabo port 22: Connection timed out"); process.exit(255); }
 const OFFERS = [
   [50001, "South Korea, KR", "데이터센터", 0.51, 22, 99.9, 4, 632, 0.1],
   [50002, "South Korea, KR", "데이터센터", 0.51, 22, 99.8, 5, 488, 0.1],

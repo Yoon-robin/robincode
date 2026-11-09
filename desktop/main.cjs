@@ -73,6 +73,7 @@ module.exports = function start(dir) {
     log(`\n==== ${new Date().toISOString()} RobinCode.exe\n`);
     server = spawn("node", [join(dir, "server.mjs"), "--pick", "--no-window", ...extra], {
       cwd: dir, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, ROBINCODE_PARENT: String(process.pid) }, // the server ends when this does, even by a crash
     });
     let carry = "";
     const take = (b) => {

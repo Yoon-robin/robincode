@@ -120,6 +120,15 @@ export function reducer(state, action) {
   }
 }
 
+// the questions still waiting on the server get their buttons back (a window
+// that connected again)
+function withAsking(items, asking) {
+  if (!asking?.length) return items;
+  const out = items.slice();
+  for (const a of asking) if (!updateTool(out, a.id, { ask: true, status: "run", args: a.args || {} })) addTool(out, { id: a.id, name: a.name, args: a.args || {}, status: "run", ask: true });
+  return out;
+}
+
 function onEvent(state, e) {
   switch (e.t) {
     case "reset": {
@@ -128,7 +137,7 @@ function onEvent(state, e) {
         ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, model: s.model }, fake: s.fake, gpu: s.gpu, gpuFake: !!s.gpuFake, gpuJob: s.gpuJob || null,
         mode: s.mode, thinking: !!s.thinking, think: null, context: s.context, busy: s.busy, startedAt: s.busy ? Date.now() : 0,
         phase: s.compacting ? "compact" : "think", compacting: !!s.compacting, compactOnly: !!s.compacting,
-        items: fromHistory(s.history, !!e.quiet), current: null, sessionFile: s.sessionFile, title: s.title, retry: null,
+        items: withAsking(fromHistory(s.history, !!e.quiet), s.asking), current: null, sessionFile: s.sessionFile, title: s.title, retry: null,
       };
     }
     case "user": {
