@@ -28,6 +28,7 @@ export const initial = {
   retry: null, // Pi retrying a request that failed on the way: { attempt, max, at }
   compacting: false, // Pi summarizing the start of the conversation
   compactOnly: false, // ...and that is all that is going on (not a turn)
+  running: [], // conversations going on, this one too: [{ path, title, asking }]
 };
 
 let seq = 0;
@@ -129,15 +130,34 @@ function withAsking(items, asking) {
   return out;
 }
 
+// what the model is writing right now, in a conversation robin came back to
+function withLive(items, live) {
+  if (!live || (!live.thinking && !live.text)) return { items, think: null, current: null };
+  const out = items.slice();
+  let think = null;
+  let current = null;
+  if (live.thinking) {
+    const step = thinkStep(live.thinking, { status: live.text ? "ok" : "run", startedAt: Date.now() });
+    addTool(out, step);
+    if (!live.text) think = step.id;
+  }
+  if (live.text) {
+    current = nid();
+    out.push({ kind: "assistant", id: current, text: live.text, streaming: true });
+  }
+  return { items: out, think, current };
+}
+
 function onEvent(state, e) {
   switch (e.t) {
     case "reset": {
       const s = e.state;
+      const now = withLive(withAsking(fromHistory(s.history, !!e.quiet), s.asking), s.live);
       return {
         ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, model: s.model }, fake: s.fake, gpu: s.gpu, gpuFake: !!s.gpuFake, gpuJob: s.gpuJob || null,
-        mode: s.mode, thinking: !!s.thinking, think: null, context: s.context, busy: s.busy, startedAt: s.busy ? Date.now() : 0,
-        phase: s.compacting ? "compact" : "think", compacting: !!s.compacting, compactOnly: !!s.compacting,
-        items: withAsking(fromHistory(s.history, !!e.quiet), s.asking), current: null, sessionFile: s.sessionFile, title: s.title, retry: null,
+        mode: s.mode, thinking: !!s.thinking, think: now.think, context: s.context, busy: s.busy, startedAt: s.busy ? s.startedAt || Date.now() : 0,
+        phase: s.compacting ? "compact" : now.current ? "write" : "think", compacting: !!s.compacting, compactOnly: !!s.compacting,
+        items: now.items, current: now.current, sessionFile: s.sessionFile, title: s.title, retry: null, running: s.running || [],
       };
     }
     case "user": {
@@ -242,6 +262,7 @@ function onEvent(state, e) {
       return { ...state, items, current: null, phase: "think", retry: { attempt: e.attempt, max: e.max, at: Date.now() + (e.delayMs || 0) } };
     }
     case "retry_end": return { ...state, retry: null };
+    case "running": return { ...state, running: e.running || [] };
     case "gpu": return { ...state, gpu: e.gpu, fake: e.fake };
     case "gpu_job": return { ...state, gpuJob: e.job };
     case "mode": return { ...state, mode: e.mode };

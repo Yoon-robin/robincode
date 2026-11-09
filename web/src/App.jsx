@@ -488,7 +488,14 @@ function Mark({ text, q }) {
   return <>{text.slice(0, at)}<mark>{text.slice(at, at + q.length)}</mark>{text.slice(at + q.length)}</>;
 }
 
-function Conv({ s, q, current, busy, busyNote, now, onOpen, onDelete, onRename }) {
+// a conversation going on: "도는 중" (or waiting for a yes) where its time was
+function RunMark({ run }) {
+  return run.asking
+    ? <span className="conv-time conv-run conv-ask">[ ?? ] 허락을 기다려요</span>
+    : <span className="conv-time conv-run">[ .. ] 도는 중<span className="cursor" aria-hidden="true" /></span>;
+}
+
+function Conv({ s, q, current, run, now, folder, onOpen, onDelete, onRename }) {
   const [editing, setEditing] = useState(false);
   const done = useRef(false);
   const finish = (value) => {
@@ -513,18 +520,21 @@ function Conv({ s, q, current, busy, busyNote, now, onOpen, onDelete, onRename }
           }} />
       ) : (
         <>
-          <button type="button" className="conv-open" disabled={busy} title={busyNote || s.title} onClick={() => onOpen(s.path)}>
+          <button type="button" className="conv-open" title={folder ? `${s.title}\n${folder}` : s.title} onClick={() => onOpen(s.path)}>
             <span className="conv-title"><Mark text={s.title} q={q} /></span>
-            {s.snippet
-              ? <span className="conv-snip"><Mark text={s.snippet.text} q={q} /></span>
-              : <span className="conv-time">{ago(s.modified, now)}</span>}
+            {folder && <span className="conv-time conv-folder mono">{shortPath(folder)}</span>}
+            {run ? <RunMark run={run} />
+              : s.snippet ? <span className="conv-snip"><Mark text={s.snippet.text} q={q} /></span>
+                : !folder && <span className="conv-time">{ago(s.modified, now)}</span>}
           </button>
-          <span className="conv-acts">
-            <button type="button" className="icon-btn conv-act" aria-label={`"${s.title}" 이름 바꾸기`} title="이름 바꾸기"
-              disabled={current && busy} onClick={edit}><Icon name="edit" /></button>
-            <button type="button" className="icon-btn conv-act" aria-label={`"${s.title}" 지우기`} title="지우기"
-              disabled={current && busy} onClick={() => onDelete(s)}><Icon name="close" /></button>
-          </span>
+          {onRename && (
+            <span className="conv-acts">
+              <button type="button" className="icon-btn conv-act" aria-label={`"${s.title}" 이름 바꾸기`} title="이름 바꾸기"
+                disabled={!!run} onClick={edit}><Icon name="edit" /></button>
+              <button type="button" className="icon-btn conv-act" aria-label={`"${s.title}" 지우기`} title="지우기"
+                disabled={!!run} onClick={() => onDelete(s)}><Icon name="close" /></button>
+            </span>
+          )}
         </>
       )}
     </li>
@@ -543,8 +553,8 @@ function moveInList(e) {
 
 function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch, onGpu }) {
   const now = useNow(60000);
-  const busyNote = state.busy ? "끝나거나 멈춘 뒤에 열 수 있어요" : undefined;
   const nav = useRef(null);
+  const runOf = (path) => state.running.find((r) => r.path === path);
   // words to find: the server looks in every conversation's names and text
   const [q, setQ] = useState("");
   const [found, setFound] = useState(null);
@@ -558,16 +568,20 @@ function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew,
     return () => { live = false; clearTimeout(id); };
   }, [words, state.sessions]);
   const conv = (s, hit) => (
-    <Conv key={s.path} s={s} q={hit} current={s.path === state.sessionFile} busy={state.busy} busyNote={busyNote} now={now}
+    <Conv key={s.path} s={s} q={hit} current={s.path === state.sessionFile} run={runOf(s.path)} now={now}
       onOpen={onOpen} onDelete={onDelete} onRename={onRename} />
   );
+  // going on in another folder (this folder's list does not have them)
+  const listed = new Set((state.sessions || []).map((s) => s.path));
+  const elsewhere = state.running.filter((r) => r.path !== state.sessionFile && !listed.has(r.path)
+    && r.cwd?.toLowerCase() !== state.info.cwd?.toLowerCase());
   return (
     <aside className="side" id="side" aria-label="대화 목록">
       <div className="side-head">
         <span className="brand">ROBINCODE</span>
         <button ref={closeRef} type="button" className="icon-btn side-close" aria-label="목록 닫기" onClick={onClose}><Icon name="close" /></button>
       </div>
-      <button type="button" className="btn new-chat" onClick={onNew} disabled={state.busy} title={busyNote}>
+      <button type="button" className="btn new-chat" onClick={onNew} title="이 폴더에서 새 대화. 도는 대화는 그대로 계속해요.">
         <Icon name="plus" /> 새 대화
       </button>
       <div className="conv-search">
@@ -578,13 +592,21 @@ function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew,
             if (e.nativeEvent.isComposing) return;
             // Esc here clears the words, then leaves (it must not stop the agent)
             if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); if (q) setQ(""); else onLeaveSearch(); }
-            else if (e.key === "Enter" && found?.list.length && !state.busy) { e.preventDefault(); onOpen(found.list[0].path); setQ(""); }
+            else if (e.key === "Enter" && found?.list.length) { e.preventDefault(); onOpen(found.list[0].path); setQ(""); }
             else if (e.key === "ArrowDown") { e.preventDefault(); nav.current?.querySelector(".conv-open:not(:disabled)")?.focus(); }
           }} />
         {q ? <button type="button" className="icon-btn search-x" aria-label="찾기 지우기" onClick={() => { setQ(""); searchRef.current?.focus(); }}><Icon name="close" /></button>
           : <kbd className="search-key">Ctrl K</kbd>}
       </div>
       <nav ref={nav} className="conv-nav" aria-label="지난 대화" onKeyDown={moveInList}>
+        {!words && elsewhere.length > 0 && (
+          <section className="conv-day" aria-label="다른 폴더에서 도는 대화">
+            <p className="side-label">다른 폴더에서 도는 대화</p>
+            <ul className="conv-list">{elsewhere.map((r) => (
+              <Conv key={r.path} s={{ path: r.path, title: r.title }} q="" current={false} run={r} now={now} folder={r.cwd} onOpen={onOpen} />
+            ))}</ul>
+          </section>
+        )}
         {words && found ? (
           <section className="conv-day" aria-label="찾은 대화">
             <p className="side-label" aria-live="polite">{found.list.length ? `찾은 대화 ${found.list.length}개` : `"${found.q}"가 든 대화가 없어요.`}</p>
@@ -608,9 +630,8 @@ function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew,
           <span className="folder-line">
             <span className="mono">{shortPath(state.info.cwd)}</span>
             {/* the folder screen, in this window; Esc there comes back */}
-            <a className="mini-btn" href={pickerUrl()} aria-disabled={state.busy || undefined}
-              title={state.busy ? "도는 중이라 지금은 못 바꿔요. 끝나거나 멈춘 뒤에 바꿔요." : "다른 폴더에서 열어요(이 대화는 목록에 남아요)."}
-              onClick={(e) => { if (state.busy) e.preventDefault(); }}>바꾸기</a>
+            <a className="mini-btn" href={pickerUrl()}
+              title="다른 폴더에서 새 대화를 열어요. 이 대화는 목록에 남고, 도는 중이면 그대로 계속해요.">바꾸기</a>
           </span>
         </div>
         <div className="side-row"><span className="side-label">모델</span><span className="mono">{state.info.model}</span></div>
@@ -877,8 +898,13 @@ export default function App() {
     api("/api/sessions").then((r) => dispatch({ type: "sessions", sessions: r.sessions })).catch(() => {});
   }, []);
 
-  useEffect(() => connect((e) => dispatch({ type: "event", e }), (up) => dispatch({ type: "link", up })), []);
-  useEffect(() => { if (state.ready) loadSessions(); }, [state.ready, state.sessionFile, state.busy, loadSessions]);
+  // a conversation robin left (it goes on) ended: a note, and Windows' when allowed
+  const onBg = useRef(null);
+  useEffect(() => connect((e) => {
+    if (e.t === "bg_done") onBg.current?.(e);
+    dispatch({ type: "event", e });
+  }, (up) => dispatch({ type: "link", up })), []);
+  useEffect(() => { if (state.ready) loadSessions(); }, [state.ready, state.sessionFile, state.busy, state.running.length, loadSessions]);
   // the taskbar shows it too: a question waiting, or still running
   const waiting = !!askingTool(state);
   useEffect(() => {
@@ -969,6 +995,23 @@ export default function App() {
   const compact = () => api("/api/compact").catch((e) => (e.message === "busy" || e.gpuOff ? fail(e) : say(e.message)));
 
   const asking = askingTool(state);
+  onBg.current = (e) => {
+    const how = e.aborted ? "멈췄어요" : e.failed ? "막혔어요" : "끝났어요";
+    say(`"${e.title}" 대화가 ${how}.`, { label: "열기", run: () => open(e.path) });
+    if (notify === "on" && !e.aborted) ping(e.failed ? "막혔어요" : "끝났어요", `${e.title}\n${e.said || ""}`.trim());
+  };
+  // one robin left asks for a yes (it waits until robin opens it)
+  const askedBefore = useRef(new Set());
+  useEffect(() => {
+    const now = new Set(state.running.filter((r) => r.asking && r.path !== state.sessionFile).map((r) => r.path));
+    for (const path of now) {
+      if (askedBefore.current.has(path)) continue;
+      const r = state.running.find((x) => x.path === path);
+      say(`"${r.title}" 대화가 허락을 기다려요.`, { label: "열기", run: () => open(path) });
+      if (notify === "on") ping("허락을 기다려요", r.title);
+    }
+    askedBefore.current = now;
+  }, [state.running]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggleNotify = async () => {
     if (notify === "on") { keepNotify(false); setNotify("off"); return; }
     const answer = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();

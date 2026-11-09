@@ -60,11 +60,11 @@ async function opening(res) {
     await sleep(40);
   }
 }
-async function streamText(res, text, usage) {
+async function streamText(res, text, usage, step = 25) {
   await opening(res);
   for (const piece of text.match(/.{1,6}/gsu) || []) {
     sse(res, chunk({ content: piece }));
-    await sleep(25);
+    await sleep(step);
   }
   sse(res, chunk({}, "stop"));
   sse(res, { ...chunk({}, null, usage), choices: [] });
@@ -164,6 +164,10 @@ createServer(async (req, res) => {
   const pointed = said.match(/@(\S+)/)?.[1];
   if (pictures) {
     await streamText(res, `그림 ${pictures}장을 받았어요. 가짜 모델이라 그림 안은 못 봐요.`, usage);
+  } else if (/(긴 답|long answer)/i.test(said)) {
+    // "긴 답": about 8 s of writing (a conversation that goes on while robin is in another)
+    const words = "천천히 길게 답하는 중이에요. 다른 대화로 가도 이 답은 계속 써져요. ";
+    await streamText(res, words.repeat(8), usage, 120);
   } else if (/(끊김|끊겨|dropped)/i.test(said)) {
     await streamText(res, "다시 연결돼서 답해요. 첫 요청은 503으로 끊겼어요.", usage);
   } else if (pointed && tools.includes(pointed.endsWith("/") ? "ls" : "read")) {

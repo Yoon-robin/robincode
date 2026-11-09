@@ -393,9 +393,20 @@ const KOREAN = `## RobinCode
 - 모르는 건 지어내지 말고 확인하거나 모른다고 말해요.
 - robin이 \`@경로\`로 가리킨 파일·폴더는 이 폴더 기준 경로예요. 필요하면 먼저 read·ls로 봐요.`;
 
+// Conversations held open (robin 2026-11-09 "한 창에서 대화 여러 개"): the one
+// on screen (cur, its Pi session in `session`), and any robin left while it
+// still ran or waited for a yes; those go on unseen and are let go once they
+// settle. Each has its own folder ("각자 다른폴더에서"): `cwd` is the folder
+// of the one on screen (its list, @ files, the folder row), and follows it.
+// Each: { session, cwd, mode, turn, gen, live, shelf }
+// mode: ask = commands and file changes wait for a yes; auto = run everything
+const convs = new Set();
+let cur = null;
 let session;
 let runtime;
-let mode = "ask"; // ask: commands and file changes wait for a yes; auto: run everything
+// the GPU's llama-server answers two requests at once (two slots, one pool):
+// a third conversation would only wait, so it is not started
+const MAX_RUNNING = 2;
 // the window's own settings (thinking on/off), in RobinCode's folder
 const settingsFile = join(appDir, "robincode.json");
 let settings = {};
@@ -408,28 +419,33 @@ const thinkingLevel = () => (settings.thinking ? THINK_LEVEL : "off");
 const pending = new Map(); // toolCallId -> resolve(decision)
 // the questions waiting, for a window that connects again (a reloaded page
 // lost the buttons, and the agent waited for an answer nobody could give)
-const asking = new Map(); // toolCallId -> { id, name, args }
+// (and for a conversation robin comes back to)
+const asking = new Map(); // toolCallId -> { id, name, args, conv }
 const ASK_TOOLS = new Set(["powershell", "bash", "edit", "write"]);
+// the questions of one conversation answered no (it stops, or is let go)
+const refuse = (conv) => { for (const [id, a] of asking) if (a.conv === conv) pending.get(id)?.("no"); };
 
-const approvals = {
+const approvalsFor = (conv) => ({
   name: "robincode-approvals",
   hidden: true,
   factory: (pi) => {
     pi.on("tool_call", async (event) => {
       // the file as it is right before the change runs (after robin said yes)
-      const going = () => { if (FILE_TOOLS.has(event.toolName)) beforeChange(event.toolCallId, event.input?.path); return undefined; };
-      if (mode === "auto" || !ASK_TOOLS.has(event.toolName)) return going();
-      asking.set(event.toolCallId, { id: event.toolCallId, name: event.toolName, args: event.input });
-      broadcast({ t: "approve", id: event.toolCallId, name: event.toolName, args: event.input });
+      const going = () => { if (FILE_TOOLS.has(event.toolName)) beforeChange(conv, event.toolCallId, event.input?.path); return undefined; };
+      if (conv.mode === "auto" || !ASK_TOOLS.has(event.toolName)) return going();
+      asking.set(event.toolCallId, { id: event.toolCallId, name: event.toolName, args: event.input, conv });
+      if (conv === cur) broadcast({ t: "approve", id: event.toolCallId, name: event.toolName, args: event.input });
+      sayRunning();
       const decision = await new Promise((r) => pending.set(event.toolCallId, r));
       pending.delete(event.toolCallId);
       asking.delete(event.toolCallId);
-      if (decision === "always") { mode = "auto"; broadcast({ t: "mode", mode }); return going(); }
+      sayRunning();
+      if (decision === "always") { conv.mode = "auto"; if (conv === cur) broadcast({ t: "mode", mode: conv.mode }); return going(); }
       if (decision === "yes") return going();
       return { block: true, reason: "robin이 이 도구 호출을 허락하지 않았어요. 다른 방법을 물어보거나 멈추세요." };
     });
   },
-};
+});
 
 // ---- files the model changed, so going back can put them back -----------------
 // edit and write only: right before one runs, the file as it was; after, as it
@@ -440,24 +456,25 @@ const approvals = {
 const FILE_TOOLS = new Set(["edit", "write"]);
 const BIG = 8e6; // a larger file is not kept, and going back leaves it
 const FILES = ".files";
-let shelf = null; // { file, dir, index: { calls: { toolCallId: { path, before, after, at } }, known: { key: hash } } }
+let shelf = null; // the conversation's (theShelf sets it): { file, dir, index: { calls: { toolCallId: { path, before, after, at } }, known: { key: hash } } }
 const sha = (buf) => createHash("sha256").update(buf).digest("hex");
 // Windows paths do not care about case
 const keyOf = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
-const absPath = (p) => {
+const absPath = (p, base = cwd) => {
   let s = String(p || "").trim().replace(/^@/, "");
   if (s === "~" || /^~[\\/]/.test(s)) s = join(homedir(), s.slice(1));
-  return resolve(cwd, s);
+  return resolve(base, s);
 };
 const shown = (p) => { const r = relative(cwd, p); return r && !r.startsWith("..") && !isAbsolute(r) ? r.replace(/\\/g, "/") : p; };
-function theShelf() {
-  const file = session?.sessionFile;
+function theShelf(conv = cur) {
+  const file = conv?.session?.sessionFile;
   if (!file) return null;
-  if (shelf?.file !== file) {
+  if (conv.shelf?.file !== file) {
     let index = {};
     try { index = JSON.parse(readFileSync(join(`${file}${FILES}`, "index.json"), "utf8")) || {}; } catch { /* nothing kept yet */ }
-    shelf = { file, dir: `${file}${FILES}`, index: { calls: index.calls || {}, known: index.known || {} } };
+    conv.shelf = { file, dir: `${file}${FILES}`, index: { calls: index.calls || {}, known: index.known || {} } };
   }
+  shelf = conv.shelf;
   return shelf;
 }
 function keepShelf() {
@@ -480,13 +497,13 @@ function take(path, keep = true) {
   return hash;
 }
 const keepable = (h) => h !== "big" && h !== "unread";
-function beforeChange(id, p) {
-  if (!p || !theShelf()) return;
-  const path = absPath(p);
+function beforeChange(conv, id, p) {
+  if (!p || !theShelf(conv)) return;
+  const path = absPath(p, conv.cwd);
   try { shelf.index.calls[id] = { path, before: take(path), at: Date.now() }; } catch (e) { log("고치기 전 파일을 담지 못했어요:", e.message); }
 }
-function afterChange(id) {
-  const rec = theShelf()?.index.calls[id];
+function afterChange(conv, id) {
+  const rec = theShelf(conv)?.index.calls[id];
   if (!rec || "after" in rec) return;
   try { rec.after = take(rec.path); } catch { rec.after = "unread"; }
   // a failed edit changed nothing
@@ -544,6 +561,39 @@ function syncFiles() {
   return { done, left };
 }
 
+// a conversation that is not on screen and has nothing going on is let go
+const running = (conv) => !!(conv?.session?.isStreaming || conv?.session?.isCompacting);
+const othersRunning = () => [...convs].filter((c) => c !== cur && running(c)).length;
+function letGo(conv) {
+  if (!conv || conv === cur || running(conv) || !convs.has(conv)) return;
+  refuse(conv);
+  convs.delete(conv);
+  try { conv.session.dispose(); } catch { /* gone already */ }
+}
+function titleFor(conv) {
+  if (conv.session.sessionName) return conv.session.sessionName;
+  let first;
+  try { first = conv.session.sessionManager.getBranch().find(isUser)?.message; } catch { /* none */ }
+  return first ? titleOf(wordsOf(first.content)) || "그림" : "새 대화";
+}
+// the conversations going on (the list marks them), the one on screen too
+function runningList() {
+  return [...convs].filter(running).map((c) => ({
+    path: c.session.sessionFile, title: titleFor(c), asking: [...asking.values()].some((a) => a.conv === c),
+    cwd: c.cwd, folder: basename(c.cwd) || c.cwd,
+  }));
+}
+const sayRunning = () => broadcast({ t: "running", running: runningList() });
+function show(conv) {
+  const old = cur;
+  cur = conv;
+  session = conv.session;
+  if (conv.cwd !== cwd) { cwd = conv.cwd; fileCache = { at: 0, list: [] }; }
+  broadcast({ t: "reset", state: state() });
+  letGo(old);
+}
+const convOf = (file) => [...convs].find((c) => c.session.sessionFile === file);
+
 async function startSession(sessionManager) {
   if (!runtime) {
     // models.json for our one provider; the key is set at runtime, never written
@@ -569,28 +619,28 @@ async function startSession(sessionManager) {
   }
   const model = runtime.getModel("robinai", MODEL_ID);
   if (!model) throw new Error("모델 설정을 읽지 못했어요.");
+  // an old conversation runs in its own folder (if that is still there)
+  let folder = cwd;
+  try { const was = sessionManager?.getCwd(); if (was && folderExists(was)) folder = cleanPath(was); } catch { /* the folder on screen */ }
+  const conv = { session: null, cwd: folder, mode: "ask", turn: null, gen: null, live: null, shelf: null };
   const resourceLoader = new DefaultResourceLoader({
-    cwd, agentDir,
+    cwd: folder, agentDir,
     appendSystemPromptOverride: (base) => [...base, KOREAN],
-    extensionFactories: [approvals],
+    extensionFactories: [approvalsFor(conv)],
   });
   await resourceLoader.reload();
   const created = await createAgentSession({
-    cwd, agentDir, model, modelRuntime: runtime, thinkingLevel: thinkingLevel(), resourceLoader,
+    cwd: folder, agentDir, model, modelRuntime: runtime, thinkingLevel: thinkingLevel(), resourceLoader,
     tools: ["read", "edit", "write", "grep", "find", "ls", "powershell"],
-    sessionManager: sessionManager || SessionManager.create(cwd, sessionDir),
+    sessionManager: sessionManager || SessionManager.create(folder, sessionDir),
   });
-  // a question still waiting in the old conversation: no (its turn ends)
-  for (const resolveDecision of pending.values()) resolveDecision("no");
-  session?.dispose();
-  session = created.session;
-  // a turn cut off by the switch must not lend its start to the next one
-  turn = null;
-  gen = null;
+  conv.session = created.session;
   // an old conversation may have saved another level: robin's choice wins
-  if (session.thinkingLevel !== thinkingLevel()) session.setThinkingLevel(thinkingLevel());
-  session.subscribe(onEvent);
-  broadcast({ t: "reset", state: state() });
+  if (conv.session.thinkingLevel !== thinkingLevel()) conv.session.setThinkingLevel(thinkingLevel());
+  conv.session.subscribe((e) => onEvent(conv, e));
+  convs.add(conv);
+  // the one on screen before goes on if it runs (its question waits too)
+  show(conv);
 }
 
 const clip = (s, n = 6000) => (s.length > n ? `${s.slice(0, n)}\n… (${s.length - n}자 더)` : s);
@@ -611,34 +661,38 @@ const imagesOf = (content) => (Array.isArray(content)
   ? content.filter((p) => p.type === "image").map((p) => ({ mimeType: p.mimeType, data: p.data })) : []);
 
 // a turn (robin's message until the agent settles): how long it took, and the
-// model's speed, from each answer's first token to its end
-let turn = null;
-let gen = null;
+// model's speed, from each answer's first token to its end (conv.turn, conv.gen).
+// Only the conversation on screen is sent to the window; the others keep
+// their own count, and what is being written now (conv.live) for when robin
+// comes back to one
 const STREAMED = new Set(["text_delta", "thinking_delta", "toolcall_delta"]);
-function onEvent(e) {
+function onEvent(conv, e) {
+  const broadcast = (event) => { if (conv === cur) sendAll(event); };
   switch (e.type) {
     case "message_start":
       if (e.message.role === "user") {
-        turn ??= { start: Date.now(), tokens: 0, genMs: 0 };
+        if (!conv.turn) { conv.turn = { start: Date.now(), tokens: 0, genMs: 0 }; setTimeout(sayRunning, 0); }
         broadcast({ t: "user", text: wordsOf(e.message.content), images: imagesOf(e.message.content) });
       }
-      if (e.message.role === "assistant") { gen = { first: 0 }; broadcast({ t: "assistant_start" }); }
+      if (e.message.role === "assistant") { conv.gen = { first: 0 }; conv.live = { thinking: "", text: "" }; broadcast({ t: "assistant_start" }); }
       break;
     case "message_update": {
       const a = e.assistantMessageEvent;
-      if (gen && !gen.first && STREAMED.has(a.type)) gen.first = Date.now();
-      if (a.type === "text_delta") broadcast({ t: "text", delta: a.delta });
-      if (a.type === "thinking_delta") broadcast({ t: "thinking", delta: a.delta });
+      if (conv.gen && !conv.gen.first && STREAMED.has(a.type)) conv.gen.first = Date.now();
+      if (a.type === "text_delta") { if (conv.live) conv.live.text += a.delta; broadcast({ t: "text", delta: a.delta }); }
+      if (a.type === "thinking_delta") { if (conv.live) conv.live.thinking += a.delta; broadcast({ t: "thinking", delta: a.delta }); }
       break;
     }
     case "message_end":
       if (e.message.role === "assistant") {
         const m = e.message;
+        const { turn, gen } = conv;
         if (turn && gen?.first && m.stopReason !== "error") {
           turn.tokens += m.usage?.output || 0;
           turn.genMs += Date.now() - gen.first;
         }
-        gen = null;
+        conv.gen = null;
+        conv.live = null;
         // a stop by robin ends as "aborted" and gets its own [SKIP] line on settle
         if (m.stopReason === "error") broadcast({ t: "error", message: m.errorMessage || "모델이 오류로 끝났어요." });
         broadcast({ t: "assistant_end", context: contextUsage() });
@@ -654,7 +708,7 @@ function onEvent(e) {
       break;
     }
     case "tool_execution_end":
-      if (FILE_TOOLS.has(e.toolName)) afterChange(e.toolCallId);
+      if (FILE_TOOLS.has(e.toolName)) afterChange(conv, e.toolCallId);
       broadcast({ t: "tool_end", id: e.toolCallId, name: e.toolName, isError: e.isError,
         output: clip(plain(textOf(e.result?.content))), ms: e.durationMs });
       break;
@@ -664,33 +718,50 @@ function onEvent(e) {
       broadcast({ t: "retry", attempt: e.attempt, max: e.maxAttempts, delayMs: e.delayMs, error: e.errorMessage });
       break;
     case "auto_retry_end": broadcast({ t: "retry_end", success: e.success }); break;
-    case "compaction_start": broadcast({ t: "compaction", phase: "start", reason: e.reason }); break;
+    case "compaction_start": broadcast({ t: "compaction", phase: "start", reason: e.reason }); setTimeout(sayRunning, 0); break;
     case "compaction_end":
-      broadcast({ t: "compaction", phase: "end", aborted: e.aborted, error: !e.aborted && !e.result ? compactionError(e.errorMessage) : undefined,
-        context: contextUsage() });
-      if (e.result && !session.isStreaming) broadcast({ t: "reset", state: state(), quiet: true });
+      if (conv === cur) {
+        broadcast({ t: "compaction", phase: "end", aborted: e.aborted, error: !e.aborted && !e.result ? compactionError(e.errorMessage) : undefined,
+          context: contextUsage() });
+        if (e.result && !session.isStreaming) broadcast({ t: "reset", state: state(), quiet: true });
+      }
+      setTimeout(afterwards(conv), 0);
       break;
     case "agent_settled": {
+      const { turn } = conv;
       const stats = turn && {
         ms: Date.now() - turn.start,
         tokens: turn.tokens,
         // under a second of output says nothing about the speed
         tps: turn.genMs >= 1000 && turn.tokens ? Math.round(turn.tokens / (turn.genMs / 1000)) : null,
       };
-      turn = null;
+      conv.turn = null;
+      conv.live = null;
       // kept in the conversation's file (not seen by the model), so the
       // window shows it again when the conversation is opened later
       if (stats && !e.aborted) {
-        try { session.sessionManager.appendCustomEntry(STATS, stats); } catch (err) { log("시간을 남기지 못했어요:", err.message); }
+        try { conv.session.sessionManager.appendCustomEntry(STATS, stats); } catch (err) { log("시간을 남기지 못했어요:", err.message); }
       }
-      const users = branch().filter(isUser);
-      const side = alts();
-      broadcast({ t: "settled", aborted: e.aborted, context: contextUsage(), stats,
-        users: users.map((x) => x.id), alts: Object.fromEntries(users.map((x) => [x.id, side.get(x.id) ?? null])) });
+      if (conv === cur) {
+        const users = branch().filter(isUser);
+        const side = alts();
+        broadcast({ t: "settled", aborted: e.aborted, context: contextUsage(), stats,
+          users: users.map((x) => x.id), alts: Object.fromEntries(users.map((x) => [x.id, side.get(x.id) ?? null])) });
+      } else {
+        // one robin left: the window says it ended (and can open it)
+        let last = null;
+        try { last = conv.session.sessionManager.getBranch().findLast((x) => x.type === "message" && x.message.role === "assistant")?.message; } catch { /* none */ }
+        sendAll({ t: "bg_done", path: conv.session.sessionFile, title: titleFor(conv), aborted: !!e.aborted,
+          failed: last?.stopReason === "error", said: last ? titleOf(textOf(last.content)).slice(0, 60) : "" });
+      }
+      setTimeout(afterwards(conv), 0);
       break;
     }
   }
 }
+// once Pi has settled (isStreaming false): the list's marks, and one robin
+// left is let go
+const afterwards = (conv) => () => { sayRunning(); letGo(conv); };
 const STATS = "robincode-stats";
 // Pi's reasons for not compacting, said plainly
 function compactionError(message = "") {
@@ -781,28 +852,31 @@ function history() {
   return out;
 }
 const titleOf = (text) => text.replace(/\s+/g, " ").trim().slice(0, 80);
-const busyNow = () => !!(session?.isStreaming || session?.isCompacting);
+const TOO_MANY = `다른 대화 ${MAX_RUNNING}개가 도는 중이에요. GPU는 한 번에 ${MAX_RUNNING}개까지 받아요. 하나가 끝나거나 멈춘 뒤에 보내 주세요.`;
+const busyNow = () => running(cur);
 const state = () => {
   const first = branch().find((x) => x.type === "message" && x.message.role === "user")?.message;
   const firstWords = first ? titleOf(wordsOf(first.content)) : "";
   return {
-    cwd, folder: cwd ? basename(cwd) || cwd : "", model: "Qwen3.8-27B", fake: FAKE, gpuFake: !!FAKE_GPU, gpu, gpuJob: job, mode, thinking: !!settings.thinking,
+    cwd, folder: cwd ? basename(cwd) || cwd : "", model: "Qwen3.8-27B", fake: FAKE, gpuFake: !!FAKE_GPU, gpu, gpuJob: job, mode: cur?.mode || "ask", thinking: !!settings.thinking,
     busy: busyNow(), compacting: !!session?.isCompacting, context: contextUsage(), history: history(),
-    sessionFile: session?.sessionFile || null, asking: [...asking.values()],
+    sessionFile: session?.sessionFile || null,
+    asking: [...asking.values()].filter((a) => a.conv === cur).map(({ id, name, args }) => ({ id, name, args })),
+    // what is being written now, and since when (robin came back to a running one)
+    live: busyNow() ? cur.live : null, startedAt: busyNow() ? cur.turn?.start || null : null,
+    running: runningList(),
     // a name robin gave it, else its first message
     title: session?.sessionName || firstWords || (first ? "그림" : ""),
   };
 };
 const sessionDir = join(agentDir, "sessions");
 // another folder from the folder screen: a new conversation there (its past
-// ones are in the list); "allow all" and the file lists were for the old one
+// ones are in the list); one still running in the old folder goes on
 async function openFolder(path) {
   await whenReady();
   cwd = cleanPath(path);
   addRecent(cwd);
   fileCache = { at: 0, list: [] };
-  shelf = null;
-  mode = "ask";
   await startSession(SessionManager.create(cwd, sessionDir));
   log(`폴더 ${cwd}`);
 }
@@ -832,7 +906,8 @@ async function listSessions(q = "") {
     .slice(0, 40)
     .map((x) => ({ ...brief(x), snippet: snippetOf(x.allMessagesText || x.firstMessage || "", needle) }));
 }
-const findSession = async (path) => (await allSessions()).find((x) => x.path === path);
+// any folder's (a conversation going on elsewhere, or one that ended there)
+const findSession = async (path) => (await SessionManager.listAll(sessionDir)).find((x) => x.path === path && x.messageCount > 0);
 // a deleted conversation is only renamed (Pi lists *.jsonl), so the window's
 // "undo" can bring it back; the next start clears the ones older than a day
 const DELETED = ".deleted";
@@ -856,10 +931,11 @@ const clients = new Set();
 const EXIT_WHEN_CLOSED = !NO_WINDOW || flag("--exit-when-closed");
 let closeTimer;
 setInterval(() => { for (const res of clients) res.write(": ping\n\n"); }, 25000).unref();
-function broadcast(event) {
+function sendAll(event) {
   const data = `data: ${JSON.stringify(event)}\n\n`;
   for (const res of clients) res.write(data);
 }
+const broadcast = sendAll;
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".woff2": "font/woff2", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".json": "application/json" };
 // the window is the React app in web/, built into web/dist (npm run build);
@@ -927,7 +1003,6 @@ async function pickerCall(req, res, url) {
     case "open": {
       const p = String(body.path || "");
       if (!folderExists(p)) { send(res, 404, { error: `그 폴더가 없어요: ${p}` }); return; }
-      if (busyNow()) { send(res, 409, { error: "지금 하는 일이 있어서 폴더를 바꿀 수 없어요. 끝나거나 멈춘 뒤에 해 주세요." }); return; }
       await openFolder(p);
       folders = null;
       send(res, 200, { path: cwd, next: `/#t=${token}` });
@@ -1078,6 +1153,7 @@ const server = createServer(async (req, res) => {
         if (!text && !images.length) { send(res, 400, { error: "empty" }); return; }
         const said = text || "이 그림을 봐 주세요.";
         if (session.isCompacting) { send(res, 409, { error: "compacting" }); return; }
+        if (!session.isStreaming && othersRunning() >= MAX_RUNNING) { send(res, 409, { error: TOO_MANY }); return; }
         if (!session.isStreaming) { const p = await modelProblem(); if (p) { send(res, 503, { error: p.message, gpuOff: p.gpuOff }); return; } }
         // gone back to before the first message and saying something else:
         // Pi's list names a conversation after the file's first message (the
@@ -1092,7 +1168,7 @@ const server = createServer(async (req, res) => {
         return;
       }
       case "/api/abort":
-        for (const resolveDecision of pending.values()) resolveDecision("no");
+        refuse(cur);
         if (session.isCompacting) session.abortCompaction();
         await session.abort();
         send(res, 200, { ok: true });
@@ -1144,6 +1220,7 @@ const server = createServer(async (req, res) => {
         if (busyNow()) { send(res, 409, { error: "busy" }); return; }
         const last = branch().reverse().find((x) => x.type === "message" && x.message.role === "user");
         if (!last) { send(res, 400, { error: "nothing to retry" }); return; }
+        if (othersRunning() >= MAX_RUNNING) { send(res, 409, { error: TOO_MANY }); return; }
         { const p = await modelProblem(); if (p) { send(res, 503, { error: p.message, gpuOff: p.gpuOff }); return; } }
         const text = wordsOf(last.message.content);
         const images = imagesOf(last.message.content);
@@ -1156,11 +1233,12 @@ const server = createServer(async (req, res) => {
       case "/api/compact": {
         // summarize the start of the conversation now, not only when it is full
         if (busyNow()) { send(res, 409, { error: "busy" }); return; }
+        if (othersRunning() >= MAX_RUNNING) { send(res, 409, { error: TOO_MANY }); return; }
         { const p = await modelProblem(); if (p) { send(res, 503, { error: p.message, gpuOff: p.gpuOff }); return; } }
-        const running = session.compact();
-        running.catch(() => { /* compaction_end says how it went */ });
+        const compacting = session.compact();
+        compacting.catch(() => { /* compaction_end says how it went */ });
         // too short to compact fails at once, before the model is asked
-        const early = await Promise.race([running.then(() => null, (e) => e), new Promise((r) => setTimeout(() => r(null), 300))]);
+        const early = await Promise.race([compacting.then(() => null, (e) => e), new Promise((r) => setTimeout(() => r(null), 300))]);
         if (early) { send(res, 400, { error: compactionError(early.message).message }); return; }
         send(res, 200, { ok: true });
         return;
@@ -1169,14 +1247,14 @@ const server = createServer(async (req, res) => {
         // it takes effect from the model's next request
         settings.thinking = !!body.on;
         saveSettings();
-        session.setThinkingLevel(thinkingLevel());
+        for (const c of convs) c.session.setThinkingLevel(thinkingLevel());
         broadcast({ t: "thinking_mode", on: settings.thinking });
         send(res, 200, { on: settings.thinking });
         return;
       case "/api/mode":
-        mode = body.mode === "auto" ? "auto" : "ask";
-        broadcast({ t: "mode", mode });
-        send(res, 200, { mode });
+        cur.mode = body.mode === "auto" ? "auto" : "ask";
+        broadcast({ t: "mode", mode: cur.mode });
+        send(res, 200, { mode: cur.mode });
         return;
       case "/api/sessions":
         send(res, 200, { sessions: await listSessions(body.q), current: session?.sessionFile || null, q: String(body.q || "") });
@@ -1185,11 +1263,12 @@ const server = createServer(async (req, res) => {
         send(res, 200, { files: matchFiles(await folderFiles(), String(body.q || "").slice(0, 200)) });
         return;
       case "/api/open": {
-        if (busyNow()) { send(res, 409, { error: "busy" }); return; }
+        // the one on screen goes on if it runs; one still open is shown as it is
+        const open = convOf(String(body.path || ""));
+        if (open) { if (open !== cur) show(open); send(res, 200, { ok: true }); return; }
         // only a conversation from our own list, never a path the page made up
         const found = await findSession(body.path);
         if (!found) { send(res, 404, { error: "no such conversation" }); return; }
-        mode = "ask";
         await startSession(SessionManager.open(found.path, sessionDir));
         send(res, 200, { ok: true });
         return;
@@ -1198,12 +1277,12 @@ const server = createServer(async (req, res) => {
         const found = await findSession(body.path);
         if (!found) { send(res, 404, { error: "no such conversation" }); return; }
         const current = found.path === session?.sessionFile;
-        if (current && busyNow()) { send(res, 409, { error: "busy" }); return; }
+        if (running(convOf(found.path))) { send(res, 409, { error: "busy" }); return; }
         renameSync(found.path, found.path + DELETED);
         // the day before it goes for good counts from now (a rename keeps the
         // old time, and a conversation last used a week ago went at the next start)
         try { const now = new Date(); utimesSync(found.path + DELETED, now, now); } catch { }
-        if (current) { mode = "ask"; await startSession(SessionManager.create(cwd, sessionDir)); }
+        if (current) await startSession(SessionManager.create(cwd, sessionDir));
         send(res, 200, { ok: true, current });
         return;
       }
@@ -1213,10 +1292,11 @@ const server = createServer(async (req, res) => {
         const found = await findSession(body.path);
         if (!found) { send(res, 404, { error: "no such conversation" }); return; }
         // Pi keeps the name as a session_info entry in the conversation's own file
-        if (found.path === session?.sessionFile) {
-          if (busyNow()) { send(res, 409, { error: "busy" }); return; }
-          session.setSessionName(name);
-          broadcast({ t: "title", title: name });
+        const open = convOf(found.path);
+        if (open) {
+          if (running(open)) { send(res, 409, { error: "busy" }); return; }
+          open.session.setSessionName(name);
+          if (open === cur) broadcast({ t: "title", title: name });
         } else SessionManager.open(found.path, sessionDir).appendSessionInfo(name);
         send(res, 200, { ok: true, name });
         return;
@@ -1233,9 +1313,7 @@ const server = createServer(async (req, res) => {
         return;
       }
       case "/api/new":
-        // like open and delete: a turn that is running is not cut off unseen
-        if (busyNow()) { send(res, 409, { error: "busy" }); return; }
-        mode = "ask"; // "allow all" was for that conversation only
+        // the one on screen goes on if it runs ("allow all" stays with it)
         await startSession(SessionManager.create(cwd, sessionDir));
         send(res, 200, { ok: true });
         return;
@@ -1300,7 +1378,7 @@ function openWindow(url) {
 function shutdown() {
   for (const resolveDecision of pending.values()) resolveDecision("no");
   for (const c of children) { try { c.kill(); } catch { } }
-  try { session?.abort(); session?.dispose(); } catch { }
+  for (const c of convs) { try { c.session.abort(); c.session.dispose(); } catch { } }
   process.exit(0);
 }
 process.on("SIGINT", shutdown);
