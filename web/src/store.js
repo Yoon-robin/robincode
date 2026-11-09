@@ -114,7 +114,7 @@ export function reducer(state, action) {
       return { ...state, items };
     }
     case "local-error":
-      return { ...state, items: [...state.items, line("[FAIL]", action.message, "fail")] };
+      return { ...state, items: [...state.items, { ...line("[FAIL]", action.message, "fail"), gpu: !!action.gpu }] };
     case "event": return onEvent(state, action.e);
     default: return state;
   }

@@ -28,6 +28,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
+import { connect } from "node:net";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -165,12 +166,59 @@ async function connectModel() {
   const key = await run("ssh", ["-n", "-o", "BatchMode=yes", "contabo", "cat /root/.vastai-llama-key"]);
   apiKey = key.out.trim();
   if (!key.ok || !apiKey) throw new Error("모델 서버 키를 읽지 못했어요(ssh contabo).");
-  if (await health(8091)) { modelPort = 8091; return; }
-  modelPort = 18092;
-  if (!(await health(modelPort))) {
-    children.push(spawn("ssh", ["-N", "-n", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15",
-      "-o", "ServerAliveCountMax=3", "-L", `127.0.0.1:${modelPort}:127.0.0.1:8091`, "contabo"], { stdio: "ignore", windowsHide: true }));
-  }
+  // our own port, never robincode.cmd's 8091: that tunnel closes with its last
+  // window and took this window's model with it. Kept open below
+  modelPort = MODEL_PORT;
+  keepTunnel();
+  setInterval(keepTunnel, 10000).unref();
+}
+
+// ---- the tunnel to the model, kept open ----------------------------------------
+// ssh ends by itself when the connection dies (wifi gone, the PC asleep:
+// ServerAliveInterval 15 x 3); a closed port is opened again within 10 s.
+// Whether the port listens says whether a tunnel is there (another RobinCode
+// window's tunnel on the same port does as well); /health would not: it is
+// also down while the GPU is off.
+const MODEL_PORT = Number(process.env.ROBINCODE_MODEL_PORT) || 18092;
+let tunnel = null;
+function listening(port) {
+  return new Promise((done) => {
+    const s = connect({ host: "127.0.0.1", port });
+    const end = (ok) => { s.destroy(); done(ok); };
+    s.setTimeout(2000, () => end(false));
+    s.once("connect", () => end(true));
+    s.once("error", () => end(false));
+  });
+}
+async function keepTunnel() {
+  if (tunnel || await listening(MODEL_PORT)) return;
+  log(`모델 터널을 여는 중이에요(127.0.0.1:${MODEL_PORT} → contabo 8091).`);
+  const p = spawn("ssh", ["-N", "-n", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=15",
+    "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-L", `127.0.0.1:${MODEL_PORT}:127.0.0.1:8091`, "contabo"],
+  { stdio: "ignore", windowsHide: true });
+  tunnel = p;
+  children.push(p);
+  const gone = () => {
+    if (tunnel !== p) return;
+    tunnel = null;
+    children.splice(children.indexOf(p), 1);
+  };
+  p.on("exit", gone);
+  p.on("error", gone);
+}
+
+// Before a request that needs the model: a plain answer when it cannot be
+// reached, instead of Pi's three retries and "Connection error."
+async function modelProblem() {
+  if (FAKE || await health(modelPort)) return null;
+  await refreshGpu();
+  const s = gpu.state;
+  if (s === "off") return { gpuOff: true, message: "GPU가 꺼져 있어요. 켜고 나서 보내 주세요." };
+  if (s === "starting") return { gpuOff: true, message: "GPU를 켜는 중이에요. 준비되면 보내 주세요." };
+  if (s === "stopped") return { gpuOff: true, message: "GPU가 멈춰 있어요(크레딧이 떨어졌을 수 있어요)." };
+  if (s === "unreachable") return { message: "서버(ssh contabo)에 닿지 않아요. 인터넷 연결을 봐 주세요." };
+  keepTunnel();
+  return { message: "모델 서버에 닿지 않아요. 연결을 다시 여는 중이니 10초 뒤 다시 보내 주세요." };
 }
 
 // ---- GPU state from the server, every minute (no model use) ------------------
@@ -210,6 +258,8 @@ function parseGpu(text) {
       g.autooff = m[1].trim();
       const n = g.autooff.match(/(\d+)분(?:이 되면| 동안 아무도)/);
       if (n) g.idleLimit = Number(n[1]);
+      const i = g.autooff.match(/안 쓴 지 (\d+)분/);
+      if (i) g.idle = Number(i[1]);
     }
   }
   return g;
@@ -220,6 +270,10 @@ async function refreshGpu() {
   else if (gpu.state === "unknown") gpu = { state: "unreachable" };
   broadcast({ t: "gpu", gpu, fake: FAKE });
 }
+// near the automatic off (robinai-gpu autooff deletes an unused GPU) the
+// minutes are read every 20 s, so the window's warning and its "계속 켜 두기"
+// are not a minute late
+const nearOff = () => gpu.state === "on" && gpu.idle != null && gpu.idleLimit && gpu.idleLimit - gpu.idle <= 5;
 
 // ---- turning the GPU on and off from the window --------------------------------
 // renting costs robin money: only on robin's own click on one offer, never on
@@ -241,7 +295,9 @@ async function listOffers() {
 }
 function startGpuJob(action, offer) {
   job = { action, offer: offer || null, lines: [], running: true, ok: null, at: Date.now() };
-  const p = gpuProcess(action === "rent" ? `rent ${offer}` : action);
+  // follow: the job runs on the server on its own, so closing this window
+  // (which ends this ssh) does not stop a rent halfway
+  const p = gpuProcess(action === "rent" ? `follow rent ${offer}` : `follow ${action}`);
   let carry = "";
   const take = (b) => {
     const parts = (carry + b.toString("utf8")).split(/\r?\n/);
@@ -954,6 +1010,7 @@ const server = createServer(async (req, res) => {
         if (!text && !images.length) { send(res, 400, { error: "empty" }); return; }
         const said = text || "이 그림을 봐 주세요.";
         if (session.isCompacting) { send(res, 409, { error: "compacting" }); return; }
+        if (!session.isStreaming) { const p = await modelProblem(); if (p) { send(res, 503, { error: p.message, gpuOff: p.gpuOff }); return; } }
         // gone back to before the first message and saying something else:
         // Pi's list names a conversation after the file's first message (the
         // old one), so the new first message becomes its name
@@ -1019,6 +1076,7 @@ const server = createServer(async (req, res) => {
         if (busyNow()) { send(res, 409, { error: "busy" }); return; }
         const last = branch().reverse().find((x) => x.type === "message" && x.message.role === "user");
         if (!last) { send(res, 400, { error: "nothing to retry" }); return; }
+        { const p = await modelProblem(); if (p) { send(res, 503, { error: p.message, gpuOff: p.gpuOff }); return; } }
         const text = wordsOf(last.message.content);
         const images = imagesOf(last.message.content);
         await session.navigateTree(last.id);
@@ -1030,6 +1088,7 @@ const server = createServer(async (req, res) => {
       case "/api/compact": {
         // summarize the start of the conversation now, not only when it is full
         if (busyNow()) { send(res, 409, { error: "busy" }); return; }
+        { const p = await modelProblem(); if (p) { send(res, 503, { error: p.message, gpuOff: p.gpuOff }); return; } }
         const running = session.compact();
         running.catch(() => { /* compaction_end says how it went */ });
         // too short to compact fails at once, before the model is asked
@@ -1111,6 +1170,15 @@ const server = createServer(async (req, res) => {
         if (FAKE && !FAKE_GPU) { send(res, 400, { error: "가짜 모델로 시험 중이에요." }); return; }
         try { send(res, 200, { offers: await listOffers(), gpu }); } catch (e) { send(res, 502, { error: e.message }); }
         return;
+      case "/api/gpu-keep": {
+        // "계속 켜 두기": the server counts the unused minutes from 0 again
+        if (FAKE && !FAKE_GPU) { send(res, 400, { error: "가짜 모델로 시험 중이에요." }); return; }
+        const r = await gpuRun("keep");
+        await refreshGpu();
+        if (!r.ok) { send(res, 502, { error: r.out.trim() || "서버에 닿지 않아요(ssh contabo)." }); return; }
+        send(res, 200, { ok: true, said: r.out.trim() });
+        return;
+      }
       case "/api/gpu-run": {
         // rent: one of the offers this window was shown, by its id; start: a
         // stopped one again; destroy: delete it (nothing billed after)
@@ -1157,7 +1225,41 @@ function shutdown() {
 }
 process.on("SIGINT", shutdown);
 
+// ---- the newest RobinCode from GitHub, before anything is loaded ---------------
+// The other PC (Blitz) had to `git pull` by hand to get a new version. From the
+// desktop shortcut (--pick), the repository takes origin/main when it can do
+// so safely: on main, nothing changed in tracked files, a fast-forward only.
+// If that changed RobinCode itself, this process hands over to a new one
+// (modules already loaded are the old ones); the packages and the build follow
+// on their own (getReady compares times). Anything odd: carry on as it is.
+async function selfUpdate() {
+  if (!PICK || process.env.ROBINCODE_NO_UPDATE || process.env.ROBINCODE_UPDATED) return;
+  if (FAKE && !process.env.ROBINCODE_UPDATE) return; // tests: only when asked (ROBINCODE_UPDATE=1)
+  const git = (...a) => run("git", ["-C", HOME_REPO, ...a], 20000);
+  const branchNow = (await git("rev-parse", "--abbrev-ref", "HEAD")).out.trim();
+  if (branchNow !== "main") return;
+  if (!(await git("fetch", "--quiet", "origin", "main")).ok) { log("GitHub에 닿지 않아서 새 판은 확인하지 못했어요."); return; }
+  const behind = Number((await git("rev-list", "--count", "HEAD..origin/main")).out.trim()) || 0;
+  if (!behind) return;
+  const dirty = (await git("status", "--porcelain", "--untracked-files=no")).out.trim();
+  if (dirty) { log(`새 판(${behind}개 커밋)이 있지만 고친 파일이 있어서 받지 않았어요.`); return; }
+  const before = (await git("rev-parse", "HEAD")).out.trim();
+  if (!(await git("merge", "--ff-only", "--quiet", "origin/main")).ok) { log("새 판을 받지 못했어요(앞으로 감기만 해요)."); return; }
+  log(`새 판을 받았어요(${behind}개 커밋).`);
+  const ours = (await git("diff", "--name-only", before, "HEAD", "--", "robincode", "ops/windows/robincode-picker")).out.trim();
+  if (!ours) return;
+  log("RobinCode가 바뀌어서 새 판으로 다시 켜요.");
+  const argv = process.argv.slice(1);
+  const env = { ...process.env, ROBINCODE_UPDATED: "1" };
+  if (HIDDEN) {
+    spawn(process.execPath, argv, { detached: true, stdio: "ignore", windowsHide: true, env, cwd: process.cwd() }).unref();
+    process.exit(0);
+  }
+  process.exit(spawnSync(process.execPath, argv, { stdio: "inherit", env, cwd: process.cwd() }).status ?? 1);
+}
+
 try {
+  await selfUpdate();
   if (cwd) {
     await whenReady();
     addRecent(cwd);
@@ -1187,6 +1289,7 @@ try {
   if (process.env.ROBINCODE_URLFILE) writeFileSync(process.env.ROBINCODE_URLFILE, url);
   refreshGpu();
   setInterval(refreshGpu, 60000).unref();
+  setInterval(() => { if (nearOff()) refreshGpu(); }, 20000).unref();
   if (!NO_WINDOW) {
     if (!openWindow(url)) { alertBox("RobinCode 창을 띄울 브라우저(Edge·Chrome·Brave)가 없어요."); shutdown(); }
     // no page at all within a minute: the window never came

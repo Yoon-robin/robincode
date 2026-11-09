@@ -26,6 +26,10 @@ function shortPath(path) {
 }
 
 // ---- small parts ---------------------------------------------------------------
+// minutes before the server deletes the GPU for not being used (robinai-gpu
+// autooff), when that is 3 or fewer; null otherwise
+const offSoon = (gpu) => (gpu?.state === "on" && gpu.idle != null && gpu.idleLimit && gpu.idleLimit - gpu.idle <= 3
+  ? Math.max(0, gpu.idleLimit - gpu.idle) : null);
 const lampOf = (state) => (state === "on" ? "on" : state === "starting" ? "warn" : state === "unknown" ? "idle" : "bad");
 function Gpu({ gpu, fake, gpuFake, job, compact, onOpen }) {
   const state = gpu.state || "unknown";
@@ -141,11 +145,12 @@ function Empty({ info, ready, onPick }) {
 // drawn again in place, or summarized away: the classes the items carry
 const marks = (item) => `${item.still ? " still" : ""}${item.old ? " old" : ""}`;
 
-function Line({ item }) {
+function Line({ item, onGpu }) {
   return (
     <div className={`line ${item.tone}${marks(item)}`}>
       <span className="line-tag">{item.tag}</span>
       <span>{item.text}</span>
+      {item.gpu && onGpu && <button type="button" className="mini-btn line-btn" onClick={onGpu}>GPU 켜기…</button>}
     </div>
   );
 }
@@ -299,7 +304,7 @@ function turnEnds(items, busy) {
   return ends;
 }
 
-function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBranch }) {
+function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBranch, onGpu }) {
   const scroller = useRef(null);
   const content = useRef(null);
   const stick = useRef(true);
@@ -382,7 +387,7 @@ function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBr
                 </div>
               );
             }
-            return <Line key={item.id} item={item} />;
+            return <Line key={item.id} item={item} onGpu={onGpu} />;
           })}
           {state.busy && !asking && !state.think && <StatusRow state={state} />}
         </div>
@@ -578,7 +583,7 @@ function JobLog({ job }) {
     </div>
   );
 }
-function GpuPanel({ gpu, job, onClose }) {
+function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
   const state = gpu.state || "unknown";
   const running = !!job?.running;
   const [offers, setOffers] = useState(null);
@@ -628,7 +633,14 @@ function GpuPanel({ gpu, job, onClose }) {
           {rented && gpu.rate && <span>시간당 ${gpu.rate}</span>}
           {gpu.credit != null && <span className={credit != null && credit < 1 ? "warn" : ""}>크레딧 ${gpu.credit}{gpu.left ? ` · ${gpu.left}` : ""}</span>}
         </div>
-        {gpu.autooff && <p className="gpu-note gpu-autooff">자동 끄기 · {gpu.autooff}</p>}
+        {gpu.autooff && (
+          <div className="gpu-autooff-row">
+            <p className={`gpu-note gpu-autooff${offSoon(gpu) != null ? " warn" : ""}`}>자동 끄기 · {gpu.autooff}</p>
+            {state === "on" && gpu.idle != null && onKeep && (
+              <button type="button" className="mini-btn" onClick={onKeep} disabled={keeping}>{keeping ? "알리는 중…" : "계속 켜 두기"}</button>
+            )}
+          </div>
+        )}
 
         {showJob && <JobLog job={job} />}
 
@@ -724,7 +736,8 @@ export default function App() {
     setToast({ id: Date.now(), text, actions });
     toastTimer.current = setTimeout(() => setToast(null), actions.length > 1 ? 9000 : actions.length ? 6000 : 2600);
   }, []);
-  const fail = useCallback((e) => say(e.message === "busy" ? "도는 중이라 지금은 못 해요. 끝나거나 멈춘 뒤에 해 주세요." : `하지 못했어요: ${e.message}`), [say]);
+  const fail = useCallback((e) => say(e.message === "busy" ? "도는 중이라 지금은 못 해요. 끝나거나 멈춘 뒤에 해 주세요." : `하지 못했어요: ${e.message}`,
+    e.gpuOff ? { label: "GPU 켜기…", run: () => setGpuOpen(true) } : undefined), [say]);
   const loadSessions = useCallback(() => {
     api("/api/sessions").then((r) => dispatch({ type: "sessions", sessions: r.sessions })).catch(() => {});
   }, []);
@@ -758,7 +771,7 @@ export default function App() {
       await api("/api/prompt", { text: t, images: pictures.map(({ mimeType, data }) => ({ mimeType, data })) });
       return true;
     } catch (e) {
-      dispatch({ type: "local-error", message: `보내지 못했어요: ${e.message}` });
+      dispatch({ type: "local-error", message: `보내지 못했어요: ${e.message}`, gpu: e.gpuOff });
       setDraft(t);
       return false;
     }
@@ -818,7 +831,7 @@ export default function App() {
     } catch (e) { fail(e); }
   };
   const retry = () => api("/api/retry").catch(fail);
-  const compact = () => api("/api/compact").catch((e) => (e.message === "busy" ? fail(e) : say(e.message)));
+  const compact = () => api("/api/compact").catch((e) => (e.message === "busy" || e.gpuOff ? fail(e) : say(e.message)));
 
   const asking = askingTool(state);
   const toggleNotify = async () => {
@@ -872,6 +885,22 @@ export default function App() {
     return () => document.removeEventListener("keydown", onKey);
   }, [side, state.busy, asking, stop, decide]);
 
+  // the server deletes an unused GPU (20 minutes): a bar 3 minutes before, a
+  // Windows notification when the window is not in front, "계속 켜 두기"
+  const soon = offSoon(state.gpu);
+  const [keeping, setKeeping] = useState(false);
+  const keepGpu = () => {
+    setKeeping(true);
+    api("/api/gpu-keep").then((r) => say(r.said || "더 켜 둬요.")).catch(fail).finally(() => setKeeping(false));
+  };
+  const warned = useRef(false);
+  useEffect(() => {
+    if (soon == null) { warned.current = false; return; }
+    if (warned.current || notify !== "on") return;
+    warned.current = true;
+    ping("GPU가 곧 꺼져요", `${state.gpu.idle}분째 안 써서 약 ${soon}분 뒤 서버가 꺼요. 계속 쓰려면 RobinCode에서 "계속 켜 두기"를 누르세요.`);
+  }, [soon, notify]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const lastSent = [...state.items].reverse().find((x) => x.kind === "user")?.text || "";
   const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
   const dropProps = {
@@ -900,11 +929,17 @@ export default function App() {
           <div className="head-narrow"><Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} compact onOpen={() => setGpuOpen(true)} /></div>
         </header>
         {state.ready && !state.link && <div className="lost" role="alert">RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요.</div>}
-        <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} onRewind={rewind} onRetry={retry} onBranch={branchTo} />
+        {soon != null && (
+          <div className="gpu-soon" role="status">
+            <span>GPU를 {state.gpu.idle}분째 안 써서 {soon ? `약 ${soon}분 뒤` : "곧"} 서버가 꺼요. 다시 켜려면 6~10분 걸려요.</span>
+            <button type="button" className="mini-btn" onClick={keepGpu} disabled={keeping}>{keeping ? "알리는 중…" : "계속 켜 두기"}</button>
+          </div>
+        )}
+        <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} onRewind={rewind} onRetry={retry} onBranch={branchTo} onGpu={() => setGpuOpen(true)} />
         <Composer state={state} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}
           setDraft={setDraft} lastSent={lastSent} attachRef={attachRef} picturesRef={picturesRef} onSend={send} onStop={stop} onError={say}
           notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />} />
-        {gpuOpen && <GpuPanel gpu={state.gpu} job={state.gpuJob} onClose={() => { setGpuOpen(false); focusBox(); }} />}
+        {gpuOpen && <GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); focusBox(); }} />}
         {drag && (
           <div className="drop" aria-hidden="true">
             <p><Icon name="image" />여기에 놓으면 그림을 붙여요 <span className="drop-note">{PICTURE_TYPES.map((t) => t.slice(6).toUpperCase()).join("·")} · 4장까지</span></p>

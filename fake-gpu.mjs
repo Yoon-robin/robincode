@@ -1,13 +1,15 @@
 // A fake `robinai-gpu` for testing the window's GPU panel: nothing is rented,
 // nothing leaves this PC. server.mjs runs it instead of ssh when
 // ROBINCODE_FAKE_GPU names a JSON file, which keeps the fake state.
-//   node fake-gpu.mjs status | offers | rent <offer id> | start | destroy
+//   node fake-gpu.mjs [follow] status | offers | rent <offer id> | start | keep | destroy
 import { readFileSync, writeFileSync } from "node:fs";
 
 const file = process.env.ROBINCODE_FAKE_GPU;
-const [cmd, arg] = process.argv.slice(2);
+let args = process.argv.slice(2);
+if (args[0] === "follow") args = args.slice(1); // the server runs it on its own; here it just runs
+const [cmd, arg] = args;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-let st = { state: "none", credit: 3.2 };
+let st = { state: "none", credit: 3.2, idle: 4 };
 try { st = { ...st, ...JSON.parse(readFileSync(file, "utf8")) }; } catch { /* first call */ }
 const save = () => writeFileSync(file, JSON.stringify(st));
 const OFFERS = [
@@ -22,7 +24,7 @@ switch (cmd) {
     else if (st.state === "starting") console.log("GPU 서버: 켜는 중이에요.\n요금: 켜 둔 동안 시간당 $0.51");
     else console.log('GPU 서버: 꺼져 있어요(빌린 GPU 없음, 요금 0). RobinAI 화면은 "꺼짐"이에요.');
     console.log(`남은 크레딧: $${st.credit.toFixed(2)}${st.state === "running" ? ` → 지금 상태로 약 ${Math.floor(st.credit / 0.51)}시간` : " (빌리면 RTX 5090은 시간당 약 $0.5)"}`);
-    if (st.state === "running") console.log("자동 끄기: 안 쓴 지 4분 — 20분이 되면 꺼요");
+    if (st.state === "running") console.log(`자동 끄기: 안 쓴 지 ${st.idle}분 — 20분이 되면 꺼요`);
     else if (st.state === "none") console.log("자동 끄기: 켜면 20분 동안 아무도 안 쓸 때 알아서 꺼요");
     break;
   case "offers":
@@ -46,13 +48,19 @@ switch (cmd) {
     save();
     console.log("켜는 중이에요. 보통 1~3분 걸려요(최대 15분 기다려요).");
     break;
+  case "keep":
+    st.idle = 0;
+    save();
+    console.log("20분 더 켜 둬요.");
+    break;
   case "destroy":
     await sleep(300);
     st.state = "none";
+    st.idle = 4;
     save();
     console.log("지웠어요(인스턴스 90001). 이제 요금이 안 나가요. 다음에 켜면 새로 빌려요.");
     break;
   default:
-    console.error("쓰는 법: status|offers|rent N|start|destroy");
+    console.error("쓰는 법: [follow] status|offers|rent N|start|keep|destroy");
     process.exit(2);
 }

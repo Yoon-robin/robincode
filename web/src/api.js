@@ -20,7 +20,7 @@ export async function api(path, body = {}) {
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `${path} ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `${path} ${res.status}`), { gpuOff: !!data.gpuOff });
   return data;
 }
 
