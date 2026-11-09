@@ -15,11 +15,14 @@
 // comes from `ssh contabo cat /root/.vastai-llama-key` into memory only.
 // docs/robincode-app.md.
 import { execFile, spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+// no fs.rmSync: on Node 24.13 for Windows it kills the process on any path with
+// Korean in it (2026-11-09); fs.promises.rm and unlinkSync are fine
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
-import { basename, dirname, extname, join, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createAgentSession,
@@ -129,16 +132,131 @@ const approvals = {
   hidden: true,
   factory: (pi) => {
     pi.on("tool_call", async (event) => {
-      if (mode === "auto" || !ASK_TOOLS.has(event.toolName)) return undefined;
+      // the file as it is right before the change runs (after robin said yes)
+      const going = () => { if (FILE_TOOLS.has(event.toolName)) beforeChange(event.toolCallId, event.input?.path); return undefined; };
+      if (mode === "auto" || !ASK_TOOLS.has(event.toolName)) return going();
       broadcast({ t: "approve", id: event.toolCallId, name: event.toolName, args: event.input });
       const decision = await new Promise((r) => pending.set(event.toolCallId, r));
       pending.delete(event.toolCallId);
-      if (decision === "always") { mode = "auto"; broadcast({ t: "mode", mode }); return undefined; }
-      if (decision === "yes") return undefined;
+      if (decision === "always") { mode = "auto"; broadcast({ t: "mode", mode }); return going(); }
+      if (decision === "yes") return going();
       return { block: true, reason: "robin이 이 도구 호출을 허락하지 않았어요. 다른 방법을 물어보거나 멈추세요." };
     });
   },
 };
+
+// ---- files the model changed, so going back can put them back -----------------
+// edit and write only: right before one runs, the file as it was; after, as it
+// became. Kept next to the conversation (<conversation>.jsonl.files/: index.json
+// and the contents under their sha256). What a command (powershell) changes is
+// not tracked. `known`: what this server last left in each file, so a file
+// changed since by anything else is left alone.
+const FILE_TOOLS = new Set(["edit", "write"]);
+const BIG = 8e6; // a larger file is not kept, and going back leaves it
+const FILES = ".files";
+let shelf = null; // { file, dir, index: { calls: { toolCallId: { path, before, after, at } }, known: { key: hash } } }
+const sha = (buf) => createHash("sha256").update(buf).digest("hex");
+// Windows paths do not care about case
+const keyOf = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
+const absPath = (p) => {
+  let s = String(p || "").trim().replace(/^@/, "");
+  if (s === "~" || /^~[\\/]/.test(s)) s = join(homedir(), s.slice(1));
+  return resolve(cwd, s);
+};
+const shown = (p) => { const r = relative(cwd, p); return r && !r.startsWith("..") && !isAbsolute(r) ? r.replace(/\\/g, "/") : p; };
+function theShelf() {
+  const file = session?.sessionFile;
+  if (!file) return null;
+  if (shelf?.file !== file) {
+    let index = {};
+    try { index = JSON.parse(readFileSync(join(`${file}${FILES}`, "index.json"), "utf8")) || {}; } catch { /* nothing kept yet */ }
+    shelf = { file, dir: `${file}${FILES}`, index: { calls: index.calls || {}, known: index.known || {} } };
+  }
+  return shelf;
+}
+function keepShelf() {
+  try {
+    mkdirSync(shelf.dir, { recursive: true });
+    writeFileSync(join(shelf.dir, "index.json"), JSON.stringify(shelf.index));
+  } catch (e) { log("고친 파일 기록을 남기지 못했어요:", e.message); }
+}
+// the file now: the hash of its contents (kept on the shelf), null when there
+// is no such file, "big" / "unread" when it cannot be kept
+function take(path, keep = true) {
+  let buf;
+  try { buf = readFileSync(path); } catch (e) { return e.code === "ENOENT" ? null : "unread"; }
+  if (buf.length > BIG) return "big";
+  const hash = sha(buf);
+  if (keep) {
+    const blob = join(shelf.dir, hash);
+    if (!existsSync(blob)) { mkdirSync(shelf.dir, { recursive: true }); writeFileSync(blob, buf); }
+  }
+  return hash;
+}
+const keepable = (h) => h !== "big" && h !== "unread";
+function beforeChange(id, p) {
+  if (!p || !theShelf()) return;
+  const path = absPath(p);
+  try { shelf.index.calls[id] = { path, before: take(path), at: Date.now() }; } catch (e) { log("고치기 전 파일을 담지 못했어요:", e.message); }
+}
+function afterChange(id) {
+  const rec = theShelf()?.index.calls[id];
+  if (!rec || "after" in rec) return;
+  try { rec.after = take(rec.path); } catch { rec.after = "unread"; }
+  // a failed edit changed nothing
+  if (rec.after === rec.before) delete shelf.index.calls[id];
+  else shelf.index.known[keyOf(rec.path)] = rec.after;
+  keepShelf();
+}
+// every changed file as it should be where the conversation is: as the last
+// change on this branch left it, or, changed only on another branch, as it was
+// before the first change
+function filesAt(leafId) {
+  const calls = Object.entries(shelf.index.calls).filter(([, r]) => "after" in r).sort((a, b) => a[1].at - b[1].at);
+  const want = new Map();
+  for (const [, r] of calls) if (!want.has(keyOf(r.path))) want.set(keyOf(r.path), { path: r.path, hash: r.before });
+  const ran = new Set();
+  for (const x of leafId ? session.sessionManager.getBranch(leafId) : []) {
+    if (x.type !== "message" || x.message.role !== "assistant") continue;
+    for (const p of x.message.content || []) if (p.type === "toolCall") ran.add(p.id);
+  }
+  for (const [id, r] of calls) if (ran.has(id)) want.set(keyOf(r.path), { path: r.path, hash: r.after });
+  return want;
+}
+// the files that differ from where the conversation is now
+function filePlan() {
+  if (!theShelf()) return [];
+  const out = [];
+  for (const [key, w] of filesAt(session.sessionManager.getLeafId())) {
+    const known = shelf.index.known[key];
+    if (known !== undefined && known !== w.hash) out.push({ key, path: w.path, want: w.hash, known });
+  }
+  return out;
+}
+const planNames = (plan) => plan.map((c) => shown(c.path));
+// put the files back as the conversation has them now; a file changed since by
+// something else (a command, robin's editor) is left as it is
+function syncFiles() {
+  const done = [];
+  const left = [];
+  for (const c of filePlan()) {
+    const name = shown(c.path);
+    if (!keepable(c.want) || !keepable(c.known)) { left.push({ name, why: "커서 담아 두지 않았어요" }); continue; }
+    const now = take(c.path, false);
+    if (now !== c.known) { left.push({ name, why: "그 뒤에 다른 데서 바뀌었어요" }); continue; }
+    try {
+      if (c.want === null) { try { unlinkSync(c.path); } catch (e) { if (e.code !== "ENOENT") throw e; } }
+      else {
+        mkdirSync(dirname(c.path), { recursive: true });
+        writeFileSync(c.path, readFileSync(join(shelf.dir, c.want)));
+      }
+      shelf.index.known[c.key] = c.want;
+      done.push(name);
+    } catch (e) { left.push({ name, why: e.message }); }
+  }
+  if (done.length) { keepShelf(); fileCache.at = 0; }
+  return { done, left };
+}
 
 async function startSession(sessionManager) {
   if (!runtime) {
@@ -248,6 +366,7 @@ function onEvent(e) {
       break;
     }
     case "tool_execution_end":
+      if (FILE_TOOLS.has(e.toolName)) afterChange(e.toolCallId);
       broadcast({ t: "tool_end", id: e.toolCallId, name: e.toolName, isError: e.isError,
         output: clip(plain(textOf(e.result?.content))), ms: e.durationMs });
       break;
@@ -276,8 +395,10 @@ function onEvent(e) {
       if (stats && !e.aborted) {
         try { session.sessionManager.appendCustomEntry(STATS, stats); } catch (err) { log("시간을 남기지 못했어요:", err.message); }
       }
+      const users = branch().filter(isUser);
+      const side = alts();
       broadcast({ t: "settled", aborted: e.aborted, context: contextUsage(), stats,
-        users: branch().filter((x) => x.type === "message" && x.message.role === "user").map((x) => x.id) });
+        users: users.map((x) => x.id), alts: Object.fromEntries(users.map((x) => [x.id, side.get(x.id) ?? null])) });
       break;
     }
   }
@@ -307,9 +428,50 @@ function contextUsage() {
 function branch() {
   try { return session?.sessionManager.getBranch() || []; } catch { return []; }
 }
+const isUser = (x) => x.type === "message" && x.message.role === "user";
+// robin's message changed and sent again, or answered again: the messages
+// side by side, oldest first. Side by side = after the same message (Pi puts
+// its own entries, model and thinking level, in front of a new first message,
+// so the parent itself can differ). userId -> { at, of, prev, next } | null
+function alts() {
+  const all = session?.sessionManager.getEntries() || [];
+  const byId = new Map(all.map((x) => [x.id, x]));
+  const place = (x) => {
+    let p = x.parentId && byId.get(x.parentId);
+    while (p && p.type !== "message") p = p.parentId && byId.get(p.parentId);
+    return p ? p.id : "";
+  };
+  const groups = new Map();
+  for (const x of all) {
+    if (!isUser(x)) continue;
+    const at = place(x);
+    if (!groups.has(at)) groups.set(at, []);
+    groups.get(at).push(x);
+  }
+  const out = new Map();
+  for (const list of groups.values()) {
+    list.sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
+    list.forEach((x, k) => out.set(x.id, list.length < 2 ? null
+      : { at: k + 1, of: list.length, prev: list[k - 1]?.id || null, next: list[k + 1]?.id || null }));
+  }
+  return out;
+}
+// where robin last was under a message: the newest entry below it
+function lastUnder(entry) {
+  const sm = session.sessionManager;
+  let newest = entry;
+  const stack = [entry];
+  while (stack.length) {
+    const x = stack.pop();
+    if (x.timestamp > newest.timestamp) newest = x;
+    stack.push(...sm.getChildren(x.id));
+  }
+  return newest;
+}
 function history() {
   const out = [];
   const entries = branch();
+  const side = alts();
   const compaction = entries.findLast((x) => x.type === "compaction");
   const kept = compaction ? entries.findIndex((x) => x.id === compaction.firstKeptEntryId) : -1;
   entries.forEach((entry, k) => {
@@ -319,7 +481,7 @@ function history() {
     if (entry.type === "custom" && entry.customType === STATS) { out.push({ role: "stats", key, stats: entry.data }); return; }
     if (entry.type !== "message") return;
     const m = entry.message;
-    if (m.role === "user") out.push({ role: "user", key, old, id: entry.id, text: wordsOf(m.content), images: imagesOf(m.content) });
+    if (m.role === "user") out.push({ role: "user", key, old, id: entry.id, text: wordsOf(m.content), images: imagesOf(m.content), alt: side.get(entry.id) ?? null });
     else if (m.role === "assistant") {
       out.push({ role: "assistant", key, old,
         thinking: (m.content || []).filter((p) => p.type === "thinking" && !p.redacted).map((p) => p.thinking).join("").trim(),
@@ -377,7 +539,11 @@ const DELETED = ".deleted";
 try {
   for (const name of readdirSync(sessionDir)) {
     const file = join(sessionDir, name);
-    if (name.endsWith(`.jsonl${DELETED}`) && Date.now() - statSync(file).mtimeMs > 86400000) rmSync(file, { force: true });
+    if (name.endsWith(`.jsonl${DELETED}`) && Date.now() - statSync(file).mtimeMs > 86400000) {
+      rm(file, { force: true }).catch(() => {});
+      // and the files its tools changed, kept for going back
+      rm(file.slice(0, -DELETED.length) + FILES, { recursive: true, force: true }).catch(() => {});
+    }
   }
 } catch { /* no conversations yet */ }
 
@@ -529,7 +695,6 @@ const server = createServer(async (req, res) => {
         // gone back to before the first message and saying something else:
         // Pi's list names a conversation after the file's first message (the
         // old one), so the new first message becomes its name
-        const isUser = (x) => x.type === "message" && x.message.role === "user";
         if (!session.isStreaming && !session.sessionName && !branch().some(isUser) && session.sessionManager.getEntries().some(isUser)) {
           session.setSessionName(titleOf(text) || "그림");
           broadcast({ t: "title", title: session.sessionName });
@@ -554,17 +719,39 @@ const server = createServer(async (req, res) => {
       case "/api/rewind": {
         // back to just before one of robin's messages (its words go back in
         // the box), or, to undo that, back to where the conversation was.
-        // The other way stays in the file; files the tools changed stay changed
+        // The other way stays in the file. Files the tools changed stay as
+        // they are; `files` names the ones robin can have put back (files-sync)
         if (busyNow()) { send(res, 409, { error: "busy" }); return; }
         const target = session.sessionManager.getEntry(String(body.id || ""));
         if (!target) { send(res, 404, { error: "no such message" }); return; }
         const back = session.sessionManager.getLeafId();
         await session.navigateTree(target.id);
         broadcast({ t: "reset", state: state(), quiet: true });
-        const mine = target.type === "message" && target.message.role === "user";
-        send(res, 200, { back, text: mine ? wordsOf(target.message.content) : "", images: mine ? imagesOf(target.message.content) : [] });
+        const mine = isUser(target);
+        send(res, 200, { back, text: mine ? wordsOf(target.message.content) : "", images: mine ? imagesOf(target.message.content) : [],
+          files: planNames(filePlan()) });
         return;
       }
+      case "/api/branch": {
+        // another of the messages side by side: back to where robin last was under it
+        if (busyNow()) { send(res, 409, { error: "busy" }); return; }
+        const target = session.sessionManager.getEntry(String(body.id || ""));
+        if (!target || !isUser(target)) { send(res, 404, { error: "no such message" }); return; }
+        const to = lastUnder(target);
+        // a message never answered (stopped at once): Pi goes to just before
+        // it, and its words go back in the box
+        const r = await session.navigateTree(to.id);
+        broadcast({ t: "reset", state: state(), quiet: true });
+        const open = isUser(to);
+        send(res, 200, { text: open ? r.editorText ?? wordsOf(to.message.content) : null, images: open ? imagesOf(to.message.content) : [],
+          files: planNames(filePlan()) });
+        return;
+      }
+      case "/api/files-sync":
+        // the files edit / write changed, as the conversation has them where it is now
+        if (busyNow()) { send(res, 409, { error: "busy" }); return; }
+        send(res, 200, syncFiles());
+        return;
       case "/api/retry": {
         // the last answer again: back to before robin's last message, then the same message
         if (busyNow()) { send(res, 409, { error: "busy" }); return; }

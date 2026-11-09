@@ -68,7 +68,7 @@ function fromHistory(history, still = false) {
   const id = (prefix, m) => (m.key ? `${prefix}-${m.key}` : nid());
   const flags = (m) => ({ ...(still && { still }), ...(m.old && { old: true }) });
   for (const m of history) {
-    if (m.role === "user") items.push({ kind: "user", id: id("u", m), entryId: m.id, text: m.text, images: m.images || [], ...flags(m) });
+    if (m.role === "user") items.push({ kind: "user", id: id("u", m), entryId: m.id, text: m.text, images: m.images || [], alt: m.alt || null, ...flags(m) });
     else if (m.role === "assistant") {
       if (m.thinking) addTool(items, { ...thinkStep(m.thinking, { status: "ok" }), id: id("t", m) }, { id: id("g", m), ...flags(m) });
       if (m.text) items.push({ kind: "assistant", id: id("a", m), text: m.text, streaming: false, ...flags(m) });
@@ -206,7 +206,10 @@ function onEvent(state, e) {
         let j = e.users.length - 1;
         for (let i = items.length - 1; i >= 0 && j >= 0; i--) {
           if (items[i].kind !== "user") continue;
-          if (items[i].entryId !== e.users[j]) items[i] = { ...items[i], entryId: e.users[j] };
+          const alt = e.alts?.[e.users[j]] ?? null;
+          if (items[i].entryId !== e.users[j] || items[i].alt?.at !== alt?.at || items[i].alt?.of !== alt?.of) {
+            items[i] = { ...items[i], entryId: e.users[j], alt };
+          }
           j--;
         }
       }

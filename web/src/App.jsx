@@ -149,7 +149,7 @@ function Line({ item }) {
 
 // a long paste stays a few lines tall until it is opened; pictures sit above
 // the words, small until one is pressed
-function UserBubble({ text, images = [] }) {
+function UserBubble({ text, images = [], foot }) {
   const long = text.split("\n").length > 12 || text.length > 900;
   const [open, setOpen] = useState(false);
   const [big, setBig] = useState(-1);
@@ -171,6 +171,21 @@ function UserBubble({ text, images = [] }) {
           {long && <button type="button" className="bubble-more" onClick={() => setOpen((v) => !v)}>{open ? "접기" : "모두 보기"}</button>}
         </div>
       )}
+      {foot}
+    </div>
+  );
+}
+
+// ‹ 2/3 ›: the other messages robin sent at this place, each with its answers
+function AltNav({ alt, busy, onGo }) {
+  const note = busy ? "끝나거나 멈춘 뒤에 볼 수 있어요" : undefined;
+  return (
+    <div className="msg-alt" role="group" aria-label={`이 자리에서 보낸 말 ${alt.of}개 중 ${alt.at}번째`}>
+      <button type="button" className="icon-btn" disabled={busy || !alt.prev} aria-label="앞서 보낸 말과 그 답 보기"
+        title={note || "앞서 보낸 말과 그 답"} onClick={() => onGo(alt.prev)}><Icon name="left" /></button>
+      <span className="alt-at" aria-hidden="true">{alt.at}/{alt.of}</span>
+      <button type="button" className="icon-btn" disabled={busy || !alt.next} aria-label="나중에 보낸 말과 그 답 보기"
+        title={note || "나중에 보낸 말과 그 답"} onClick={() => onGo(alt.next)}><Icon name="right" /></button>
     </div>
   );
 }
@@ -218,8 +233,20 @@ function NotifyRow({ notify, onToggle }) {
   );
 }
 
-// tools whose work going back does not undo
-const CHANGES = new Set(["edit", "write", "powershell", "bash"]);
+// commands: what they change, going back cannot put back (edit / write it can)
+const COMMANDS = new Set(["powershell", "bash"]);
+// "파일 2개(README.md, notes.md)"
+function filesWord(names) {
+  const listed = names.slice(0, 2).join(", ") + (names.length > 2 ? ` 외 ${names.length - 2}개` : "");
+  return `파일 ${names.length}개(${listed})`;
+}
+// what /api/files-sync did, said plainly
+function syncWords(r, done) {
+  const parts = [];
+  if (r.done.length) parts.push(`${filesWord(r.done)}를 ${done}.`);
+  if (r.left.length) parts.push(`${filesWord(r.left.map((x) => x.name))}는 그대로 뒀어요: ${r.left[0].why}`);
+  return parts.join(" ") || "바꿀 파일이 없어요.";
+}
 
 // a turn's time and the model's speed, under its last answer
 function TurnMeta({ stats }) {
@@ -269,7 +296,7 @@ function turnEnds(items, busy) {
   return ends;
 }
 
-function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry }) {
+function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBranch }) {
   const scroller = useRef(null);
   const content = useRef(null);
   const stick = useRef(true);
@@ -305,6 +332,8 @@ function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry }) {
     setAway(false);
     scroller.current.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
   };
+  // another branch: stay where the message is, not at the bottom
+  const goBranch = (id) => { stick.current = false; onBranch(id); };
   const ends = turnEnds(state.items, state.busy);
   // the answer that can be asked for again: the conversation's last
   const lastAnswer = state.items.findLast((x) => x.kind === "assistant" || x.kind === "user");
@@ -320,7 +349,8 @@ function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry }) {
                     <button type="button" className="icon-btn msg-edit" aria-label="이 말 고쳐서 다시 보내기"
                       title="고쳐서 다시 보내기 (이 말 앞으로 돌아가요)" onClick={() => onRewind(item)}><Icon name="edit" /></button>
                   )}
-                  <UserBubble text={item.text} images={item.images} />
+                  <UserBubble text={item.text} images={item.images}
+                    foot={item.alt && item.entryId && <AltNav alt={item.alt} busy={state.busy} onGo={goBranch} />} />
                 </div>
               );
             }
@@ -507,7 +537,9 @@ function Toast({ toast, onDone }) {
   return (
     <div className="toast" role="status">
       <span>{toast.text}</span>
-      {toast.action && <button type="button" className="toast-btn" onClick={() => { onDone(); toast.action.run(); }}>{toast.action.label}</button>}
+      {toast.actions.map((a) => (
+        <button key={a.label} type="button" className="toast-btn" onClick={() => { onDone(); a.run(); }}>{a.label}</button>
+      ))}
     </div>
   );
 }
@@ -529,10 +561,12 @@ export default function App() {
   const dragDepth = useRef(0);
   const toastTimer = useRef(0);
 
+  // a note above the composer, with up to two buttons (one action, or a list)
   const say = useCallback((text, action) => {
+    const actions = [].concat(action || []).filter(Boolean);
     clearTimeout(toastTimer.current);
-    setToast({ id: Date.now(), text, action });
-    toastTimer.current = setTimeout(() => setToast(null), action ? 6000 : 2600);
+    setToast({ id: Date.now(), text, actions });
+    toastTimer.current = setTimeout(() => setToast(null), actions.length > 1 ? 9000 : actions.length ? 6000 : 2600);
   }, []);
   const fail = useCallback((e) => say(e.message === "busy" ? "도는 중이라 지금은 못 해요. 끝나거나 멈춘 뒤에 해 주세요." : `하지 못했어요: ${e.message}`), [say]);
   const loadSessions = useCallback(() => {
@@ -587,20 +621,44 @@ export default function App() {
   }).catch(fail);
   const rename = (s, name) => api("/api/rename", { path: s.path, name }).then(loadSessions).catch(fail);
   // back to just before one of robin's messages, its words (and pictures) in
-  // the box to change and send again; files the tools changed stay changed
+  // the box to change and send again. Files edit / write changed after it
+  // stay as they are unless robin has them put back too; a command's work stays
   const rewind = async (item) => {
     const before = draft;
     const from = state.items.findIndex((x) => x.id === item.id);
-    const touched = state.items.slice(from).some((x) => x.kind === "tools" && x.tools.some((t) => CHANGES.has(t.name) && t.status === "ok"));
+    const ran = state.items.slice(from).some((x) => x.kind === "tools" && x.tools.some((t) => COMMANDS.has(t.name) && t.status === "ok"));
+    const commands = ran ? " 명령이 한 일은 그대로예요." : "";
     try {
       const r = await api("/api/rewind", { id: item.entryId });
       setDraft(r.text || "");
       picturesRef.current?.(r.images || []);
       focusBox();
-      say(touched ? "이 말 앞으로 돌아왔어요. 파일에 한 일은 그대로예요." : "이 말 앞으로 돌아왔어요. 고쳐서 보내세요.", {
+      const back = () => api("/api/rewind", { id: r.back }).then(() => { setDraft(before); picturesRef.current?.([]); focusBox(); });
+      const undo = { label: "되돌리기", run: () => back().catch(fail) };
+      if (!r.files?.length) {
+        say(ran ? "이 말 앞으로 돌아왔어요. 명령이 한 일은 그대로예요." : "이 말 앞으로 돌아왔어요. 고쳐서 보내세요.", undo);
+        return;
+      }
+      // undoing both: the conversation back where it was, then its files
+      const undoBoth = {
         label: "되돌리기",
-        run: () => api("/api/rewind", { id: r.back }).then(() => { setDraft(before); picturesRef.current?.([]); focusBox(); }).catch(fail),
-      });
+        run: () => back().then(() => api("/api/files-sync")).then((u) => say(syncWords(u, "원래대로 돌렸어요"))).catch(fail),
+      };
+      const putBack = () => api("/api/files-sync").then((s) => say(`${syncWords(s, "되돌렸어요")}${commands}`, s.done.length ? undoBoth : undo)).catch(fail);
+      say(`이 말 앞으로 돌아왔어요. 그 뒤에 고친 ${filesWord(r.files)}는 그대로예요.`, [{ label: "파일도 되돌리기", run: putBack }, undo]);
+    } catch (e) { fail(e); }
+  };
+  // another of the messages sent at one place (‹ 2/3 ›), where robin last was
+  // under it; its files can follow
+  const branchTo = async (id) => {
+    try {
+      const r = await api("/api/branch", { id });
+      if (r.text != null) { setDraft(r.text); picturesRef.current?.(r.images || []); focusBox(); }
+      if (r.files?.length) {
+        say(`이 갈래로 왔어요. ${filesWord(r.files)}는 지금 이 갈래 때와 달라요.`, {
+          label: "파일도 맞추기", run: () => api("/api/files-sync").then((s) => say(syncWords(s, "이 갈래에 맞췄어요"))).catch(fail),
+        });
+      }
     } catch (e) { fail(e); }
   };
   const retry = () => api("/api/retry").catch(fail);
@@ -685,7 +743,7 @@ export default function App() {
           <div className="head-narrow"><Gpu gpu={state.gpu} fake={state.fake} compact /></div>
         </header>
         {state.ready && !state.link && <div className="lost" role="alert">RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요.</div>}
-        <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} onRewind={rewind} onRetry={retry} />
+        <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} onRewind={rewind} onRetry={retry} onBranch={branchTo} />
         <Composer state={state} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}
           setDraft={setDraft} lastSent={lastSent} attachRef={attachRef} picturesRef={picturesRef} onSend={send} onStop={stop} onError={say}
           notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />} />

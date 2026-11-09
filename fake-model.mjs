@@ -170,8 +170,13 @@ createServer(async (req, res) => {
     await streamToolCall(res, pointed.endsWith("/") ? "ls" : "read", { path: pointed }, usage);
   } else if (/(설명|구조|explain)/i.test(said) && tools.includes("ls")) {
     await streamToolCall(res, "ls", { path: "." }, usage);
+  } else if (/(새 파일|new file)/i.test(said) && tools.includes("write")) {
+    // "새 파일": writes notes.md (going back can take it away again)
+    await streamToolCall(res, "write", { path: "notes.md", content: "# 메모\n\n가짜 모델이 쓴 파일이에요.\n" }, usage);
   } else if (/(고쳐|edit)/i.test(said) && tools.includes("edit")) {
-    await streamToolCall(res, "edit", { path: "README.md", edits: [{ oldText: "# rc-test", newText: "# rc-test\n\n시험용 폴더예요." }] }, usage);
+    // "다르게 고쳐": another change to the same line (two branches, two READMEs)
+    const line = /(다르게|differently)/i.test(said) ? "다르게 고친 판이에요." : "시험용 폴더예요.";
+    await streamToolCall(res, "edit", { path: "README.md", edits: [{ oldText: "# rc-test", newText: `# rc-test\n\n${line}` }] }, usage);
   } else if (/(목록|파일|ls|list)/i.test(said) && tools.includes("ls")) {
     await streamToolCall(res, "ls", { path: "." }, usage);
   } else if (/(읽|read|package\.json)/i.test(said) && tools.includes("read")) {
