@@ -10,6 +10,8 @@ export const initial = {
   info: { cwd: "", folder: "", model: "Qwen3.8-27B" },
   fake: false,
   gpu: { state: "unknown" },
+  gpuFake: false, // a fake GPU helper (tests): the on/off buttons show with the fake model
+  gpuJob: null, // renting, turning on, deleting: { action, lines, running, ok, at }
   mode: "ask",
   thinking: false, // the model thinks before it answers (robin's switch)
   think: null, // id of the thinking step being written
@@ -123,7 +125,7 @@ function onEvent(state, e) {
     case "reset": {
       const s = e.state;
       return {
-        ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, model: s.model }, fake: s.fake, gpu: s.gpu,
+        ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, model: s.model }, fake: s.fake, gpu: s.gpu, gpuFake: !!s.gpuFake, gpuJob: s.gpuJob || null,
         mode: s.mode, thinking: !!s.thinking, think: null, context: s.context, busy: s.busy, startedAt: s.busy ? Date.now() : 0,
         phase: s.compacting ? "compact" : "think", compacting: !!s.compacting, compactOnly: !!s.compacting,
         items: fromHistory(s.history, !!e.quiet), current: null, sessionFile: s.sessionFile, title: s.title, retry: null,
@@ -232,6 +234,7 @@ function onEvent(state, e) {
     }
     case "retry_end": return { ...state, retry: null };
     case "gpu": return { ...state, gpu: e.gpu, fake: e.fake };
+    case "gpu_job": return { ...state, gpuJob: e.job };
     case "mode": return { ...state, mode: e.mode };
     case "thinking_mode": return { ...state, thinking: e.on };
     default: return state;

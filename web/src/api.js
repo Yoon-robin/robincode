@@ -10,6 +10,9 @@ try {
 // opened first without the token (a plain address), then given it after the #
 window.addEventListener("hashchange", () => location.reload());
 
+// the folder screen (web/picker, served at /picker/), in this same window
+export const pickerUrl = () => `/picker/?t=${encodeURIComponent(token || "")}`;
+
 export async function api(path, body = {}) {
   const res = await fetch(path, {
     method: "POST",

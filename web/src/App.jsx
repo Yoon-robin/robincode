@@ -2,7 +2,7 @@
 // the GPU on the left, the conversation and the composer on the right. On a
 // narrow window the left side becomes a drawer behind the menu button.
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { api, connect } from "./api.js";
+import { api, connect, pickerUrl } from "./api.js";
 import { askingTool, initial, reducer } from "./store.js";
 import { Composer, PICTURE_TYPES } from "./Composer.jsx";
 import { CopyButton, Markdown } from "./Markdown.jsx";
@@ -26,10 +26,13 @@ function shortPath(path) {
 }
 
 // ---- small parts ---------------------------------------------------------------
-function Gpu({ gpu, fake, compact }) {
+const lampOf = (state) => (state === "on" ? "on" : state === "starting" ? "warn" : state === "unknown" ? "idle" : "bad");
+function Gpu({ gpu, fake, gpuFake, job, compact, onOpen }) {
   const state = gpu.state || "unknown";
-  const lamp = fake ? "test" : state === "on" ? "on" : state === "starting" ? "warn" : state === "unknown" ? "idle" : "bad";
+  const lamp = fake && !gpuFake ? "test" : lampOf(state);
   const short = gpu.hours != null && gpu.hours <= 1;
+  const can = !fake || gpuFake;
+  const label = job?.running ? JOB_WORDS[job.action][0] : state === "on" || state === "starting" ? "끄기…" : "켜기…";
   return (
     <div className={`gpu${compact ? " compact" : ""}`}>
       <span className="gpu-line">
@@ -42,9 +45,9 @@ function Gpu({ gpu, fake, compact }) {
         <span className={`gpu-credit${short ? " warn" : ""}`}>크레딧 ${gpu.credit}{gpu.left ? ` · ${gpu.left}` : ""}</span>
       )}
       {fake && <span className="gpu-fake">가짜 모델로 시험 중</span>}
-      {!fake && (state === "off" || state === "stopped") && (
-        <button type="button" className="mini-btn" title="GPU 켜기·끄기 도우미를 열어요. 빌릴지는 거기서 골라요."
-          onClick={() => api("/api/gpu-on").catch(() => {})}>켜기…</button>
+      {can && state !== "unknown" && state !== "unreachable" && (
+        <button type="button" className={`mini-btn${job?.running ? " working" : ""}`} onClick={onOpen}
+          title="GPU를 켜고 끄는 창을 열어요. 빌릴 자리는 거기서 골라요.">{label}</button>
       )}
     </div>
   );
@@ -463,7 +466,7 @@ function moveInList(e) {
   all[Math.max(0, Math.min(all.length - 1, k + (e.key === "ArrowDown" ? 1 : -1)))]?.focus();
 }
 
-function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch }) {
+function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch, onGpu }) {
   const now = useNow(60000);
   const busyNote = state.busy ? "끝나거나 멈춘 뒤에 열 수 있어요" : undefined;
   const nav = useRef(null);
@@ -525,9 +528,18 @@ function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew,
       </nav>
       <div className="side-foot">
         <NotifyRow notify={notify} onToggle={onNotify} />
-        <div className="side-row" title={state.info.cwd}><span className="side-label">폴더</span><span className="mono">{shortPath(state.info.cwd)}</span></div>
+        <div className="side-row folder-row" title={state.info.cwd}>
+          <span className="side-label">폴더</span>
+          <span className="folder-line">
+            <span className="mono">{shortPath(state.info.cwd)}</span>
+            {/* the folder screen, in this window; Esc there comes back */}
+            <a className="mini-btn" href={pickerUrl()} aria-disabled={state.busy || undefined}
+              title={state.busy ? "도는 중이라 지금은 못 바꿔요. 끝나거나 멈춘 뒤에 바꿔요." : "다른 폴더에서 열어요(이 대화는 목록에 남아요)."}
+              onClick={(e) => { if (state.busy) e.preventDefault(); }}>바꾸기</a>
+          </span>
+        </div>
         <div className="side-row"><span className="side-label">모델</span><span className="mono">{state.info.model}</span></div>
-        <Gpu gpu={state.gpu} fake={state.fake} />
+        <Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} onOpen={onGpu} />
       </div>
     </aside>
   );
@@ -544,6 +556,148 @@ function Toast({ toast, onDone }) {
   );
 }
 
+// ---- the GPU, on and off in this window (robin 2026-11-09 "앱을 다 GUI로") ----
+// Renting costs robin money: a place is rented only when robin picks one and
+// then presses the second button, with its price on it. Deleting asks the same
+// way. The work runs on the server (`robinai-gpu`), its lines show here.
+const JOB_WORDS = {
+  rent: ["빌리는 중…", "빌렸어요", "빌리지 못했어요"],
+  start: ["켜는 중…", "켰어요", "켜지 못했어요"],
+  destroy: ["끄는 중…", "껐어요(지웠어요). 이제 요금이 안 나가요.", "끄지 못했어요"],
+};
+function JobLog({ job }) {
+  const words = JOB_WORDS[job.action];
+  const lines = job.lines.slice(-8);
+  return (
+    <div className={`gpu-job${job.running ? "" : job.ok ? " ok" : " bad"}`} aria-live="polite">
+      <p className="gpu-job-head">
+        {job.running ? <><span>{words[0]}</span><span className="cursor" aria-hidden="true" /></> : job.ok ? words[1] : words[2]}
+      </p>
+      {lines.length > 0 && <ul className="gpu-job-lines">{lines.map((l, k) => <li key={k}>{l}</li>)}</ul>}
+      {job.running && <p className="gpu-note">이 창을 닫아도 서버에서 계속돼요.</p>}
+    </div>
+  );
+}
+function GpuPanel({ gpu, job, onClose }) {
+  const state = gpu.state || "unknown";
+  const running = !!job?.running;
+  const [offers, setOffers] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [pick, setPick] = useState(null);
+  const [sure, setSure] = useState(null); // "rent" | "destroy": the second step
+  const opened = useRef(Date.now());
+  const panel = useRef(null);
+  const load = useCallback(() => {
+    setLoading(true);
+    setErr("");
+    setSure(null);
+    api("/api/gpu-offers")
+      .then((r) => { setOffers(r.offers); setPick((p) => (r.offers.some((o) => o.offer === p) ? p : r.offers[0]?.offer ?? null)); })
+      .catch((e) => setErr(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+  useEffect(() => { if (state === "off" && !running && offers === null && !loading) load(); }, [state, running, offers, loading, load]);
+  useEffect(() => {
+    panel.current?.focus();
+    // Esc closes this (it must not stop the agent)
+    const esc = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); } };
+    document.addEventListener("keydown", esc, true);
+    return () => document.removeEventListener("keydown", esc, true);
+  }, [onClose]);
+  const run = (action, offer) => {
+    setSure(null);
+    setErr("");
+    api("/api/gpu-run", { action, offer }).catch((e) => setErr(e.message));
+  };
+  const chosen = offers?.find((o) => o.offer === pick);
+  const credit = gpu.credit != null ? Number(gpu.credit) : null;
+  const low = chosen && credit != null && credit < Number(chosen.hour);
+  const showJob = job && (running || job.at >= opened.current);
+  const rented = state === "on" || state === "starting" || state === "stopped";
+  return (
+    <div className="modal-back" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <section className="gpu-panel" role="dialog" aria-modal="true" aria-label="GPU 켜기·끄기" ref={panel} tabIndex={-1}>
+        <header className="gpu-panel-head">
+          <p className="gpu-kicker"><span className="prompt">&gt;</span> RobinAI GPU <span className="gpu-kicker-sub">Vast.ai RTX 5090</span></p>
+          <button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}><Icon name="close" /></button>
+        </header>
+        <div className="gpu-now">
+          <span className={`lamp ${lampOf(state)}`} aria-hidden="true" />
+          <b>{GPU_NAMES[state] || state}</b>
+          {rented && gpu.rate && <span>시간당 ${gpu.rate}</span>}
+          {gpu.credit != null && <span className={credit != null && credit < 1 ? "warn" : ""}>크레딧 ${gpu.credit}{gpu.left ? ` · ${gpu.left}` : ""}</span>}
+        </div>
+
+        {showJob && <JobLog job={job} />}
+
+        {!running && state === "off" && (
+          <>
+            <div className="gpu-sec-head">
+              <p className="side-label">빌릴 수 있는 자리 <span className="gpu-faint">한국 먼저, 싼 순</span></p>
+              <button type="button" className="mini-btn" onClick={load} disabled={loading}>{loading ? "받는 중…" : "다시 받기"}</button>
+            </div>
+            {offers === null && loading && <p className="gpu-note">자리 목록을 받는 중이에요<span className="cursor" aria-hidden="true" /></p>}
+            {offers && (
+              <div className="gpu-offers" role="radiogroup" aria-label="빌릴 자리">
+                {offers.map((o) => (
+                  <button key={o.offer} type="button" role="radio" aria-checked={pick === o.offer}
+                    className={`gpu-offer${pick === o.offer ? " on" : ""}`} onClick={() => { setPick(o.offer); setSure(null); }}>
+                    <span className="gpu-offer-main">
+                      <b>{o.place.replace(/, [A-Z]{2}$/, "")}</b>
+                      <span className="gpu-faint">{o.host} · 신뢰도 {o.rel}% · 최장 {o.days}일</span>
+                    </span>
+                    <span className="gpu-offer-side">
+                      <b className="mono">${o.hour}<span className="gpu-faint">/시간</span></b>
+                      <span className="gpu-faint">모델 받기 약 {o.mins}분</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {chosen && (sure === "rent" ? (
+              <div className="gpu-confirm">
+                <p>빌리면 시간당 <b>${chosen.hour}</b>가 크레딧에서 계속 나가요. 이미지와 모델을 받는 데 약 {chosen.mins + 3}분 걸려요. 다 쓰면 꼭 끄세요.</p>
+                <div className="gpu-actions">
+                  <button type="button" className="btn" onClick={() => setSure(null)}>취소</button>
+                  <button type="button" className="btn btn-primary" autoFocus onClick={() => run("rent", chosen.offer)}>빌리기 · 시간당 ${chosen.hour}</button>
+                </div>
+              </div>
+            ) : (
+              <div className="gpu-actions">
+                {low && <p className="gpu-warn">크레딧이 한 시간 요금보다 적어요. Vast.ai에서 먼저 충전하세요.</p>}
+                <button type="button" className="btn btn-primary" onClick={() => setSure("rent")}>이 자리 빌리기…</button>
+              </div>
+            ))}
+          </>
+        )}
+
+        {!running && rented && (
+          sure === "destroy" ? (
+            <div className="gpu-confirm">
+              <p>끄면 GPU 인스턴스를 지워요. 요금이 0이 되고 받아 둔 모델도 지워져요. RobinAI 채팅과 다른 RobinCode 창도 같이 멈춰요. 다음에 켜면 새로 빌려서 6~10분 걸려요.</p>
+              <div className="gpu-actions">
+                <button type="button" className="btn" onClick={() => setSure(null)}>취소</button>
+                <button type="button" className="btn btn-danger" autoFocus onClick={() => run("destroy")}>끄기(지우기)</button>
+              </div>
+            </div>
+          ) : (
+            <div className="gpu-actions">
+              {state === "stopped" && <button type="button" className="btn" onClick={() => run("start")}>다시 켜기</button>}
+              <button type="button" className="btn" onClick={() => setSure("destroy")}>끄기(지우기)…</button>
+            </div>
+          )
+        )}
+
+        {!running && (state === "unreachable" || state === "unknown") && (
+          <p className="gpu-note">{state === "unknown" ? "GPU 상태를 확인하는 중이에요." : "서버에서 GPU 상태를 읽지 못했어요(ssh contabo). 잠시 뒤 다시 열어 보세요."}</p>
+        )}
+        {err && <p className="gpu-warn" role="alert">{err}</p>}
+      </section>
+    </div>
+  );
+}
+
 // ---- the app ---------------------------------------------------------------------
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initial);
@@ -552,6 +706,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [drag, setDrag] = useState(false);
   const [notify, setNotify] = useState(notifyNow);
+  const [gpuOpen, setGpuOpen] = useState(false);
   const picturesRef = useRef(null); // the composer's "these are the pictures"
   const box = useRef(null);
   const menuRef = useRef(null);
@@ -733,20 +888,22 @@ export default function App() {
   return (
     <div className="app" data-side={side ? "open" : undefined}>
       <Sidebar state={state} notify={notify} onNotify={toggleNotify} closeRef={closeRef} searchRef={searchRef} onClose={() => closeSide(true)} onNew={newChat} onOpen={open}
-        onDelete={remove} onRename={rename} onLeaveSearch={() => { if (isNarrow()) closeSide(true); else focusBox(); }} />
+        onDelete={remove} onRename={rename} onLeaveSearch={() => { if (isNarrow()) closeSide(true); else focusBox(); }}
+        onGpu={() => { closeSide(false); setGpuOpen(true); }} />
       <div className="scrim" onClick={() => closeSide(true)} aria-hidden="true" />
       <main className="main" {...dropProps}>
         <header className="main-head">
           <button ref={menuRef} type="button" className="icon-btn menu-btn" aria-label="대화 목록 열기" aria-controls="side"
             aria-expanded={side} onClick={openSide}><Icon name="menu" /></button>
           <h1 className="main-title" key={state.title}>{state.title || "새 대화"}</h1>
-          <div className="head-narrow"><Gpu gpu={state.gpu} fake={state.fake} compact /></div>
+          <div className="head-narrow"><Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} compact onOpen={() => setGpuOpen(true)} /></div>
         </header>
         {state.ready && !state.link && <div className="lost" role="alert">RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요.</div>}
         <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} onRewind={rewind} onRetry={retry} onBranch={branchTo} />
         <Composer state={state} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}
           setDraft={setDraft} lastSent={lastSent} attachRef={attachRef} picturesRef={picturesRef} onSend={send} onStop={stop} onError={say}
           notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />} />
+        {gpuOpen && <GpuPanel gpu={state.gpu} job={state.gpuJob} onClose={() => { setGpuOpen(false); focusBox(); }} />}
         {drag && (
           <div className="drop" aria-hidden="true">
             <p><Icon name="image" />여기에 놓으면 그림을 붙여요 <span className="drop-note">{PICTURE_TYPES.map((t) => t.slice(6).toUpperCase()).join("·")} · 4장까지</span></p>

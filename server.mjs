@@ -7,14 +7,21 @@
 // window (web/, React), served on 127.0.0.1 and opened as a Chromium app window
 // (Edge, Chrome or Brave, its own profile so closing it ends this process).
 //
-//   node server.mjs [folder] [--fake] [--no-window] [--port N]
+//   node server.mjs [folder | --pick] [--fake] [--no-window] [--port N] [--hidden]
 //
+// --pick opens the window on the folder screen (web/picker, the same page
+// robincode.cmd shows) and the conversation after a folder is chosen; this is
+// how the desktop shortcut starts it, with no console (robincode.vbs, --hidden:
+// a failure before the window shows up comes as a message box).
+// The packages (npm ci) and the window's build are made here when missing or
+// older than their sources, while the folder screen is up, so no console has
+// to show it.
 // --fake talks to fake-model.mjs instead of the GPU (no rented GPU needed).
 // The GPU model: an open RobinCode tunnel on 127.0.0.1:8091 is reused, else
 // this opens its own `ssh -L 127.0.0.1:18092 -> VPS 127.0.0.1:8091`; the key
 // comes from `ssh contabo cat /root/.vastai-llama-key` into memory only.
 // docs/robincode-app.md.
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 // no fs.rmSync: on Node 24.13 for Windows it kills the process on any path with
 // Korean in it (2026-11-09); fs.promises.rm and unlinkSync are fine
@@ -24,13 +31,10 @@ import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  estimateTokens,
-  ModelRuntime,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
+import { addRecent, allFolders, cleanPath, folderExists, hideRecent, rows as folderRows, unhideRecent } from "./folders.mjs";
+
+// Pi, loaded once its packages are there (getReady)
+let createAgentSession, DefaultResourceLoader, estimateTokens, ModelRuntime, SessionManager;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -38,7 +42,13 @@ const flag = (name) => args.includes(name);
 const option = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const FAKE = flag("--fake");
 const NO_WINDOW = flag("--no-window");
-const cwd = resolve(args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--port") || process.cwd());
+const PICK = flag("--pick");
+const HIDDEN = flag("--hidden");
+const given = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--port");
+// null until a folder is chosen on the folder screen (--pick)
+let cwd = PICK && !given ? null : resolve(given || process.cwd());
+// the folder the list always has: this repository
+const HOME_REPO = resolve(here, "..");
 const MODEL_ID = "qwen3.8-27b-uncensored-aggressive";
 // ROBINCODE_HOME moves settings, saved conversations and the window profile (tests)
 const appDir = process.env.ROBINCODE_HOME || join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "RobinCode");
@@ -54,6 +64,88 @@ function run(file, argv, timeout = 30000) {
 }
 async function health(port) {
   try { return (await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(3000) })).ok; } catch { return false; }
+}
+// started with no console (the desktop shortcut): a failure before the window
+// is up has nowhere else to show
+function alertBox(text) {
+  if (!HIDDEN) return;
+  spawnSync("powershell.exe", ["-NoProfile", "-Command",
+    "Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show($env:RC_MSG, 'RobinCode', 'OK', 'Error')"],
+  { env: { ...process.env, RC_MSG: text }, windowsHide: true });
+}
+
+// ---- getting ready: packages, the window's build, the agent, the model --------
+// each step once; a failed one is tried again the next time a folder is opened
+let phase = { text: "준비하는 중이에요.", error: null, ready: false };
+const setPhase = (text) => { phase = { text, error: null, ready: false }; log(text); };
+const mtime = (p) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
+function newestIn(dir, skip) {
+  let t = 0;
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return 0; }
+  for (const d of entries) {
+    if (skip.includes(d.name)) continue;
+    const p = join(dir, d.name);
+    t = Math.max(t, d.isDirectory() ? newestIn(p, skip) : mtime(p));
+  }
+  return t;
+}
+// npm is a .cmd file: through cmd.exe (Node does not start those by itself)
+function npm(line) {
+  return new Promise((done, fail) => {
+    const p = spawn("cmd.exe", ["/d", "/s", "/c", `npm ${line}`], { cwd: here, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let tail = "";
+    const keep = (b) => { tail = (tail + b).slice(-3000); };
+    p.stdout.on("data", keep);
+    p.stderr.on("data", keep);
+    p.on("error", fail);
+    p.on("close", (code) => (code ? fail(new Error(`npm ${line.split(" ").slice(0, 2).join(" ")}이 실패했어요: ${tail.trim().split(/\r?\n/).slice(-2).join(" / ")}`)) : done()));
+  });
+}
+const steps = { packages: false, built: false, agent: false, model: false };
+async function getReady() {
+  const lock = join(here, "package-lock.json");
+  const stamp = join(here, "node_modules", ".package-lock.json");
+  if (!steps.packages) {
+    // the first time, or when package-lock.json changed since the last install
+    // (a git pull; npm ci writes node_modules\.package-lock.json)
+    if (!mtime(stamp) || mtime(lock) > mtime(stamp)) {
+      setPhase("에이전트 패키지를 받는 중이에요(처음이거나 바뀌어서 1~2분).");
+      await npm("ci --ignore-scripts --no-audit --no-fund");
+    }
+    steps.packages = true;
+  }
+  if (!steps.built) {
+    // web\dist is not in git: built when missing or older than any source
+    const built = join(here, "web", "dist", "index.html");
+    const source = Math.max(newestIn(join(here, "web"), ["dist", "picker"]), mtime(join(here, "vite.config.js")), mtime(lock));
+    if (!mtime(built) || source > mtime(built)) {
+      setPhase("창 화면을 빌드하는 중이에요.");
+      await npm("run build");
+    }
+    steps.built = true;
+  }
+  if (!steps.agent) {
+    setPhase("에이전트를 불러오는 중이에요.");
+    ({ createAgentSession, DefaultResourceLoader, estimateTokens, ModelRuntime, SessionManager } = await import("@earendil-works/pi-coding-agent"));
+    steps.agent = true;
+  }
+  if (!steps.model) {
+    setPhase(FAKE ? "가짜 모델을 켜는 중이에요." : "모델 서버에 연결하는 중이에요.");
+    await connectModel();
+    steps.model = true;
+  }
+  phase = { text: "준비됐어요.", error: null, ready: true };
+}
+let readying = null;
+function whenReady() {
+  readying ??= getReady().catch((e) => {
+    readying = null;
+    phase = { text: e.message, error: e.message, ready: false };
+    log("[FAIL]", e.message);
+    throw e;
+  });
+  return readying;
 }
 
 // ---- the model: fake, an open RobinCode tunnel, or our own -------------------
@@ -82,6 +174,25 @@ async function connectModel() {
 }
 
 // ---- GPU state from the server, every minute (no model use) ------------------
+// ROBINCODE_FAKE_GPU (a JSON file for its state) answers with fake-gpu.mjs
+// instead of the server, for tests: nothing is rented
+const FAKE_GPU = process.env.ROBINCODE_FAKE_GPU;
+function gpuProcess(command) {
+  if (FAKE_GPU) return spawn(process.execPath, [join(here, "fake-gpu.mjs"), ...command.split(" ")], { windowsHide: true });
+  // -n: no input, BatchMode: never a password prompt nobody can see
+  return spawn("ssh", ["-n", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "contabo", `robinai-gpu ${command}`], { windowsHide: true });
+}
+function gpuRun(command, timeout = 40000) {
+  return new Promise((done) => {
+    const p = gpuProcess(command);
+    let out = "";
+    p.stdout.on("data", (b) => { out += b; });
+    p.stderr.on("data", (b) => { out += b; });
+    const timer = setTimeout(() => p.kill(), timeout);
+    p.on("error", () => { clearTimeout(timer); done({ ok: false, out }); });
+    p.on("close", (code) => { clearTimeout(timer); done({ ok: code === 0, out }); });
+  });
+}
 let gpu = { state: "unknown" };
 function parseGpu(text) {
   const g = { state: "off" };
@@ -98,10 +209,59 @@ function parseGpu(text) {
   return g;
 }
 async function refreshGpu() {
-  const r = await run("ssh", ["-n", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "contabo", "robinai-gpu status"], 40000);
+  const r = await gpuRun("status");
   if (r.ok && /GPU 서버: /.test(r.out)) gpu = parseGpu(r.out);
   else if (gpu.state === "unknown") gpu = { state: "unreachable" };
   broadcast({ t: "gpu", gpu, fake: FAKE });
+}
+
+// ---- turning the GPU on and off from the window --------------------------------
+// renting costs robin money: only on robin's own click on one offer, never on
+// its own. The places come from `robinai-gpu offers` (6, Korea first, cheapest
+// first); renting takes the offer's id (not its number, the list may change).
+let offers = [];
+let job = null; // { action, lines, running, ok }
+const OFFER = /^(\d+)\) (.+?) (데이터센터|개인 호스트) · 시간당 \$([\d.]+) · 최장 (\d+)일 · 신뢰도 ([\d.]+)% · 모델 받기 약 (\d+)분\((\d+)Mbps, \$([\d.]+)\)\s+\[offer (\d+)\]/;
+async function listOffers() {
+  const r = await gpuRun("offers", 60000);
+  const list = [];
+  for (const line of r.out.split(/\r?\n/)) {
+    const m = line.match(OFFER);
+    if (m) list.push({ n: +m[1], place: m[2], host: m[3], hour: m[4], days: +m[5], rel: m[6], mins: +m[7], mbps: +m[8], fetch: m[9], offer: m[10] });
+  }
+  if (!list.length) throw new Error(r.out.trim().split(/\r?\n/).pop() || "자리 목록을 받지 못했어요(ssh contabo).");
+  offers = list;
+  return list;
+}
+function startGpuJob(action, offer) {
+  job = { action, offer: offer || null, lines: [], running: true, ok: null, at: Date.now() };
+  const p = gpuProcess(action === "rent" ? `rent ${offer}` : action);
+  let carry = "";
+  const take = (b) => {
+    const parts = (carry + b.toString("utf8")).split(/\r?\n/);
+    carry = parts.pop();
+    for (const line of parts.map((l) => plain(l).trim()).filter(Boolean)) job.lines.push(line);
+    job.lines = job.lines.slice(-30);
+    broadcast({ t: "gpu_job", job });
+  };
+  p.stdout.on("data", take);
+  p.stderr.on("data", take);
+  // the state moves while it runs (starting, then on)
+  const watch = setInterval(refreshGpu, 20000);
+  const end = (ok, extra) => {
+    if (!job.running) return;
+    clearInterval(watch);
+    if (carry.trim()) job.lines.push(plain(carry).trim());
+    if (extra) job.lines.push(extra);
+    job.running = false;
+    job.ok = ok;
+    broadcast({ t: "gpu_job", job });
+    refreshGpu();
+  };
+  p.on("error", (e) => end(false, e.message));
+  p.on("close", (code) => end(code === 0));
+  children.push(p);
+  broadcast({ t: "gpu_job", job });
 }
 
 // ---- the agent ---------------------------------------------------------------
@@ -498,7 +658,7 @@ const state = () => {
   const first = branch().find((x) => x.type === "message" && x.message.role === "user")?.message;
   const firstWords = first ? titleOf(wordsOf(first.content)) : "";
   return {
-    cwd, folder: basename(cwd) || cwd, model: "Qwen3.8-27B", fake: FAKE, gpu, mode, thinking: !!settings.thinking,
+    cwd, folder: cwd ? basename(cwd) || cwd : "", model: "Qwen3.8-27B", fake: FAKE, gpuFake: !!FAKE_GPU, gpu, gpuJob: job, mode, thinking: !!settings.thinking,
     busy: busyNow(), compacting: !!session?.isCompacting, context: contextUsage(), history: history(),
     sessionFile: session?.sessionFile || null,
     // a name robin gave it, else its first message
@@ -506,6 +666,18 @@ const state = () => {
   };
 };
 const sessionDir = join(agentDir, "sessions");
+// another folder from the folder screen: a new conversation there (its past
+// ones are in the list); "allow all" and the file lists were for the old one
+async function openFolder(path) {
+  await whenReady();
+  cwd = cleanPath(path);
+  addRecent(cwd);
+  fileCache = { at: 0, list: [] };
+  shelf = null;
+  mode = "ask";
+  await startSession(SessionManager.create(cwd, sessionDir));
+  log(`폴더 ${cwd}`);
+}
 async function allSessions() {
   return (await SessionManager.list(cwd, sessionDir))
     .filter((x) => x.messageCount > 0)
@@ -562,17 +734,94 @@ function broadcast(event) {
 }
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".woff2": "font/woff2", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".json": "application/json" };
-// the window is the React app in web/, built into web/dist (npm run build)
+// the window is the React app in web/, built into web/dist (npm run build);
+// the folder screen is web/picker, built into ops/windows/robincode-picker
+// (in git, robincode.cmd shows it too), with Korean Pretendard from RobinMail
 const DIST = join(here, "web", "dist");
+const PICKER = resolve(here, "..", "ops", "windows", "robincode-picker");
+const PRETENDARD = resolve(here, "..", "robinmail", "plugins", "robinmail", "fonts", "pretendard");
 const SHARED = {
   "/fonts/pretendard-latin.woff2": join(here, "..", "assets", "pretendard-latin.woff2"),
   "/fonts/robin-term.woff2": join(here, "..", "assets", "robin-term.woff2"),
   "/favicon.ico": join(here, "..", "assets", "favicon.ico"),
 };
+function inside(base, rel) {
+  const file = resolve(base, `.${rel}`);
+  try { return file.startsWith(base + sep) && statSync(file).isFile() ? file : null; } catch { return null; }
+}
 function staticFile(pathname) {
   if (SHARED[pathname]) return SHARED[pathname];
-  const file = resolve(DIST, `.${pathname === "/" ? "/index.html" : decodeURIComponent(pathname)}`);
-  return file.startsWith(DIST + sep) && existsSync(file) ? file : null;
+  let p;
+  try { p = decodeURIComponent(pathname); } catch { return null; }
+  if (p.startsWith("/picker/")) return inside(PICKER, p === "/picker/" ? "/index.html" : p.slice("/picker".length));
+  if (p.startsWith("/fonts/pretendard/")) return inside(PRETENDARD, p.slice("/fonts/pretendard".length));
+  return inside(DIST, p === "/" ? "/index.html" : p);
+}
+
+// ---- the folder screen's calls (/picker/api/*), as robincode-ui.ps1 answers
+// them for robincode.cmd; the token comes in x-robincode or ?t= ----
+let folders = null; // { at, list }, kept for 10 s while robin types
+const folderList = () => {
+  if (!folders || Date.now() - folders.at > 10000) folders = { at: Date.now(), list: allFolders(HOME_REPO) };
+  return folders.list;
+};
+function browseFolder(start) {
+  // the Explorer folder dialog of robincode-ui.ps1 (Select-Folder)
+  const ui = join(here, "..", "ops", "windows", "robincode-ui.ps1");
+  const script = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; . ([scriptblock]::Create([IO.File]::ReadAllText($env:RC_UI, [Text.Encoding]::UTF8))); $p = Select-Folder $env:RC_START; if ($p) { [Console]::Out.Write($p) }";
+  return new Promise((done) => {
+    execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-STA", "-Command", script],
+      { windowsHide: true, encoding: "utf8", env: { ...process.env, RC_UI: ui, RC_START: start, RA_SELF: `${dirname(ui)}\\` } },
+      (error, out, err) => done(error ? { error: (err || error.message).trim().split(/\r?\n/)[0] } : { path: out.trim() || null }));
+  });
+}
+function leaveSoon() {
+  // the page went away: the end, unless the conversation (or the folder
+  // screen again) comes back within 10 s
+  if (!EXIT_WHEN_CLOSED || clients.size) return;
+  clearTimeout(closeTimer);
+  closeTimer = setTimeout(() => { if (!clients.size) { log("창이 닫혀서 끝내요."); shutdown(); } }, 10000);
+}
+async function pickerCall(req, res, url) {
+  const name = url.pathname.slice("/picker/api/".length);
+  if (name !== "bye") clearTimeout(closeTimer);
+  const body = req.method === "POST" ? await readJson(req) : {};
+  const back = cwd ? `/#t=${token}` : null;
+  switch (name) {
+    case "rows":
+      send(res, 200, { ...folderRows(folderList(), url.searchParams.get("q") || "", 60), back: !!back });
+      return;
+    case "status":
+      send(res, 200, phase);
+      return;
+    case "open": {
+      const p = String(body.path || "");
+      if (!folderExists(p)) { send(res, 404, { error: `그 폴더가 없어요: ${p}` }); return; }
+      if (busyNow()) { send(res, 409, { error: "지금 하는 일이 있어서 폴더를 바꿀 수 없어요. 끝나거나 멈춘 뒤에 해 주세요." }); return; }
+      await openFolder(p);
+      folders = null;
+      send(res, 200, { path: cwd, next: `/#t=${token}` });
+      return;
+    }
+    case "browse": {
+      const start = String(body.start || "");
+      const r = await browseFolder(folderExists(start) ? start : cwd || HOME_REPO);
+      if (r.error) { send(res, 500, { error: r.error }); return; }
+      // only named: the page opens it as any other folder (and shows the getting ready)
+      send(res, 200, { path: r.path ? cleanPath(r.path) : null, pick: true });
+      return;
+    }
+    case "hide": hideRecent(String(body.path || "")); folders = null; send(res, 200, { ok: true }); return;
+    case "unhide": unhideRecent(String(body.path || "")); folders = null; send(res, 200, { ok: true }); return;
+    case "cancel":
+      // Esc on an empty box: back to the conversation, or, before any folder, the end
+      if (back) { send(res, 200, { next: back }); return; }
+      send(res, 200, { close: true });
+      if (EXIT_WHEN_CLOSED) setTimeout(shutdown, 1500);
+      return;
+    case "bye": send(res, 200, { ok: true }); leaveSoon(); return;
+    default: send(res, 404, { error: "no such call" });
+  }
 }
 // pictures come inside the JSON (base64), so a prompt can be a few MB
 async function readJson(req) {
@@ -666,8 +915,16 @@ const server = createServer(async (req, res) => {
     } catch { res.writeHead(404); res.end(); }
     return;
   }
+  if (url.pathname.startsWith("/picker/api/")) {
+    if ((req.headers["x-robincode"] || url.searchParams.get("t")) !== token) { send(res, 401, { error: "토큰이 달라요." }); return; }
+    try { await pickerCall(req, res, url); } catch (e) { send(res, 500, { error: e.message }); }
+    return;
+  }
+  if (url.pathname === "/picker") { res.writeHead(302, { location: `/picker/${url.search}` }); res.end(); return; }
   if (!url.pathname.startsWith("/api/")) { res.writeHead(404); res.end(); return; }
   if ((req.headers["x-robincode-token"] || url.searchParams.get("t")) !== token) { send(res, 401, { error: "token" }); return; }
+  // the conversation's calls need a folder and the agent (the folder screen comes first)
+  if (!session) { send(res, 409, { error: "아직 폴더를 고르지 않았어요." }); return; }
   try {
     if (url.pathname === "/api/events") {
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
@@ -676,10 +933,9 @@ const server = createServer(async (req, res) => {
       clearTimeout(closeTimer);
       req.on("close", () => {
         clients.delete(res);
-        // the window is gone (a reload reconnects within a second or two)
-        if (EXIT_WHEN_CLOSED && clients.size === 0) {
-          closeTimer = setTimeout(() => { if (!clients.size) { log("창이 닫혀서 끝내요."); shutdown(); } }, 10000);
-        }
+        // the window is gone (a reload reconnects within a second or two, the
+        // folder screen asks for its list)
+        leaveSoon();
       });
       return;
     }
@@ -845,11 +1101,23 @@ const server = createServer(async (req, res) => {
         await startSession(SessionManager.create(cwd, sessionDir));
         send(res, 200, { ok: true });
         return;
-      case "/api/gpu-on":
-        // renting costs robin money: this only opens the on/off helper's menu, where robin picks
-        spawn("cmd.exe", ["/c", "start", "RobinAI GPU", join(here, "..", "ops", "windows", "robinai-gpu.cmd")], { detached: true, stdio: "ignore" }).unref();
+      case "/api/gpu-offers":
+        if (FAKE && !FAKE_GPU) { send(res, 400, { error: "가짜 모델로 시험 중이에요." }); return; }
+        try { send(res, 200, { offers: await listOffers(), gpu }); } catch (e) { send(res, 502, { error: e.message }); }
+        return;
+      case "/api/gpu-run": {
+        // rent: one of the offers this window was shown, by its id; start: a
+        // stopped one again; destroy: delete it (nothing billed after)
+        if (FAKE && !FAKE_GPU) { send(res, 400, { error: "가짜 모델로 시험 중이에요." }); return; }
+        if (job?.running) { send(res, 409, { error: "GPU 일이 이미 도는 중이에요." }); return; }
+        const action = String(body.action || "");
+        if (!["rent", "start", "destroy"].includes(action)) { send(res, 400, { error: "모르는 일이에요." }); return; }
+        const offer = String(body.offer || "");
+        if (action === "rent" && !offers.some((o) => o.offer === offer)) { send(res, 400, { error: "자리 목록을 다시 받아 주세요." }); return; }
+        startGpuJob(action, action === "rent" ? offer : null);
         send(res, 200, { ok: true });
         return;
+      }
       default: send(res, 404, {});
     }
   } catch (e) {
@@ -867,11 +1135,12 @@ function findBrowser() {
 }
 function openWindow(url) {
   const browser = findBrowser();
-  if (!browser) { log("앱 창을 띄울 브라우저(Edge·Chrome·Brave)가 없어요. 이 주소를 여세요:", url); return; }
+  if (!browser) { log("앱 창을 띄울 브라우저(Edge·Chrome·Brave)가 없어요. 이 주소를 여세요:", url); return false; }
   const win = spawn(browser, [`--app=${url}`, `--user-data-dir=${join(appDir, "window")}`, "--window-size=1180,860",
     "--no-first-run", "--no-default-browser-check", "--disable-features=Translate"], { stdio: "ignore", detached: true });
   win.on("error", (e) => log("창을 띄우지 못했어요:", e.message, "이 주소를 여세요:", url));
   win.unref();
+  return true;
 }
 
 function shutdown() {
@@ -883,8 +1152,14 @@ function shutdown() {
 process.on("SIGINT", shutdown);
 
 try {
-  await connectModel();
-  await startSession();
+  if (cwd) {
+    await whenReady();
+    addRecent(cwd);
+    await startSession();
+  } else {
+    // the packages, the build and the model while robin picks a folder
+    whenReady().catch(() => { /* the folder screen shows it, and tries again */ });
+  }
   // the window keeps its address between runs (what it saved and the
   // notifications robin allowed belong to it), unless that port is taken
   const listen = (p) => new Promise((ok, no) => {
@@ -899,13 +1174,20 @@ try {
     if (settings.port !== server.address().port) { settings.port = server.address().port; saveSettings(); }
   }
   port = server.address().port;
-  const url = `http://127.0.0.1:${port}/#t=${token}`;
-  log(`RobinCode ${FAKE ? "(가짜 모델) " : ""}폴더 ${cwd}`);
+  const url = cwd ? `http://127.0.0.1:${port}/#t=${token}` : `http://127.0.0.1:${port}/picker/?t=${token}`;
+  log(`RobinCode ${FAKE ? "(가짜 모델) " : ""}${cwd ? `폴더 ${cwd}` : "폴더 고르는 화면"}`);
   log(`창 주소: ${url}`);
+  // ROBINCODE_URLFILE: the address goes there too (tests open it headless)
+  if (process.env.ROBINCODE_URLFILE) writeFileSync(process.env.ROBINCODE_URLFILE, url);
   refreshGpu();
   setInterval(refreshGpu, 60000).unref();
-  if (!NO_WINDOW) openWindow(url);
+  if (!NO_WINDOW) {
+    if (!openWindow(url)) { alertBox("RobinCode 창을 띄울 브라우저(Edge·Chrome·Brave)가 없어요."); shutdown(); }
+    // no page at all within a minute: the window never came
+    closeTimer = setTimeout(() => { if (!clients.size) { log("창이 오지 않아서 끝내요."); shutdown(); } }, 60000);
+  }
 } catch (e) {
   console.error(`[FAIL] ${e.message}`);
+  alertBox(`RobinCode를 켜지 못했어요.\n\n${e.message}`);
   shutdown();
 }
