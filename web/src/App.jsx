@@ -31,18 +31,87 @@ function shortPath(path) {
 const offSoon = (gpu) => (gpu?.state === "on" && gpu.idle != null && gpu.idleLimit && gpu.idleLimit - gpu.idle <= 3
   ? Math.max(0, gpu.idleLimit - gpu.idle) : null);
 const lampOf = (state) => (state === "on" ? "on" : state === "starting" ? "warn" : state === "unknown" ? "idle" : "bad");
+
+// ---- turning on: where a rent or start is ------------------------------------------
+// robinai-gpu says it every 10 s ("진행:" lines, server.mjs parseProgress)
+const STEPS = { rent: ["빌리기", "이미지 받기", "모델 받기", "GPU에 올리기", "준비"], start: ["켜기", "GPU에 올리기", "준비"] };
+// from this window's job, or from the server's status: a rent from
+// robinai-gpu.cmd, or one from before this window was opened again
+function progressOf(gpu, job) {
+  if (job?.running && STEPS[job.action]) {
+    const first = { step: 1, of: STEPS[job.action].length, name: STEPS[job.action][0], since: job.at,
+      more: job.action === "rent" ? "Vast에 자리를 빌리는 중이에요" : "Vast에 켜 달라고 하는 중이에요" };
+    return { action: job.action, p: job.progress || first };
+  }
+  if (gpu?.state === "starting" && gpu.progress) return { action: gpu.progress.of === 5 ? "rent" : "start", p: gpu.progress };
+  return null;
+}
+const stepsOf = (action, p) => {
+  let steps = STEPS[action] || [];
+  if (!steps.includes(p.name)) steps = [...steps.slice(0, -2), p.name, ...steps.slice(-2)]; // the script adds one the same way
+  return steps.length === p.of ? steps : Array.from({ length: p.of }, (_, i) => (i + 1 === p.step ? p.name : ""));
+};
+const downloadOf = (p) => (p.name === "모델 받기" && p.total ? Math.min(1, (p.got || 0) / p.total) : null);
+function GpuProgress({ action, p, mini }) {
+  const now = useNow(1000);
+  const steps = stepsOf(action, p);
+  const dl = downloadOf(p);
+  const gone = p.since ? Math.max(0, Math.floor((now - p.since) / 1000)) : null;
+  const when = [gone != null && `${Math.floor(gone / 60)}분 ${String(gone % 60).padStart(2, "0")}초 지남`, p.left && `약 ${p.left}분 남음`].filter(Boolean).join(" · ");
+  const bar = (
+    <div className="gpu-segs" style={{ gridTemplateColumns: `repeat(${steps.length}, 1fr)` }} aria-hidden="true">
+      {steps.map((_, i) => (
+        <span key={i} className={`gpu-seg${i + 1 < p.step ? " done" : i + 1 === p.step ? " now" : ""}`}>
+          {i + 1 === p.step && <i style={{ width: `${Math.round((dl ?? 0) * 100)}%` }} />}
+        </span>
+      ))}
+    </div>
+  );
+  if (mini) {
+    return (
+      <div className="gpu-mini" role="status">
+        {bar}
+        <span className="gpu-mini-text">{p.name}{dl != null ? ` ${p.got.toFixed(1)}/${p.total.toFixed(1)}GB` : ""}{p.left ? ` · 약 ${p.left}분` : ""}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="gpu-progress">
+      <div className="gpu-progress-head">
+        <span><span className="gpu-faint">단계 {p.step}/{steps.length}</span> <b>{p.name}</b></span>
+        {when && <span className="gpu-progress-when">{when}</span>}
+      </div>
+      {bar}
+      <ol className="gpu-steps" style={{ gridTemplateColumns: `repeat(${steps.length}, 1fr)` }}>
+        {steps.map((name, i) => (
+          <li key={i} className={i + 1 < p.step ? "done" : i + 1 === p.step ? "now" : ""} aria-current={i + 1 === p.step ? "step" : undefined}>{name}</li>
+        ))}
+      </ol>
+      {(dl != null || p.mbps) && (
+        <p className="gpu-progress-dl">
+          {dl != null && <>{p.got.toFixed(1)} / {p.total.toFixed(1)}GB <span className="gpu-faint">({Math.round(dl * 100)}%)</span></>}
+          {p.mbps ? <span className="gpu-faint">{dl != null ? " · " : ""}{p.mbps}Mbps</span> : null}
+        </p>
+      )}
+      {p.more && <p className="gpu-note gpu-progress-more">{p.more}</p>}
+    </div>
+  );
+}
+
 function Gpu({ gpu, fake, gpuFake, job, compact, onOpen }) {
-  const state = gpu.state || "unknown";
+  const prog = progressOf(gpu, job);
+  const state = prog ? "starting" : gpu.state || "unknown"; // a rent says "켜는 중" before Vast does
   const lamp = fake && !gpuFake ? "test" : lampOf(state);
   const short = gpu.hours != null && gpu.hours <= 1;
   const can = !fake || gpuFake;
   const label = job?.running ? JOB_WORDS[job.action][0] : state === "on" || state === "starting" ? "끄기…" : "켜기…";
+  const dl = prog && downloadOf(prog.p);
   return (
     <div className={`gpu${compact ? " compact" : ""}`}>
       <span className="gpu-line">
         <span className={`lamp ${lamp}`} aria-hidden="true" />
         <span className="gpu-label">GPU</span>
-        <span className="gpu-state">{GPU_NAMES[state] || state}</span>
+        <span className="gpu-state">{GPU_NAMES[state] || state}{compact && prog ? ` · ${prog.p.name}${dl != null ? ` ${Math.round(dl * 100)}%` : ""}` : ""}</span>
         {state === "on" && gpu.rate && <span className="gpu-rate">시간당 ${gpu.rate}</span>}
       </span>
       {gpu.credit != null && (
@@ -53,6 +122,7 @@ function Gpu({ gpu, fake, gpuFake, job, compact, onOpen }) {
         <button type="button" className={`mini-btn${job?.running ? " working" : ""}`} onClick={onOpen}
           title="GPU를 켜고 끄는 창을 열어요. 빌릴 자리는 거기서 골라요.">{label}</button>
       )}
+      {prog && !compact && <GpuProgress action={prog.action} p={prog.p} mini />}
     </div>
   );
 }
@@ -570,39 +640,47 @@ const JOB_WORDS = {
   start: ["켜는 중…", "켰어요", "켜지 못했어요"],
   destroy: ["끄는 중…", "껐어요(지웠어요). 이제 요금이 안 나가요.", "끄지 못했어요"],
 };
-function JobLog({ job }) {
+function JobLog({ job, prog, rented }) {
   const words = JOB_WORDS[job.action];
-  const lines = job.lines.slice(-8);
+  const lines = job.lines.slice(-6);
+  // a rent that did not get ready in time: the GPU is still there and billed
+  const stuck = !job.running && !job.ok && job.action === "rent" && rented;
   return (
-    <div className={`gpu-job${job.running ? "" : job.ok ? " ok" : " bad"}`} aria-live="polite">
-      <p className="gpu-job-head">
-        {job.running ? <><span>{words[0]}</span><span className="cursor" aria-hidden="true" /></> : job.ok ? words[1] : words[2]}
+    <div className={`gpu-job${job.running ? "" : job.ok ? " ok" : " bad"}`}>
+      <p className="gpu-job-head" aria-live="polite">
+        {job.running ? <><span>{words[0]}</span><span className="cursor" aria-hidden="true" /></> : job.ok ? words[1] : stuck ? "준비되지 않았어요 — 요금은 나가고 있어요" : words[2]}
       </p>
+      {prog && <GpuProgress action={prog.action} p={prog.p} />}
       {lines.length > 0 && <ul className="gpu-job-lines">{lines.map((l, k) => <li key={k}>{l}</li>)}</ul>}
       {job.running && <p className="gpu-note">이 창을 닫아도 서버에서 계속돼요.</p>}
+      {stuck && <p className="gpu-note">아래 끄기(지우기)로 지우면 요금이 멈춰요.</p>}
     </div>
   );
 }
 function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
-  const state = gpu.state || "unknown";
+  const prog = progressOf(gpu, job);
+  const state = prog ? "starting" : gpu.state || "unknown"; // a rent says "켜는 중" before Vast does
   const running = !!job?.running;
   const [offers, setOffers] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [failed, setFailed] = useState(false); // the list did not come: only "다시 받기" asks again
   const [pick, setPick] = useState(null);
-  const [sure, setSure] = useState(null); // "rent" | "destroy": the second step
+  const [sure, setSure] = useState(null); // "rent" | "destroy" | "cancel": the second step
   const opened = useRef(Date.now());
+  const watched = useRef(null); // the job this panel saw running: its end stays shown
   const panel = useRef(null);
   const load = useCallback(() => {
     setLoading(true);
     setErr("");
+    setFailed(false);
     setSure(null);
     api("/api/gpu-offers")
       .then((r) => { setOffers(r.offers); setPick((p) => (r.offers.some((o) => o.offer === p) ? p : r.offers[0]?.offer ?? null)); })
-      .catch((e) => setErr(e.message))
+      .catch((e) => { setErr(e.message); setFailed(true); })
       .finally(() => setLoading(false));
   }, []);
-  useEffect(() => { if (state === "off" && !running && offers === null && !loading) load(); }, [state, running, offers, loading, load]);
+  useEffect(() => { if (state === "off" && !running && offers === null && !loading && !failed) load(); }, [state, running, offers, loading, failed, load]);
   useEffect(() => {
     panel.current?.focus();
     // Esc closes this (it must not stop the agent)
@@ -618,8 +696,11 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
   const chosen = offers?.find((o) => o.offer === pick);
   const credit = gpu.credit != null ? Number(gpu.credit) : null;
   const low = chosen && credit != null && credit < Number(chosen.hour);
-  const showJob = job && (running || job.at >= opened.current);
+  if (running) watched.current = job.at;
+  const showJob = job && (running || job.at >= opened.current || watched.current === job.at);
   const rented = state === "on" || state === "starting" || state === "stopped";
+  // a rent can be cancelled once the server has the instance (server.mjs)
+  const canCancel = running && job.action === "rent" && job.rented;
   return (
     <div className="modal-back" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <section className="gpu-panel" role="dialog" aria-modal="true" aria-label="GPU 켜기·끄기" ref={panel} tabIndex={-1}>
@@ -642,7 +723,27 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
           </div>
         )}
 
-        {showJob && <JobLog job={job} />}
+        {showJob && <JobLog job={job} prog={running ? prog : null} rented={rented} />}
+        {!showJob && prog && (
+          <div className="gpu-job">
+            <p className="gpu-job-head"><span>켜는 중…</span><span className="cursor" aria-hidden="true" /></p>
+            <GpuProgress action={prog.action} p={prog.p} />
+            <p className="gpu-note">서버에서 계속되는 중이에요.</p>
+          </div>
+        )}
+        {canCancel && (sure === "cancel" ? (
+          <div className="gpu-confirm">
+            <p>빌리던 GPU를 지워요. 지금까지 쓴 몇 분 요금만 나가고, 이제부터는 안 나가요.</p>
+            <div className="gpu-actions">
+              <button type="button" className="btn" onClick={() => setSure(null)}>계속 빌리기</button>
+              <button type="button" className="btn btn-danger" autoFocus onClick={() => run("destroy")}>취소하고 지우기</button>
+            </div>
+          </div>
+        ) : (
+          <div className="gpu-actions">
+            <button type="button" className="btn" onClick={() => setSure("cancel")}>취소하고 지우기…</button>
+          </div>
+        ))}
 
         {!running && state === "off" && (
           <>

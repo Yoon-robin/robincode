@@ -957,6 +957,32 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .gpu-job-head { font-weight: 600; color: var(--head); }
 .gpu-job.bad .gpu-job-head { color: var(--red); }
 .gpu-job-lines { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font: 400 12px/1.55 var(--mono); color: var(--soft); overflow-wrap: anywhere; }
+/* turning on: steps as segments, the current one filling with the model's GB
+   and a terminal cursor at its end (GpuProgress) */
+.gpu-progress { display: grid; gap: 7px; }
+.gpu-progress-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; font-size: 13px; }
+.gpu-progress-head b { font-weight: 600; color: var(--head); }
+.gpu-progress-when { font: 400 12px var(--mono); color: var(--soft); font-variant-numeric: tabular-nums; }
+.gpu-segs { display: grid; gap: 4px; }
+.gpu-seg { position: relative; display: block; height: 6px; border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
+.gpu-seg.done { border-color: rgb(255 255 255 / 55%); background: rgb(255 255 255 / 55%); }
+.gpu-seg.now { border-color: var(--head); }
+.gpu-seg.now i { position: absolute; inset: 0 auto 0 0; background: var(--head); transition: width 0.6s var(--ease); }
+.gpu-seg.now i::after { content: ""; position: absolute; top: 0; bottom: 0; left: 100%; width: 5px; background: var(--head); animation: blink 1s steps(1) infinite; }
+.gpu-steps { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font: 400 11px/1.35 var(--mono); color: var(--faint); }
+.gpu-steps li { min-width: 0; overflow-wrap: anywhere; }
+.gpu-steps li.done { color: var(--soft); }
+.gpu-steps li.now { color: var(--head); }
+.gpu-progress-dl { font: 400 12.5px var(--mono); color: var(--text); font-variant-numeric: tabular-nums; }
+.gpu-progress-more { overflow-wrap: anywhere; }
+.gpu-mini { display: grid; gap: 5px; flex: 1 1 100%; min-width: 0; }
+.gpu-mini .gpu-segs { gap: 3px; }
+.gpu-mini .gpu-seg { height: 4px; }
+.gpu-mini-text { font-size: 11.5px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) {
+  .gpu-seg.now i { transition: none; }
+  .gpu-seg.now i::after { animation: none; }
+}
 /* the server deletes an unused GPU: the bar 3 minutes before, and the GPU window's line */
 .gpu-soon { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 20px 0; padding: 9px 12px; border: 1px solid rgb(251 191 36 / 35%); border-radius: var(--radius); background: rgb(251 191 36 / 6%); color: var(--amber); font-size: 14px; }
 .gpu-soon > span { flex: 1 1 18em; }

@@ -225,10 +225,40 @@ async function modelProblem() {
 // ROBINCODE_FAKE_GPU (a JSON file for its state) answers with fake-gpu.mjs
 // instead of the server, for tests: nothing is rented
 const FAKE_GPU = process.env.ROBINCODE_FAKE_GPU;
-function gpuProcess(command) {
-  if (FAKE_GPU) return spawn(process.execPath, [join(here, "fake-gpu.mjs"), ...command.split(" ")], { windowsHide: true });
-  // -n: no input, BatchMode: never a password prompt nobody can see
-  return spawn("ssh", ["-n", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "contabo", `robinai-gpu ${command}`], { windowsHide: true });
+// every: seconds between the "진행:" lines of a rent or start (robinai-gpu's
+// ROBINAI_EVERY; the window shows them as they come)
+function gpuProcess(command, { every } = {}) {
+  if (FAKE_GPU) {
+    return spawn(process.execPath, [join(here, "fake-gpu.mjs"), ...command.split(" ")],
+      { windowsHide: true, env: every ? { ...process.env, ROBINAI_EVERY: String(every) } : process.env });
+  }
+  // -n: no input, BatchMode: never a password prompt nobody can see;
+  // ServerAlive: a connection that died (Wi-Fi changed, the lid closed) ends in
+  // 45 s, not hours, so a rent's window does not say "빌리는 중…" forever
+  return spawn("ssh", ["-n", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
+    "contabo", `${every ? `ROBINAI_EVERY=${every} ` : ""}robinai-gpu ${command}`], { windowsHide: true });
+}
+
+// robinai-gpu's progress while a rent or start waits, one line whose parts are
+// split by " · ":
+//   진행: 단계 3/5 모델 받기 · 7.4/18.9GB · 480Mbps · 2분 15초 지남 · 약 4분 남음 · <more>
+// -> { step, of, name, got, total, mbps, since, left, at, more } (since: when
+// it began, ms; left: minutes left at `at`)
+function parseProgress(line, now = Date.now()) {
+  const m = line.match(/^진행: 단계 (\d+)\/(\d+) (.+)$/);
+  if (!m) return null;
+  const [name, ...parts] = m[3].split(" · ");
+  const p = { step: +m[1], of: +m[2], name: name.trim(), at: now, more: [] };
+  for (const part of parts) {
+    let x;
+    if ((x = part.match(/^([\d.]+)\/([\d.]+)GB$/))) { p.got = +x[1]; p.total = +x[2]; }
+    else if ((x = part.match(/^(\d+)Mbps$/))) p.mbps = +x[1];
+    else if ((x = part.match(/^(\d+)분 (\d+)초 지남$/))) p.since = now - (+x[1] * 60 + +x[2]) * 1000;
+    else if ((x = part.match(/^약 (\d+)분 남음$/))) p.left = +x[1];
+    else p.more.push(part);
+  }
+  p.more = p.more.join(" · ");
+  return p;
 }
 function gpuRun(command, timeout = 40000) {
   return new Promise((done) => {
@@ -261,6 +291,9 @@ function parseGpu(text) {
       const i = g.autooff.match(/안 쓴 지 (\d+)분/);
       if (i) g.idle = Number(i[1]);
     }
+    // a rent or start waiting on the server (also one this window did not start)
+    const p = parseProgress(l);
+    if (p) g.progress = p;
   }
   return g;
 }
@@ -294,30 +327,40 @@ async function listOffers() {
   return list;
 }
 function startGpuJob(action, offer) {
-  job = { action, offer: offer || null, lines: [], running: true, ok: null, at: Date.now() };
+  // progress: the last "진행:" line (not kept in lines); rented: the server has
+  // the instance, so a destroy can now cancel the rent
+  const my = { action, offer: offer || null, lines: [], progress: null, rented: false, running: true, ok: null, at: Date.now() };
+  job = my;
+  const tell = () => { if (job === my) broadcast({ t: "gpu_job", job: my }); };
   // follow: the job runs on the server on its own, so closing this window
   // (which ends this ssh) does not stop a rent halfway
-  const p = gpuProcess(action === "rent" ? `follow rent ${offer}` : `follow ${action}`);
+  const p = gpuProcess(action === "rent" ? `follow rent ${offer}` : `follow ${action}`, { every: 10 });
   let carry = "";
+  const keep = (line) => {
+    const pr = parseProgress(line);
+    if (pr) { my.progress = pr; return; }
+    if (/^빌렸어요\(인스턴스/.test(line)) my.rented = true;
+    my.lines.push(line);
+  };
   const take = (b) => {
     const parts = (carry + b.toString("utf8")).split(/\r?\n/);
     carry = parts.pop();
-    for (const line of parts.map((l) => plain(l).trim()).filter(Boolean)) job.lines.push(line);
-    job.lines = job.lines.slice(-30);
-    broadcast({ t: "gpu_job", job });
+    for (const line of parts.map((l) => plain(l).trim()).filter(Boolean)) keep(line);
+    my.lines = my.lines.slice(-30);
+    tell();
   };
   p.stdout.on("data", take);
   p.stderr.on("data", take);
   // the state moves while it runs (starting, then on)
   const watch = setInterval(refreshGpu, 20000);
   const end = (ok, extra) => {
-    if (!job.running) return;
+    if (!my.running) return;
     clearInterval(watch);
-    if (carry.trim()) job.lines.push(plain(carry).trim());
-    if (extra) job.lines.push(extra);
-    job.running = false;
-    job.ok = ok;
-    broadcast({ t: "gpu_job", job });
+    if (carry.trim()) keep(plain(carry).trim());
+    if (extra) my.lines.push(extra);
+    my.running = false;
+    my.ok = ok;
+    tell();
     refreshGpu();
   };
   p.on("error", (e) => end(false, e.message));
@@ -1183,8 +1226,15 @@ const server = createServer(async (req, res) => {
         // rent: one of the offers this window was shown, by its id; start: a
         // stopped one again; destroy: delete it (nothing billed after)
         if (FAKE && !FAKE_GPU) { send(res, 400, { error: "가짜 모델로 시험 중이에요." }); return; }
-        if (job?.running) { send(res, 409, { error: "GPU 일이 이미 도는 중이에요." }); return; }
         const action = String(body.action || "");
+        // a rent that is waiting can be cancelled by deleting what it rented
+        // (its wait sees the instance go and stops); before the server has
+        // the instance, a delete would find nothing and the rent would go on
+        const cancel = action === "destroy" && job?.running && job.action === "rent" && job.rented;
+        if (job?.running && !cancel) {
+          send(res, 409, { error: job.action === "rent" && action === "destroy" ? "아직 빌리는 중이에요. 몇 초 뒤 다시 눌러 주세요." : "GPU 일이 이미 도는 중이에요." });
+          return;
+        }
         if (!["rent", "start", "destroy"].includes(action)) { send(res, 400, { error: "모르는 일이에요." }); return; }
         const offer = String(body.offer || "");
         if (action === "rent" && !offers.some((o) => o.offer === offer)) { send(res, 400, { error: "자리 목록을 다시 받아 주세요." }); return; }
@@ -1289,7 +1339,9 @@ try {
   if (process.env.ROBINCODE_URLFILE) writeFileSync(process.env.ROBINCODE_URLFILE, url);
   refreshGpu();
   setInterval(refreshGpu, 60000).unref();
-  setInterval(() => { if (nearOff()) refreshGpu(); }, 20000).unref();
+  // near the automatic off, and while a rent or start waits (also one from
+  // robinai-gpu.cmd or an earlier window: its progress comes in status)
+  setInterval(() => { if (nearOff() || (gpu.state === "starting" && !job?.running)) refreshGpu(); }, 20000).unref();
   if (!NO_WINDOW) {
     if (!openWindow(url)) { alertBox("RobinCode 창을 띄울 브라우저(Edge·Chrome·Brave)가 없어요."); shutdown(); }
     // no page at all within a minute: the window never came
