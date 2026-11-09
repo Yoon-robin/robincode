@@ -425,11 +425,73 @@ const ASK_TOOLS = new Set(["powershell", "bash", "edit", "write"]);
 // the questions of one conversation answered no (it stops, or is let go)
 const refuse = (conv) => { for (const [id, a] of asking) if (a.conv === conv) pending.get(id)?.("no"); };
 
+// ---- the model going round in circles ------------------------------------------
+const SAMPLE_THINK = { temperature: 0.6, top_p: 0.95, top_k: 20, min_p: 0, presence_penalty: 0.5 };
+const SAMPLE_PLAIN = { temperature: 0.7, top_p: 0.8, top_k: 20, min_p: 0, presence_penalty: 0.5 };
+const SAME_CALLS = 3;
+const LOOP_SAY = "같은 말을 되풀이해서 멈췄어요. 다시 보내거나 말을 바꿔 물어봐 주세요.";
+const LOOP_CALLS = "같은 도구를 같은 값으로 계속 불러서 멈췄어요. 다시 보내거나 말을 바꿔 물어봐 주세요.";
+const LOOP_CUT = "답이 한 번에 쓸 수 있는 길이(16384토큰)를 넘어서 잘렸어요.";
+const NOTE = "robincode-note";
+// The end of what the model is writing says the same thing over and over:
+// one piece (10–400 characters) 5 times exactly, or one line or sentence
+// (15+ characters) `times` times in the last 6000 characters. Code repeats
+// lines by nature (`await settle();`), so fenced code and lines with code
+// characters are not counted for the second.
+const CODE_FENCE = /```[^]*?(?:```|$)/g;
+const CODE_CHARS = /[(){}[\];=<>`'"|/\\_]|:$/;
+function looping(s, times) {
+  if (s.length < 600) return false;
+  const t = s.slice(-4000);
+  for (let p = 10; p <= 400; p++) {
+    const need = Math.max(p * 5, 600);
+    if (need > t.length) break;
+    const stop = t.length - need + p;
+    let i = t.length - 1;
+    while (i >= stop && t[i] === t[i - p]) i--;
+    if (i < stop) return true;
+  }
+  const seen = new Map();
+  for (const piece of s.replace(CODE_FENCE, "\n").slice(-6000).split(/(?<=[.!?。])\s+|\n/)) {
+    const k = piece.replace(/\s+/g, " ").trim();
+    if (k.length < 15 || CODE_CHARS.test(k)) continue;
+    const n = (seen.get(k) || 0) + 1;
+    if (n >= times) return true;
+    seen.set(k, n);
+  }
+  return false;
+}
+// stopped by RobinCode (not robin): the reason goes in the window, the
+// conversation's file (shown when it is opened again) and its note
+function stopLoop(conv, why) {
+  if (conv.stopWhy) return;
+  conv.stopWhy = why;
+  log("되풀이로 멈춤:", why === LOOP_CALLS ? "도구" : "말");
+  setTimeout(() => { conv.session.abort().catch(() => {}); }, 0);
+}
+
 const approvalsFor = (conv) => ({
   name: "robincode-approvals",
   hidden: true,
   factory: (pi) => {
+    // Qwen's own sampling for each mode, and a little presence penalty: with
+    // thinking on and none, it could think "wait, let me check again" until
+    // max_tokens (robin 2026-11-09 "무한루프에 빠지다가 멈춰버리는데"). Kept
+    // small: llama.cpp applies it over the last 64 tokens, and code repeats.
+    pi.on("before_provider_request", (event) => {
+      const p = event.payload;
+      if (!p || typeof p !== "object" || !Array.isArray(p.messages)) return undefined;
+      return { ...p, ...(p.chat_template_kwargs?.enable_thinking ? SAMPLE_THINK : SAMPLE_PLAIN) };
+    });
     pi.on("tool_call", async (event) => {
+      // the same call again and again (it gives the same result): the third
+      // is refused with a reason, a fourth stops the run
+      const key = `${event.toolName}\n${JSON.stringify(event.input ?? null)}`;
+      conv.calls = conv.calls?.key === key ? { key, n: conv.calls.n + 1 } : { key, n: 1 };
+      if (conv.calls.n >= SAME_CALLS + 1) { stopLoop(conv, LOOP_CALLS); return { block: true, reason: "같은 호출을 되풀이해서 멈췄어요." }; }
+      if (conv.calls.n >= SAME_CALLS) {
+        return { block: true, reason: `같은 도구를 같은 값으로 ${SAME_CALLS}번 연달아 불렀어요. 결과는 바뀌지 않아요. 다른 방법을 쓰거나, 지금까지 알아낸 것으로 답하세요.` };
+      }
       // the file as it is right before the change runs (after robin said yes)
       const going = () => { if (FILE_TOOLS.has(event.toolName)) beforeChange(conv, event.toolCallId, event.input?.path); return undefined; };
       if (conv.mode === "auto" || !ASK_TOOLS.has(event.toolName)) return going();
@@ -671,7 +733,7 @@ function onEvent(conv, e) {
   switch (e.type) {
     case "message_start":
       if (e.message.role === "user") {
-        if (!conv.turn) { conv.turn = { start: Date.now(), tokens: 0, genMs: 0 }; setTimeout(sayRunning, 0); }
+        if (!conv.turn) { conv.turn = { start: Date.now(), tokens: 0, genMs: 0 }; conv.calls = null; conv.stopWhy = null; setTimeout(sayRunning, 0); }
         broadcast({ t: "user", text: wordsOf(e.message.content), images: imagesOf(e.message.content) });
       }
       if (e.message.role === "assistant") { conv.gen = { first: 0 }; conv.live = { thinking: "", text: "" }; broadcast({ t: "assistant_start" }); }
@@ -681,6 +743,15 @@ function onEvent(conv, e) {
       if (conv.gen && !conv.gen.first && STREAMED.has(a.type)) conv.gen.first = Date.now();
       if (a.type === "text_delta") { if (conv.live) conv.live.text += a.delta; broadcast({ t: "text", delta: a.delta }); }
       if (a.type === "thinking_delta") { if (conv.live) conv.live.thinking += a.delta; broadcast({ t: "thinking", delta: a.delta }); }
+      // going round in circles: looked at every 200 characters or so
+      const live = conv.live;
+      if (live && !conv.stopWhy && (a.type === "text_delta" || a.type === "thinking_delta")) {
+        const size = live.thinking.length + live.text.length;
+        if (size - (live.checked || 0) >= 200) {
+          live.checked = size;
+          if (looping(live.thinking, 6) || looping(live.text, 10)) stopLoop(conv, LOOP_SAY);
+        }
+      }
       break;
     }
     case "message_end":
@@ -695,6 +766,7 @@ function onEvent(conv, e) {
         conv.live = null;
         // a stop by robin ends as "aborted" and gets its own [SKIP] line on settle
         if (m.stopReason === "error") broadcast({ t: "error", message: m.errorMessage || "모델이 오류로 끝났어요." });
+        if (m.stopReason === "length") broadcast({ t: "error", message: LOOP_CUT });
         broadcast({ t: "assistant_end", context: contextUsage() });
       }
       break;
@@ -737,6 +809,12 @@ function onEvent(conv, e) {
       };
       conv.turn = null;
       conv.live = null;
+      const why = e.aborted ? conv.stopWhy || undefined : undefined;
+      conv.stopWhy = null;
+      conv.calls = null;
+      if (why) {
+        try { conv.session.sessionManager.appendCustomEntry(NOTE, { text: why }); } catch (err) { log("멈춘 까닭을 남기지 못했어요:", err.message); }
+      }
       // kept in the conversation's file (not seen by the model), so the
       // window shows it again when the conversation is opened later
       if (stats && !e.aborted) {
@@ -745,14 +823,14 @@ function onEvent(conv, e) {
       if (conv === cur) {
         const users = branch().filter(isUser);
         const side = alts();
-        broadcast({ t: "settled", aborted: e.aborted, context: contextUsage(), stats,
+        broadcast({ t: "settled", aborted: e.aborted, why, context: contextUsage(), stats,
           users: users.map((x) => x.id), alts: Object.fromEntries(users.map((x) => [x.id, side.get(x.id) ?? null])) });
       } else {
         // one robin left: the window says it ended (and can open it)
         let last = null;
         try { last = conv.session.sessionManager.getBranch().findLast((x) => x.type === "message" && x.message.role === "assistant")?.message; } catch { /* none */ }
-        sendAll({ t: "bg_done", path: conv.session.sessionFile, title: titleFor(conv), aborted: !!e.aborted,
-          failed: last?.stopReason === "error", said: last ? titleOf(textOf(last.content)).slice(0, 60) : "" });
+        sendAll({ t: "bg_done", path: conv.session.sessionFile, title: titleFor(conv), aborted: !!e.aborted && !why, why,
+          failed: !!why || last?.stopReason === "error" || last?.stopReason === "length", said: last ? titleOf(textOf(last.content)).slice(0, 60) : "" });
       }
       setTimeout(afterwards(conv), 0);
       break;
@@ -838,6 +916,7 @@ function history() {
     const old = k < kept;
     if (entry.type === "compaction") { out.push({ role: "compaction", key, faded: kept > 0 }); return; }
     if (entry.type === "custom" && entry.customType === STATS) { out.push({ role: "stats", key, stats: entry.data }); return; }
+    if (entry.type === "custom" && entry.customType === NOTE) { out.push({ role: "note", key, text: entry.data?.text || "" }); return; }
     if (entry.type !== "message") return;
     const m = entry.message;
     if (m.role === "user") out.push({ role: "user", key, old, id: entry.id, text: wordsOf(m.content), images: imagesOf(m.content), alt: side.get(entry.id) ?? null });
@@ -846,7 +925,7 @@ function history() {
         thinking: (m.content || []).filter((p) => p.type === "thinking" && !p.redacted).map((p) => p.thinking).join("").trim(),
         text: (m.content || []).filter((p) => p.type === "text").map((p) => p.text).join(""),
         tools: (m.content || []).filter((p) => p.type === "toolCall").map((p) => ({ id: p.id, name: p.name, args: p.arguments })),
-        error: m.stopReason === "error" ? m.errorMessage : undefined });
+        error: m.stopReason === "error" ? m.errorMessage : m.stopReason === "length" ? LOOP_CUT : undefined });
     } else if (m.role === "toolResult") out.push({ role: "tool", key, old, id: m.toolCallId, name: m.toolName, isError: m.isError, output: clip(plain(textOf(m.content))) });
   });
   return out;

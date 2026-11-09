@@ -996,7 +996,7 @@ export default function App() {
 
   const asking = askingTool(state);
   onBg.current = (e) => {
-    const how = e.aborted ? "멈췄어요" : e.failed ? "막혔어요" : "끝났어요";
+    const how = e.why ? "되풀이에 빠져서 멈췄어요" : e.aborted ? "멈췄어요" : e.failed ? "막혔어요" : "끝났어요";
     say(`"${e.title}" 대화가 ${how}.`, { label: "열기", run: () => open(e.path) });
     if (notify === "on" && !e.aborted) ping(e.failed ? "막혔어요" : "끝났어요", `${e.title}\n${e.said || ""}`.trim());
   };

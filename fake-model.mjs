@@ -8,6 +8,7 @@
 //
 //   node fake-model.mjs [port]      (default 18093)
 import { createServer } from "node:http";
+import { appendFileSync } from "node:fs";
 
 const port = Number(process.argv[2] || process.env.ROBINCODE_FAKE_PORT || 18093);
 const MODEL = "qwen3.8-27b-uncensored-aggressive";
@@ -133,12 +134,34 @@ createServer(async (req, res) => {
     await streamText(res, "## 목표\n가짜 모델로 RobinCode 창을 시험해요.\n\n## 한 일\n- 폴더의 파일을 읽고 목록을 봤어요.\n\n## 다음\n- robin이 다음에 시키는 것.", usage);
     return;
   }
+  // what was asked for (sampling), for a test to read back
+  if (process.env.ROBINCODE_FAKE_REQLOG) {
+    const { temperature, top_p, top_k, min_p, presence_penalty, max_tokens, chat_template_kwargs } = request;
+    appendFileSync(process.env.ROBINCODE_FAKE_REQLOG, `${JSON.stringify({ temperature, top_p, top_k, min_p, presence_penalty, max_tokens, thinking: !!chat_template_kwargs?.enable_thinking })}\n`);
+  }
   const tools = (request.tools || []).map((t) => t.function?.name);
   const lastUser = textOf([...messages].reverse().find((m) => m.role === "user")?.content);
   if (request.chat_template_kwargs?.enable_thinking) {
     res.thought = last.role === "tool"
       ? "결과를 받았어요.\n이걸로 충분한지 보고, 모자라면 하나 더 보고, 아니면 robin에게 짧게 정리해 주면 되겠어요."
       : `robin이 "${lastUser.slice(0, 30)}"라고 했어요.\n무엇을 먼저 봐야 할지 정리해 볼게요.\n폴더 안을 보고 필요한 파일을 읽은 다음 답하면 되겠어요.`;
+  }
+  // "같은 호출": ls "." again and again, as a model stuck in a loop does
+  if (/(같은 호출|same call)/i.test(lastUser) && tools.includes("ls")) {
+    const runs = messages.slice(messages.findLastIndex((m) => m.role === "user") + 1).filter((m) => m.role === "tool").length;
+    if (runs < 10) await streamToolCall(res, "ls", { path: "." }, usage);
+    else await streamText(res, "열 번 불렀어요.", usage);
+    return;
+  }
+  // "잘림": a long answer (not a loop) cut at max_tokens
+  if (/(잘림|cut off)/i.test(lastUser)) {
+    await opening(res);
+    for (let i = 1; i <= 40; i++) { sse(res, chunk({ content: `${i}번째 문단은 다른 이야기를 해요. ` })); await sleep(10); }
+    sse(res, chunk({}, "length"));
+    sse(res, { ...chunk({}, null, usage), choices: [] });
+    res.write("data: [DONE]\n\n");
+    res.end();
+    return;
   }
   // "둘러봐": six tool calls in a row, one per answer, then a short summary
   // (a long run of steps, which the window folds into one line once it ends)
@@ -168,6 +191,15 @@ createServer(async (req, res) => {
     // "긴 답": about 8 s of writing (a conversation that goes on while robin is in another)
     const words = "천천히 길게 답하는 중이에요. 다른 대화로 가도 이 답은 계속 써져요. ";
     await streamText(res, words.repeat(8), usage, 120);
+  } else if (/(되풀이|loop)/i.test(said)) {
+    // "되풀이": the same thought over and over until max_tokens (finish
+    // "length"), as the real model sometimes does with thinking on
+    sse(res, chunk({ role: "assistant", content: "" }));
+    for (let i = 0; i < 600; i++) { sse(res, chunk({ reasoning_content: "잠깐, 다시 확인해 볼게요. " })); await sleep(20); }
+    sse(res, chunk({}, "length"));
+    sse(res, { ...chunk({}, null, usage), choices: [] });
+    res.write("data: [DONE]\n\n");
+    res.end();
   } else if (/(끊김|끊겨|dropped)/i.test(said)) {
     await streamText(res, "다시 연결돼서 답해요. 첫 요청은 503으로 끊겼어요.", usage);
   } else if (pointed && tools.includes(pointed.endsWith("/") ? "ls" : "read")) {

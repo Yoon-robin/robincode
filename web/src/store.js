@@ -84,6 +84,8 @@ function fromHistory(history, still = false) {
     } else if (m.role === "compaction") {
       items.push({ kind: "line", id: id("c", m), tag: "[ OK ]", tone: "",
         text: m.faded ? "앞부분을 요약했어요. 흐린 부분은 모델이 요약으로만 기억해요." : "앞부분을 요약해서 줄였어요.", ...(still && { still }) });
+    } else if (m.role === "note") {
+      items.push({ kind: "line", id: id("n", m), tag: "[FAIL]", text: m.text, tone: "fail", ...flags(m) });
     } else if (m.role === "stats") {
       // under the last answer of its turn
       for (let i = items.length - 1; i >= 0 && items[i].kind !== "user"; i--) {
@@ -231,7 +233,8 @@ function onEvent(state, e) {
       state = endThink(state);
       const items = state.items.map((x) => (x.kind === "tools" && x.tools.some((t) => t.ask)
         ? { ...x, tools: x.tools.map((t) => (t.ask ? { ...t, ask: false } : t)) } : x));
-      if (e.aborted) items.push(line("[SKIP]", "멈췄어요.", "skip"));
+      // stopped by RobinCode (going round in circles): why, as a failure
+      if (e.aborted) items.push(e.why ? line("[FAIL]", e.why, "fail") : line("[SKIP]", "멈췄어요.", "skip"));
       // robin's messages from this turn get their ids (to go back to them)
       if (e.users) {
         let j = e.users.length - 1;
