@@ -185,8 +185,20 @@ function Picker() {
     if (busy) return;
     setBusy(true);
     setNote({ text: "탐색기 창을 열었어요. 폴더를 고르고 \"이 폴더에서 열기\"를 눌러요.", tone: "info" });
+    const start = row && (row.kind !== "path" || row.ok) ? row.path : "";
+    // RobinCode.exe opens the dialog on its own window (desktop/preload.cjs)
+    if (window.robincodeShell?.pickFolder) {
+      try {
+        const path = await window.robincodeShell.pickFolder(start);
+        setBusy(false);
+        if (path) { open({ kind: "folder", path, ok: true }); return; }
+        setNote(null);
+      } catch (e) { setBusy(false); setNote({ text: `탐색기 창을 열지 못했어요(${e.message}).`, tone: "warn" }); }
+      input.current?.focus();
+      return;
+    }
     try {
-      const v = await api("api/browse", { start: row && (row.kind !== "path" || row.ok) ? row.path : "" });
+      const v = await api("api/browse", { start });
       // the app's server only names it (it is opened as any other); robincode-ui.ps1 took it already
       if (v.path && v.pick) { setBusy(false); open({ kind: "folder", path: v.path, ok: true }); return; }
       if (v.path) finish(v.path);

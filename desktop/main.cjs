@@ -13,9 +13,9 @@
 //   ROBINCODE_SHELL_TEST  the window stays hidden and the sound off (tests);
 //                         ROBINCODE_SHELL_DEBUG_PORT opens DevTools' port
 //   ROBINCODE_HOME        settings and the log (default %LOCALAPPDATA%\RobinCode)
-const { app, BrowserWindow, Menu, dialog, nativeTheme, screen, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, screen, shell } = require("electron");
 const { execFileSync, spawn } = require("node:child_process");
-const { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
+const { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 
 const LOADING = `<!doctype html><meta charset="utf-8"><title>RobinCode</title>
@@ -40,10 +40,11 @@ module.exports = function start(dir) {
   const logFile = join(home, "robincode.log");
   const boundsFile = join(home, "window.json");
 
-  // a second double-click brings the open window to the front
+  app.setPath("userData", join(home, "shell")); // not next to the exe, not Roaming
+  // a second double-click brings the open window to the front (the lock goes
+  // with userData, so a test with its own ROBINCODE_HOME runs beside robin's)
   if (!app.requestSingleInstanceLock()) { app.quit(); return; }
   app.setAppUserModelId("xyz.yoonrobin.robincode"); // notifications say RobinCode
-  app.setPath("userData", join(home, "shell")); // not next to the exe, not Roaming
   if (TEST) {
     app.commandLine.appendSwitch("mute-audio");
     if (process.env.ROBINCODE_SHELL_DEBUG_PORT) app.commandLine.appendSwitch("remote-debugging-port", process.env.ROBINCODE_SHELL_DEBUG_PORT);
@@ -126,6 +127,19 @@ module.exports = function start(dir) {
     win.focus();
   });
 
+  // "다른 폴더 찾기": the Windows folder dialog on this window (preload.cjs).
+  // Only for the server's own pages
+  ipcMain.handle("robincode:pick-folder", async (e, start) => {
+    if (!win || !ours(e.senderFrame?.url || "")) return null;
+    // tests (hidden window): the folder they name instead of a dialog on screen
+    if (TEST && process.env.ROBINCODE_SHELL_TEST_PICK) return process.env.ROBINCODE_SHELL_TEST_PICK;
+    const r = await dialog.showOpenDialog(win, {
+      title: "RobinCode — 작업할 폴더 고르기", buttonLabel: "이 폴더에서 열기",
+      defaultPath: start && existsSync(start) ? start : undefined, properties: ["openDirectory", "dontAddToRecent"],
+    });
+    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+  });
+
   app.whenReady().then(() => {
     nativeTheme.themeSource = "dark"; // a dark title bar
     // where it was last time, if that still fits on a screen
@@ -139,7 +153,7 @@ module.exports = function start(dir) {
     win = new BrowserWindow({
       ...bounds, minWidth: 420, minHeight: 480, show: false, title: "RobinCode", backgroundColor: "#070707",
       icon: join(dir, "..", "ops", "windows", "robincode.ico"), autoHideMenuBar: true,
-      webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false },
+      webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false, preload: join(__dirname, "preload.cjs") },
     });
     win.once("ready-to-show", () => { if (!TEST) win.show(); });
     // the starting screen is written into about:blank: a data: page here made
