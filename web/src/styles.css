@@ -473,7 +473,15 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 /* what the model thinks: in its own soft voice, not a terminal's */
 .step.think .step-name { color: var(--soft); }
 .step.think .step-what { font: 400 13px var(--sans); color: var(--soft); }
+/* the live thought fills up to four lines and then keeps that height: new
+   lines push the old ones out of the top, under a fade */
 .think-live { font: 400 12.5px/1.6 var(--sans); }
+.think-clip { display: flex; flex-direction: column; justify-content: flex-end; max-height: 6.4em; overflow: hidden; }
+.think-clip p { margin: 0; }
+.think-pane { list-style: none; }
+.think-clip { transition: opacity 0.2s; }
+.think-live.idle .think-clip { opacity: 0.55; }
+.think-clip.full { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.8em); mask-image: linear-gradient(to bottom, transparent, #000 1.8em); }
 .think-out {
   margin: 0;
   padding: 10px 12px;
@@ -579,6 +587,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .composer { position: relative; padding: 0 24px 14px; }
 .composer > * { max-width: var(--col); margin-left: auto; margin-right: auto; }
 .status-row { display: flex; align-items: center; gap: 8px; font: 400 12.5px var(--mono); color: var(--soft); animation: line-on 1ms 120ms steps(1) both; }
+.status-row.quiet { visibility: hidden; }
 .status-mark { color: var(--head); animation: blink 1s steps(1) infinite; }
 .status-time { color: var(--text); }
 .status-row.warn, .status-row.warn .status-mark, .status-row.warn .status-time { color: var(--amber); }

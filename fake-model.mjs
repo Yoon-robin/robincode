@@ -165,6 +165,16 @@ createServer(async (req, res) => {
     res.thought = last.role === "tool"
       ? "결과를 받았어요.\n이걸로 충분한지 보고, 모자라면 하나 더 보고, 아니면 robin에게 짧게 정리해 주면 되겠어요."
       : `robin이 "${lastUser.slice(0, 30)}"라고 했어요.\n무엇을 먼저 봐야 할지 정리해 볼게요.\n폴더 안을 보고 필요한 파일을 읽은 다음 답하면 되겠어요.`;
+    // "긴 생각": a long thought of short, empty and very long lines, as Qwen
+    // writes them (the live thought box must not jump while it streams)
+    if (/긴 생각/.test(lastUser)) {
+      // no two pieces alike, or the loop check would cut it
+      const words = ["폴더", "파일", "이름", "날짜", "크기", "순서", "설정", "기록", "영상", "음악", "편집", "색감", "자막", "효과", "길이", "속도"];
+      const said = (i, k) => Array.from({ length: k }, (_, j) => `${words[(i * 7 + j * 3) % words.length]}${i}-${j}을(를) 보면 ${words[(i + j * 5) % words.length]} 쪽이 ${i * 13 + j}번째로 걸려요.`).join(" ");
+      const n = last.role === "tool" ? 6 : 24;
+      const at = messages.filter((m) => m.role === "tool").length * 100;
+      res.thought = Array.from({ length: n }, (_, i) => (i % 5 === 2 ? said(at + i, 6) : i % 4 === 3 ? "" : said(at + i, 1))).join("\n");
+    }
   }
   // "닫기 안 됨": this completion cannot have its thinking ended (an older
   // llama-server), so RobinCode falls back to cutting it

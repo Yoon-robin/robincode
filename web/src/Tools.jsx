@@ -4,7 +4,7 @@
 // folding out right under the step it is about. With thinking on, what the
 // model thinks is a step too ("생각"), its newest lines showing while it
 // thinks. A long finished run of steps folds into one summary line.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DiffLines, editRows, writeRows } from "./Diff.jsx";
 import { CopyButton } from "./Markdown.jsx";
 import { useNow, seconds } from "./time.js";
@@ -12,8 +12,7 @@ import { useNow, seconds } from "./time.js";
 const TAG = { run: "[ .. ]", ok: "[ OK ]", fail: "[FAIL]", skip: "[SKIP]" };
 const ASKS = new Set(["powershell", "bash", "edit", "write"]);
 const LIVE_LINES = 8;
-const THINK_LINES = 4;
-const THINK_CHARS = 360; // a thought can be one long line
+const THINK_CHARS = 1600; // more than the box's four lines hold, even one long line
 const FOLD_AT = 5; // steps in one run before a finished run folds into a summary
 // the keys that answer a question, in the order of its buttons
 export const ANSWER_KEYS = { 1: "yes", 2: "always", 3: "no" };
@@ -46,10 +45,43 @@ function Elapsed({ from }) {
 }
 
 const lastLines = (text, n) => text.replace(/\s+$/, "").split("\n").slice(-n).join("\n");
+// the newest of a thought: more than its box holds, so the box only fills up
+// and then stays the same height (cutting by lines made it jump as lines came
+// and went); the box keeps the bottom and fades out the top
 const thoughtTail = (text) => {
-  const t = lastLines(text, THINK_LINES).replace(/^\s+/, "");
-  return t.length > THINK_CHARS ? `…${t.slice(-THINK_CHARS)}` : t;
+  let t = text.replace(/\s+$/, "").replace(/\n\s*\n/g, "\n");
+  if (t.length > THINK_CHARS) {
+    t = t.slice(-THINK_CHARS);
+    const cut = t.indexOf("\n");
+    if (cut >= 0 && cut < THINK_CHARS / 2) t = t.slice(cut + 1);
+  }
+  return t.replace(/^\s+/, "");
 };
+
+// the newest thought of a run of steps, in one box under the run: it grows up
+// four lines (.think-clip) and never shrinks back (a shorter next thought sits at
+// its bottom), old lines slide out of the top under a fade. One box for the
+// whole run, so it does not fold shut and open again at every tool call.
+function ThoughtLive({ text, idle }) {
+  const box = useRef(null);
+  const [least, setLeast] = useState(0);
+  const [full, setFull] = useState(false);
+  const tail = text ? thoughtTail(text) : "";
+  useLayoutEffect(() => {
+    const el = box.current;
+    const p = el?.firstChild;
+    if (!p) return;
+    const cap = parseFloat(getComputedStyle(el).maxHeight) || Infinity;
+    if (!full && p.offsetHeight > cap + 1) setFull(true);
+    const h = Math.min(p.offsetHeight, cap);
+    if (h > least + 0.5) setLeast(h);
+  }, [tail, least, full]);
+  return (
+    <div className={`step-live think-live${idle ? " idle" : ""}`} aria-live="off">
+      <div ref={box} className={`think-clip${full ? " full" : ""}`} style={least ? { minHeight: `${least}px` } : undefined}><p>{tail}</p></div>
+    </div>
+  );
+}
 const firstLine = (text) => (text || "").trim().split("\n")[0];
 
 function Approval({ tool, onDecide }) {
@@ -126,13 +158,11 @@ function Step({ tool, onDecide }) {
           : tool.ms != null ? <span className="step-ms">{tool.ms < 1000 ? `${tool.ms}ms` : `${(tool.ms / 1000).toFixed(1)}초`}</span> : null}
         {canOpen && <span className="chev" aria-hidden="true" />}
       </button>
-      {/* a command's last lines while it runs (or the newest of a thought);
-          it folds away when it ends */}
-      {(ASKS.has(tool.name) || think) && (
+      {/* a command's last lines while it runs; it folds away when it ends
+          (a thought shows in its run's box instead, see ToolGroup) */}
+      {ASKS.has(tool.name) && (
         <Fold open={live}>
-          {think
-            ? <p className="step-live think-live" aria-live="off">{tool.output ? thoughtTail(tool.output) : ""}</p>
-            : <pre className="step-live" aria-live="off">{tool.output ? lastLines(tool.output, LIVE_LINES) : ""}</pre>}
+          <pre className="step-live" aria-live="off">{tool.output ? lastLines(tool.output, LIVE_LINES) : ""}</pre>
         </Fold>
       )}
       {canOpen && (
@@ -170,6 +200,13 @@ export function ToolGroup({ tools, onDecide, settled }) {
   const names = [...counts].map(([n, c]) => `${n} ${c}`);
   if (failed) names.push(`실패 ${failed}`);
   if (skipped) names.push(`건너뜀 ${skipped}`);
+  // the newest thought shows under the run until the run settles (the answer
+  // comes, or the turn ends), dimmed while a tool runs between two thoughts
+  const thought = tools.findLast((t) => t.think);
+  const pane = !settled && !!thought?.output;
+  // made once it has shown (so it can fold shut), not for runs read back
+  const shown = useRef(false);
+  if (pane) shown.current = true;
   return (
     <div className="group">
       {folds && (
@@ -183,6 +220,11 @@ export function ToolGroup({ tools, onDecide, settled }) {
       <Fold open={!folds || open}>
         <ol className="steps">
           {tools.map((t) => <Step key={t.id} tool={t} onDecide={onDecide} />)}
+          {shown.current && (
+            <li className="think-pane">
+              <Fold open={pane}><ThoughtLive text={thought?.output} idle={thought?.status !== "run"} /></Fold>
+            </li>
+          )}
         </ol>
       </Fold>
     </div>

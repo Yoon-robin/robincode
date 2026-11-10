@@ -337,8 +337,9 @@ function TurnMeta({ stats }) {
 }
 
 // where the next output will come: what the agent is doing, and for how long
-function StatusRow({ state }) {
+function StatusRow({ state, quiet }) {
   const now = useNow(500);
+  if (quiet) return <div className="status-row quiet" aria-hidden="true">▌</div>;
   const r = state.retry;
   if (r) {
     // the model's connection dropped and Pi asks again by itself (the tick
@@ -459,7 +460,9 @@ function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBr
             }
             return <Line key={item.id} item={item} onGpu={onGpu} />;
           })}
-          {state.busy && !asking && !state.think && <StatusRow state={state} />}
+          {/* kept (only hidden) while a thought shows its own clock, so the
+              thread does not jump by a line as thoughts start and end */}
+          {state.busy && !asking && <StatusRow state={state} quiet={!!state.think} />}
         </div>
       )}
       {away && <button type="button" className="to-bottom" onClick={toBottom}><Icon name="down" />아래로</button>}
