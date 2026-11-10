@@ -35,7 +35,7 @@ import { fileURLToPath } from "node:url";
 import { addRecent, allFolders, cleanPath, folderExists, hideRecent, rows as folderRows, unhideRecent } from "./folders.mjs";
 
 // Pi, loaded once its packages are there (getReady)
-let createAgentSession, DefaultResourceLoader, estimateTokens, ModelRuntime, SessionManager;
+let createAgentSession, DefaultResourceLoader, estimateTokens, ModelRuntime, SessionManager, compactWith;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -133,7 +133,7 @@ async function getReady() {
   }
   if (!steps.agent) {
     setPhase("에이전트를 불러오는 중이에요.");
-    ({ createAgentSession, DefaultResourceLoader, estimateTokens, ModelRuntime, SessionManager } = await import("@earendil-works/pi-coding-agent"));
+    ({ createAgentSession, DefaultResourceLoader, estimateTokens, ModelRuntime, SessionManager, compact: compactWith } = await import("@earendil-works/pi-coding-agent"));
     steps.agent = true;
   }
   if (!steps.model) {
@@ -590,6 +590,36 @@ const approvalsFor = (conv) => ({
       const thinking = !!p.chat_template_kwargs?.enable_thinking;
       return { ...p, ...(thinking ? { ...SAMPLE_THINK, reasoning_control: true } : SAMPLE_PLAIN) };
     });
+    // the summary, without thinking: Pi asks for it at robin's thinking level
+    // and past this hook, so Qwen thought until max_tokens and Pi threw the
+    // cut summary away (robin 2026-11-10 "요약하지 못했어요: ... token cap").
+    // Pi's own summary, asked for here with thinking off and the plain
+    // sampling; a failure cancels (Pi would otherwise try again thinking) and
+    // its reason goes to the window
+    pi.on("session_before_compact", async (event) => {
+      const s = conv.session;
+      if (!s?.model || !compactWith) return undefined;
+      conv.compactFail = null;
+      const stream = s.agent.streamFunction;
+      const plain = (model, context, options = {}) => stream(model, context, {
+        ...options,
+        onPayload: async (payload, m) => {
+          const p = (await options.onPayload?.(payload, m)) ?? payload;
+          return { ...p, ...SAMPLE_PLAIN, chat_template_kwargs: { ...p.chat_template_kwargs, enable_thinking: false } };
+        },
+      });
+      try {
+        const compaction = await compactWith(event.preparation, s.model, undefined, undefined, event.customInstructions, event.signal, "off", plain,
+          undefined, s.settingsManager?.getRetrySettings?.(), undefined, undefined);
+        return { compaction };
+      } catch (err) {
+        if (!event.signal?.aborted) {
+          conv.compactFail = err.message || String(err);
+          log("요약 실패:", conv.compactFail);
+        }
+        return { cancel: true };
+      }
+    });
     pi.on("provider_stream_event", (event) => { if (event.data?.id && !conv.reqId) conv.reqId = event.data.id; });
     // failures in a row: a note in the result first, then it stops
     // a call RobinCode or robin refused is not a failure of the model's
@@ -978,14 +1008,20 @@ function onEvent(conv, e) {
       break;
     case "auto_retry_end": broadcast({ t: "retry_end", success: e.success }); break;
     case "compaction_start": conv.starting = false; broadcast({ t: "compaction", phase: "start", reason: e.reason }); setTimeout(sayRunning, 0); break;
-    case "compaction_end":
+    case "compaction_end": {
+      // our summary failed and cancelled Pi's: its reason, not "cancelled"
+      const fail = conv.compactFail;
+      conv.compactFail = null;
       if (conv === cur) {
-        broadcast({ t: "compaction", phase: "end", aborted: e.aborted, error: !e.aborted && !e.result ? compactionError(e.errorMessage) : undefined,
+        broadcast({ t: "compaction", phase: "end", aborted: e.aborted && !fail,
+          error: fail ? compactionError(fail) : !e.aborted && !e.result ? compactionError(e.errorMessage) : undefined,
           context: contextUsage() });
         if (e.result && !session.isStreaming) broadcast({ t: "reset", state: state(), quiet: true });
       }
+      conv.lastCompactFail = fail;
       setTimeout(afterwards(conv), 0);
       break;
+    }
     case "agent_settled": {
       // a first loop: the turn goes on (no settled, no stats yet)
       if (e.aborted && conv.stopWhy === LOOP_RETRY && !conv.manualStop) {
@@ -1050,6 +1086,7 @@ const STATS = "robincode-stats";
 function compactionError(message = "") {
   if (/too small/i.test(message)) return { small: true, message: "아직 줄일 만큼 길지 않아요." };
   if (/Already compacted/i.test(message)) return { small: true, message: "방금 줄여서 더 줄일 게 없어요." };
+  if (/token cap/i.test(message)) return { message: "요약하지 못했어요: 요약이 한 번에 쓸 수 있는 길이(16384토큰)를 넘어서 잘렸어요. 다시 해 보거나 새 대화로 이어 가 주세요." };
   return { message: `요약하지 못했어요: ${message.replace(/^Compaction failed:\s*/, "")}` };
 }
 // Pi compacts once the context passes the window minus its reserve (16384 by
@@ -1544,12 +1581,13 @@ const server = createServer(async (req, res) => {
         const p = await starting(conv, modelProblem);
         if (p) { send(res, 503, { error: p.message, gpuOff: p.gpuOff }); return; }
         // isCompacting comes after Pi's own abort (compaction_start ends starting)
+        conv.lastCompactFail = null;
         const compacting = session.compact();
         compacting.catch(() => { /* compaction_end says how it went */ })
           .finally(() => { if (conv.starting) { conv.starting = false; afterwards(conv)(); } });
         // too short to compact fails at once, before the model is asked
         const early = await Promise.race([compacting.then(() => null, (e) => e), new Promise((r) => setTimeout(() => r(null), 300))]);
-        if (early) { send(res, 400, { error: compactionError(early.message).message }); return; }
+        if (early) { send(res, 400, { error: compactionError(conv.lastCompactFail || early.message).message }); return; }
         send(res, 200, { ok: true });
         return;
       }

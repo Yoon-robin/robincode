@@ -151,7 +151,21 @@ createServer(async (req, res) => {
 
   // Pi's compaction asks for a summary of the conversation so far
   if (/summarization assistant/i.test(textOf(messages[0]?.content))) {
-    await streamText(res, "## 목표\n가짜 모델로 RobinCode 창을 시험해요.\n\n## 한 일\n- 폴더의 파일을 읽고 목록을 봤어요.\n\n## 다음\n- robin이 다음에 시키는 것.", usage);
+    if (process.env.ROBINCODE_FAKE_REQLOG) {
+      appendFileSync(process.env.ROBINCODE_FAKE_REQLOG, `${JSON.stringify({ summary: true, thinking: !!request.chat_template_kwargs?.enable_thinking, presence_penalty: request.presence_penalty })}\n`);
+    }
+    // as Qwen did with thinking on: thinks until max_tokens, no summary
+    // ("요약 망가짐" in the conversation: cut even without thinking)
+    if (request.chat_template_kwargs?.enable_thinking || /요약 망가짐/.test(textOf(messages[1]?.content))) {
+      sse(res, chunk({ role: "assistant", content: "" }));
+      for (let i = 1; i <= 30; i++) { sse(res, chunk({ reasoning_content: `요약할 것 ${i}번째를 다시 살펴봐요. ` })); await sleep(10); }
+      sse(res, chunk({}, "length"));
+      sse(res, { ...chunk({}, null, usage), choices: [] });
+      res.write("data: [DONE]\n\n");
+      res.end();
+      return;
+    }
+    await streamText(res,"## 목표\n가짜 모델로 RobinCode 창을 시험해요.\n\n## 한 일\n- 폴더의 파일을 읽고 목록을 봤어요.\n\n## 다음\n- robin이 다음에 시키는 것.", usage);
     return;
   }
   // what was asked for (sampling), for a test to read back
