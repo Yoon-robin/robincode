@@ -185,6 +185,37 @@ createServer(async (req, res) => {
     else await streamText(res, "열 번 불렀어요.", usage);
     return;
   }
+  // "바뀌는 호출": the same command 5 times, its answer new each time (a clock,
+  // as a log looked at while a build runs): not a loop. "경로 바꿔": ls of one
+  // folder written another way each time (".", ".\", "./"): a loop. "네 개
+  // 순환": four calls in turn. "긴 차례": ls with another limit each time,
+  // 170 times (every call new, as a model reading on and on)
+  const toolRuns = () => messages.slice(messages.findLastIndex((m) => m.role === "user") + 1).filter((m) => m.role === "tool").length;
+  if (/바뀌는 호출/.test(lastUser) && tools.includes("powershell")) {
+    const runs = toolRuns();
+    if (runs < 5) await streamToolCall(res, "powershell", { command: "Get-Date -Format o" }, usage);
+    else await streamText(res, "다섯 번 시각을 봤어요.", usage);
+    return;
+  }
+  if (/경로 바꿔/.test(lastUser) && tools.includes("ls")) {
+    const runs = toolRuns();
+    if (runs < 9) await streamToolCall(res, "ls", { path: [".", ".\\", "./"][runs % 3] }, usage);
+    else await streamText(res, "아홉 번 봤어요.", usage);
+    return;
+  }
+  if (/네 개 순환/.test(lastUser) && tools.includes("ls")) {
+    const runs = toolRuns();
+    const plan = [["ls", { path: "." }], ["read", { path: "a.txt" }], ["read", { path: "b.txt" }], ["ls", { path: ".", limit: 5 }]];
+    if (runs < 16) await streamToolCall(res, plan[runs % 4][0], plan[runs % 4][1], usage);
+    else await streamText(res, "열여섯 번 했어요.", usage);
+    return;
+  }
+  if (/긴 차례/.test(lastUser) && tools.includes("ls")) {
+    const runs = toolRuns();
+    if (runs < 170) await streamToolCall(res, "ls", { path: ".", limit: 1000 + runs }, usage);
+    else await streamText(res, "백일흔 번 봤어요.", usage);
+    return;
+  }
   // "잘림": a long answer (not a loop) cut at max_tokens
   if (/(잘림|cut off)/i.test(lastUser)) {
     await opening(res);

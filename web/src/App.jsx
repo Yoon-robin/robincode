@@ -884,6 +884,19 @@ export default function App() {
   const attachRef = useRef(null); // the composer's "add these pictures"
   const dragDepth = useRef(0);
   const toastTimer = useRef(0);
+  // one send, and one open (a conversation, a new one) at a time: a second
+  // click while the server checks the model would go in twice
+  const sending = useRef(false);
+  const opening = useRef(false);
+  // the event stream reconnects by itself: "다시 연결하는 중" first, the
+  // advice to reopen only once it stays down
+  const [lostLong, setLostLong] = useState(false);
+  const offline = state.ready && !state.link;
+  useEffect(() => {
+    if (!offline) { setLostLong(false); return undefined; }
+    const t = setTimeout(() => setLostLong(true), 15000);
+    return () => clearTimeout(t);
+  }, [offline]);
 
   // a note above the composer, with up to two buttons (one action, or a list)
   const say = useCallback((text, action) => {
@@ -926,7 +939,8 @@ export default function App() {
   // true once the server took it; on a failure the words go back in the box
   const send = useCallback(async (text, pictures = []) => {
     const t = text.trim();
-    if (!t && !pictures.length) return false;
+    if ((!t && !pictures.length) || sending.current) return false;
+    sending.current = true;
     setDraft("");
     try {
       await api("/api/prompt", { text: t, images: pictures.map(({ mimeType, data }) => ({ mimeType, data })) });
@@ -935,6 +949,8 @@ export default function App() {
       dispatch({ type: "local-error", message: `보내지 못했어요: ${e.message}`, gpu: e.gpuOff });
       setDraft(t);
       return false;
+    } finally {
+      sending.current = false;
     }
   }, []);
   const stop = useCallback(() => { api("/api/abort").catch(() => {}); }, []);
@@ -943,8 +959,13 @@ export default function App() {
     api("/api/approve", { id, decision }).catch((e) => dispatch({ type: "local-error", message: e.message }));
     focusBox();
   }, []);
-  const newChat = () => api("/api/new").then(() => { closeSide(false); focusBox(); }).catch(fail);
-  const open = (path) => api("/api/open", { path }).then(() => { closeSide(false); focusBox(); }).catch(fail);
+  const once = (call) => {
+    if (opening.current) return;
+    opening.current = true;
+    call().then(() => { closeSide(false); focusBox(); }).catch(fail).finally(() => { opening.current = false; });
+  };
+  const newChat = () => once(() => api("/api/new"));
+  const open = (path) => once(() => api("/api/open", { path }));
   const remove = (s) => api("/api/delete", { path: s.path }).then(() => {
     loadSessions();
     say("대화를 지웠어요.", { label: "되돌리기", run: () => api("/api/restore", { path: s.path }).then(loadSessions).catch(fail) });
@@ -991,12 +1012,17 @@ export default function App() {
       }
     } catch (e) { fail(e); }
   };
-  const retry = () => api("/api/retry").catch(fail);
+  const retry = () => {
+    if (sending.current) return;
+    sending.current = true;
+    api("/api/retry").catch(fail).finally(() => { sending.current = false; });
+  };
   const compact = () => api("/api/compact").catch((e) => (e.message === "busy" || e.gpuOff ? fail(e) : say(e.message)));
 
   const asking = askingTool(state);
   onBg.current = (e) => {
-    const how = e.why ? "되풀이에 빠져서 멈췄어요" : e.aborted ? "멈췄어요" : e.failed ? "막혔어요" : "끝났어요";
+    const how = e.why ? (/도구를 \d+번 써서/.test(e.why) ? "너무 길어져서 멈췄어요" : "되풀이에 빠져서 멈췄어요")
+      : e.aborted ? "멈췄어요" : e.failed ? "막혔어요" : "끝났어요";
     say(`"${e.title}" 대화가 ${how}.`, { label: "열기", run: () => open(e.path) });
     if (notify === "on" && !e.aborted) ping(e.failed ? "막혔어요" : "끝났어요", `${e.title}\n${e.said || ""}`.trim());
   };
@@ -1106,7 +1132,7 @@ export default function App() {
           <h1 className="main-title" key={state.title}>{state.title || "새 대화"}</h1>
           <div className="head-narrow"><Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} compact onOpen={() => setGpuOpen(true)} /></div>
         </header>
-        {state.ready && !state.link && <div className="lost" role="alert">RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요.</div>}
+        {offline && <div className="lost" role="alert">{lostLong ? "RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요." : "RobinCode 서버와 다시 연결하는 중이에요…"}</div>}
         {soon != null && (
           <div className="gpu-soon" role="status">
             <span>GPU를 {state.gpu.idle}분째 안 써서 {soon ? `약 ${soon}분 뒤` : "곧"} 서버가 꺼요. 다시 켜려면 6~10분 걸려요.</span>

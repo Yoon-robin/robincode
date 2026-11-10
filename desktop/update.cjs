@@ -10,7 +10,7 @@
 // (the whole zip has to come from ai.yoonrobin.xyz again).
 const { execFile } = require("node:child_process");
 const { createHash } = require("node:crypto");
-const { createReadStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } = require("node:fs");
+const { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 
 const DIST = process.env.ROBINCODE_UPDATE_DIST || "/opt/stack/robincode-dist"; // another folder: tests
@@ -23,7 +23,9 @@ const sha256 = (file) => new Promise((done, fail) => {
   const h = createHash("sha256");
   createReadStream(file).on("data", (b) => h.update(b)).on("end", () => done(h.digest("hex"))).on("error", fail);
 });
-const safe = (v) => /^[\w.-]{1,80}$/.test(String(v || ""));
+// a folder or file name right under versions\ (never "." or "..": a version
+// ".." made <home>\versions\.. = <home> the folder to replace)
+const safe = (v) => /^[0-9A-Za-z][\w.-]{0,79}$/.test(String(v || "")) && !String(v).includes("..");
 
 // mine: { version, build, electron } of the running copy; home: settings
 // folder; log(text); tell(state) for the window. Returns { check, state }.
@@ -71,6 +73,13 @@ function updater({ mine, home, log, tell, host = process.env.ROBINCODE_UPDATE_HO
         if (!x.ok || !existsSync(join(tmp, "version.json")) || !existsSync(join(tmp, "desktop", "main.cjs"))) {
           rmSync(tmp, { recursive: true, force: true });
           throw new Error(`새 판을 풀지 못했어요: ${x.err.trim().slice(0, 160)}`);
+        }
+        // what came is the version latest.json named
+        let inside = null;
+        try { inside = JSON.parse(readFileSync(join(tmp, "version.json"), "utf8")); } catch { /* checked below */ }
+        if (inside?.version !== latest.version || String(inside?.build) !== String(latest.build)) {
+          rmSync(tmp, { recursive: true, force: true });
+          throw new Error("받은 판의 version.json이 latest.json과 달라요");
         }
         rmSync(to, { recursive: true, force: true });
         renameSync(tmp, to);

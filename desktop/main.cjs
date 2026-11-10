@@ -60,14 +60,21 @@ module.exports = function start(dir) {
   let server = null;
   let origin = null; // http://127.0.0.1:<port> once the server said it
   let loaded = false;
+  // a downloaded version counts as working once its page has drawn itself and
+  // the server is still there a little later; till then a failure (the server
+  // ending, the page not drawing, its renderer dying) sends it back to the
+  // version before (it printed its address and died, or drew nothing, and was
+  // started again and again)
+  let healthy = !mine || !dir.startsWith(join(home, "versions"));
   let quitting = false;
   let said = "";
 
-  // the server's output, kept in a small log (cut back past 1 MB)
+  // the server's output, kept in a small log (cut back past 1 MB); the
+  // window's token (in its address) is not written down
   const log = (text) => {
     try {
       if (statSync(logFile, { throwIfNoEntry: false })?.size > 1e6) writeFileSync(logFile, "");
-      appendFileSync(logFile, text);
+      appendFileSync(logFile, text.replace(/([#?&]t=)[\w-]+/g, "$1…"));
     } catch { /* no log, no matter */ }
   };
   // ---- an installed copy: updates and shortcuts ----------------------------------
@@ -136,22 +143,38 @@ module.exports = function start(dir) {
     server.on("exit", (code) => {
       server = null;
       if (quitting) return;
-      // a downloaded version that does not even start: back to the one before
-      if (code && !loaded && downloaded && !TEST) {
-        const { markBad } = require("./update.cjs");
-        if (markBad(dir, `서버가 코드 ${code}로 끝남`)) {
-          log(`[창] 새 판 ${mine.version}이 켜지지 않아서 전 판으로 다시 켜요.
-`);
-          quitting = true;
-          app.relaunch();
-          app.quit();
-          return;
-        }
-      }
+      // a downloaded version that does not start: back to the one before
+      if (code && goBack(`서버가 코드 ${code}로 끝남`)) return;
       // the server ended by itself: its window went (it waits 10 s), or it failed
       if (code && !TEST) dialog.showErrorBox("RobinCode", `RobinCode가 멈췄어요(코드 ${code}).\n\n${said.trim().split(/\r?\n/).slice(-8).join("\n")}\n\n기록: ${logFile}`);
       app.quit();
     });
+  }
+  // a new version that failed before it worked: marked bad (loader.cjs skips
+  // it) and RobinCode starts again on the one before. False when it is not one
+  function goBack(why) {
+    if (healthy || !downloaded || TEST || quitting) return false;
+    const { markBad } = require("./update.cjs");
+    if (!markBad(dir, why)) return false;
+    log(`[창] 새 판 ${mine.version}이 제대로 켜지지 않아서(${why}) 전 판으로 다시 켜요.\n`);
+    quitting = true;
+    stopServer();
+    app.relaunch();
+    app.quit();
+    return true;
+  }
+  // the page drew something (React put its root in) and the server stayed: it works
+  let checking = null;
+  function checkDrawn(tries = 6) {
+    if (healthy || checking || !win) return;
+    checking = setTimeout(async () => {
+      checking = null;
+      if (!win || healthy) return;
+      const drawn = await win.webContents.executeJavaScript(`(document.getElementById("root")?.childElementCount || 0) > 0`).catch(() => false);
+      if (drawn && server) { healthy = true; log(`[창] 새 판 ${mine.version}이 잘 켜졌어요.\n`); return; }
+      if (tries > 1) checkDrawn(tries - 1);
+      else goBack("화면이 그려지지 않음");
+    }, 3000);
   }
   function stopServer() {
     quitting = true;
@@ -184,7 +207,7 @@ module.exports = function start(dir) {
   });
 
   ipcMain.handle("robincode:update-state", () => updateState);
-  ipcMain.handle("robincode:update-check", async () => (updates ? updates.check() : updateState));
+  ipcMain.handle("robincode:update-check", async (e) => (updates && ours(e.senderFrame?.url || "") ? updates.check() : updateState));
   // "다시 켜기": the new version from the next start, now
   ipcMain.handle("robincode:relaunch", (e) => {
     if (!ours(e.senderFrame?.url || "")) return false;
@@ -233,10 +256,14 @@ module.exports = function start(dir) {
       if (/^https?:/.test(url)) shell.openExternal(url);
     });
     // a page that died: say why in the log, and draw it again
+    let crashes = 0;
     win.webContents.on("render-process-gone", (e, d) => {
       log(`[창] 화면 프로세스가 끝남: ${d.reason} (${d.exitCode})\n`);
+      if (d.reason !== "clean-exit" && ++crashes >= 3 && goBack("화면 프로세스가 거듭 끝남")) return;
       if (d.reason !== "clean-exit" && win && !quitting) setTimeout(() => win?.webContents.reload(), 500);
     });
+    // a new version's page: does it draw?
+    win.webContents.on("did-finish-load", () => { if (ours(win?.webContents.getURL() || "") && loaded) checkDrawn(); });
     if (TEST) win.webContents.on("console-message", (e) => log(`[창 콘솔] ${e.message}\n`));
     // the page says the window size itself on a small screen (fit.js); keep it here
     win.on("close", () => {
