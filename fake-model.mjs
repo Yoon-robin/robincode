@@ -14,8 +14,13 @@ const port = Number(process.argv[2] || process.env.ROBINCODE_FAKE_PORT || 18093)
 const MODEL = "qwen3.8-27b-uncensored-aggressive";
 
 function sse(res, chunk) {
+  if (res.cid) chunk.id = res.cid;
   res.write(`data: ${JSON.stringify(chunk)}\n\n`);
 }
+// completions going on, by id: llama-server's reasoning_control (b12124)
+// lets RobinCode end one's thinking through /v1/chat/completions/control
+const live = new Map();
+let served = 0;
 function chunk(delta, finish = null, usage) {
   const c = { id: "fake", object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: MODEL,
     choices: [{ index: 0, delta, finish_reason: finish }] };
@@ -101,6 +106,17 @@ createServer(async (req, res) => {
     res.end(req.url === "/health" ? '{"status":"ok"}' : JSON.stringify({ data: [{ id: MODEL, object: "model" }] }));
     return;
   }
+  if (req.method === "POST" && req.url.startsWith("/v1/chat/completions/control")) {
+    let raw = "";
+    for await (const part of req) raw += part;
+    const { id, action } = JSON.parse(raw || "{}");
+    const run = live.get(id);
+    const ok = !!run?.control && action === "reasoning_end";
+    if (ok) run.endThinking = true;
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify(ok ? { success: true } : { success: false, message: "no such completion" }));
+    return;
+  }
   if (req.method !== "POST" || !req.url.startsWith("/v1/chat/completions")) {
     res.writeHead(404); res.end(); return;
   }
@@ -126,6 +142,10 @@ createServer(async (req, res) => {
   const pictures = last.role === "user" && Array.isArray(last.content) ? last.content.filter((p) => p.type === "image_url").length : 0;
   const promptTokens = Math.round(JSON.stringify(messages).length / 3.2);
   const usage = { prompt_tokens: promptTokens, completion_tokens: 40, total_tokens: promptTokens + 40 };
+  res.cid = `chatcmpl-fake-${++served}`;
+  const run = { control: !!request.reasoning_control, endThinking: false };
+  live.set(res.cid, run);
+  res.on("close", () => live.delete(res.cid));
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
   await sleep(300);
 
@@ -137,7 +157,7 @@ createServer(async (req, res) => {
   // what was asked for (sampling), for a test to read back
   if (process.env.ROBINCODE_FAKE_REQLOG) {
     const { temperature, top_p, top_k, min_p, presence_penalty, max_tokens, chat_template_kwargs } = request;
-    appendFileSync(process.env.ROBINCODE_FAKE_REQLOG, `${JSON.stringify({ temperature, top_p, top_k, min_p, presence_penalty, max_tokens, thinking: !!chat_template_kwargs?.enable_thinking })}\n`);
+    appendFileSync(process.env.ROBINCODE_FAKE_REQLOG, `${JSON.stringify({ temperature, top_p, top_k, min_p, presence_penalty, max_tokens, thinking: !!chat_template_kwargs?.enable_thinking, control: request.reasoning_control })}\n`);
   }
   const tools = (request.tools || []).map((t) => t.function?.name);
   const lastUser = textOf([...messages].reverse().find((m) => m.role === "user")?.content);
@@ -145,6 +165,18 @@ createServer(async (req, res) => {
     res.thought = last.role === "tool"
       ? "결과를 받았어요.\n이걸로 충분한지 보고, 모자라면 하나 더 보고, 아니면 robin에게 짧게 정리해 주면 되겠어요."
       : `robin이 "${lastUser.slice(0, 30)}"라고 했어요.\n무엇을 먼저 봐야 할지 정리해 볼게요.\n폴더 안을 보고 필요한 파일을 읽은 다음 답하면 되겠어요.`;
+  }
+  // "닫기 안 됨": this completion cannot have its thinking ended (an older
+  // llama-server), so RobinCode falls back to cutting it
+  if (/닫기 안 됨/.test(lastUser)) run.control = false;
+  // "번갈아": ls "." and read a.txt in turn; "실패": read a missing file with
+  // another number each time (the same error); both as a stuck model does
+  if (/(번갈아|실패)/.test(lastUser) && tools.includes("ls")) {
+    const runs = messages.slice(messages.findLastIndex((m) => m.role === "user") + 1).filter((m) => m.role === "tool").length;
+    if (runs >= 12) await streamText(res, "열두 번 했어요.", usage);
+    else if (/번갈아/.test(lastUser)) await streamToolCall(res, runs % 2 ? "read" : "ls", runs % 2 ? { path: "a.txt" } : { path: "." }, usage);
+    else await streamToolCall(res, "read", { path: `없는파일${runs + 1}.txt` }, usage);
+    return;
   }
   // "같은 호출": ls "." again and again, as a model stuck in a loop does
   if (/(같은 호출|same call)/i.test(lastUser) && tools.includes("ls")) {
@@ -200,7 +232,28 @@ createServer(async (req, res) => {
     // thinking off in the answer ("계속 되풀이": again after RobinCode's note)
     sse(res, chunk({ role: "assistant", content: "" }));
     const field = request.chat_template_kwargs?.enable_thinking ? "reasoning_content" : "content";
-    for (let i = 0; i < 600; i++) { sse(res, chunk({ [field]: "잠깐, 다시 확인해 볼게요. " })); await sleep(20); }
+    // thinking closed by RobinCode: an answer follows (or, "계속 되풀이",
+    // the same words go on in the answer)
+    const onAndOn = /계속 되풀이/.test(textOf([...messages].reverse().find((m) => m.role === "user" && !/^\(RobinCode 알림\)/.test(textOf(m.content)))?.content));
+    let ended = false;
+    for (let i = 0; i < 600; i++) {
+      if (run.endThinking && !ended) {
+        ended = true;
+        if (!onAndOn) {
+          for (const piece of "생각을 닫고 확인된 것만으로 답해요.".match(/.{1,6}/gsu)) { sse(res, chunk({ content: piece })); await sleep(20); }
+          break;
+        }
+      }
+      sse(res, chunk({ [ended ? "content" : field]: "잠깐, 다시 확인해 볼게요. " }));
+      await sleep(20);
+    }
+    if (ended && !onAndOn) {
+      sse(res, chunk({}, "stop"));
+      sse(res, { ...chunk({}, null, usage), choices: [] });
+      res.write("data: [DONE]\n\n");
+      res.end();
+      return;
+    }
     sse(res, chunk({}, "length"));
     sse(res, { ...chunk({}, null, usage), choices: [] });
     res.write("data: [DONE]\n\n");

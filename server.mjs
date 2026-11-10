@@ -428,9 +428,72 @@ const refuse = (conv) => { for (const [id, a] of asking) if (a.conv === conv) pe
 // ---- the model going round in circles ------------------------------------------
 const SAMPLE_THINK = { temperature: 0.6, top_p: 0.95, top_k: 20, min_p: 0, presence_penalty: 0.5 };
 const SAMPLE_PLAIN = { temperature: 0.7, top_p: 0.8, top_k: 20, min_p: 0, presence_penalty: 0.5 };
-const SAME_CALLS = 3;
+// tool patterns robin's turn can fall into (Gemini CLI, OpenHands, Pydantic AI
+// do the same): the same call 3 times, two or three calls taken in turn 3
+// times (A-B-A-B-A-B), the same error 3 times or 5 failures in a row. The
+// first is answered with a note to the model, a second stops the run.
+const CYCLE_TIMES = 3;
+const SAME_ERRORS = 3;
+const FAILS = 5;
+const LOOP_ERRORS = "도구가 계속 실패해서 멈췄어요. 다시 보내거나 말을 바꿔 물어봐 주세요.";
+const NOTE_CYCLE = "같은 도구 호출을 되풀이해서 모델에게 다른 방법을 쓰라고 알렸어요.";
+const NOTE_ERRORS = "도구가 계속 실패해서 모델에게 원인부터 보라고 알렸어요.";
+const NOTE_THINK = "같은 생각을 되풀이해서 생각을 닫고 답으로 넘어가요.";
+// the last few calls go round: 1, 2 or 3 calls repeated CYCLE_TIMES times
+function cycleOf(trail) {
+  for (let k = 1; k <= 3; k++) {
+    const need = k * CYCLE_TIMES;
+    if (trail.length < need) break;
+    const end = trail.slice(-need);
+    if (!end.every((x, i) => x === end[i % k])) continue;
+    if (k > 1 && new Set(end.slice(0, k)).size < k) continue; // a shorter cycle
+    return k;
+  }
+  return 0;
+}
+// an error said again with other numbers or spaces is the same error
+const errorKey = (text) => String(text || "").toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ").trim().slice(0, 300);
+// the GPU's llama-server ends the thinking of a running completion when asked
+// (reasoning_control, llama.cpp b12124): the model goes on to its answer in
+// the same request, nothing is thrown away
+async function endThinking(id) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${modelPort}/v1/chat/completions/control`, {
+      method: "POST", signal: AbortSignal.timeout(5000),
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ id, action: "reasoning_end" }),
+    });
+    const j = await r.json().catch(() => ({}));
+    return r.ok && j.success === true;
+  } catch { return false; }
+}
+// a loop seen in what the model writes: the thinking is closed (the answer
+// follows), or the run is cut and goes on without thinking, or it stops
+function sawLoop(conv, live, hit, inThinking) {
+  const how = inThinking && !conv.thinkEnded && conv.reqId ? "생각 닫기" : !conv.noThink ? "끊고 이어 감" : "멈춤";
+  log(`되풀이 ${how}: ${inThinking ? "생각" : "답"} ${hit}, 생각 ${live.thinking.length}자·답 ${live.text.length}자${conv.noThink ? ", 생각 끈 채" : ""}`);
+  if (how === "생각 닫기") {
+    conv.thinkEnded = true;
+    conv.ending = true;
+    endThinking(conv.reqId).then((done) => {
+      conv.ending = false;
+      if (!done) { log("생각 닫기가 안 돼서 끊고 이어 가요"); conv.noThink = true; stopLoop(conv, LOOP_RETRY); return; }
+      // what was thought so far is not looked at again
+      live.thinkFrom = live.thinking.length;
+      noteLoop(conv, NOTE_THINK);
+    });
+  } else if (how === "끊고 이어 감") {
+    conv.noThink = true;
+    stopLoop(conv, LOOP_RETRY);
+  } else stopLoop(conv, LOOP_SAY);
+}
+// a [SKIP] line in the window (and kept in the conversation's file)
+function noteLoop(conv, text) {
+  try { conv.session.sessionManager.appendCustomEntry(NOTE, { text, tone: "skip" }); } catch (err) { log("알림을 남기지 못했어요:", err.message); }
+  if (conv === cur) sendAll({ t: "loop_retry", text });
+}
 const LOOP_SAY = "같은 말을 되풀이해서 멈췄어요. 다시 보내거나 말을 바꿔 물어봐 주세요.";
-const LOOP_CALLS = "같은 도구를 같은 값으로 계속 불러서 멈췄어요. 다시 보내거나 말을 바꿔 물어봐 주세요.";
+const LOOP_CALLS = "같은 도구 호출을 계속 되풀이해서 멈췄어요. 다시 보내거나 말을 바꿔 물어봐 주세요.";
 // the first loop in robin's turn: cut, and the turn goes on without thinking
 // (where Qwen loops) with a note to the model; a second one stops it
 const LOOP_RETRY = "같은 생각을 되풀이해서 끊었어요. 생각을 끄고 이어 가요.";
@@ -470,7 +533,7 @@ function looping(s, times) {
 function stopLoop(conv, why) {
   if (conv.stopWhy) return;
   conv.stopWhy = why;
-  if (why === LOOP_CALLS) log("되풀이로 멈춤: 같은 도구 호출");
+  if (why === LOOP_CALLS || why === LOOP_ERRORS) log(`되풀이로 멈춤: ${why === LOOP_CALLS ? "같은 도구 호출" : "도구 실패"}`);
   setTimeout(() => { conv.session.abort().catch(() => {}); }, 0);
 }
 
@@ -486,16 +549,44 @@ const approvalsFor = (conv) => ({
       const p = event.payload;
       if (!p || typeof p !== "object" || !Array.isArray(p.messages)) return undefined;
       if (conv.noThink) return { ...p, ...SAMPLE_PLAIN, chat_template_kwargs: { ...p.chat_template_kwargs, enable_thinking: false } };
-      return { ...p, ...(p.chat_template_kwargs?.enable_thinking ? SAMPLE_THINK : SAMPLE_PLAIN) };
+      const thinking = !!p.chat_template_kwargs?.enable_thinking;
+      conv.reqId = null;
+      return { ...p, ...(thinking ? { ...SAMPLE_THINK, reasoning_control: true } : SAMPLE_PLAIN) };
+    });
+    pi.on("provider_stream_event", (event) => { if (event.data?.id && !conv.reqId) conv.reqId = event.data.id; });
+    // failures in a row: a note in the result first, then it stops
+    // a call RobinCode or robin refused is not a failure of the model's
+    const refused = (event, reason) => { (conv.refused ||= new Set()).add(event.toolCallId); return { block: true, reason }; };
+    pi.on("tool_result", (event) => {
+      if (conv.refused?.delete(event.toolCallId)) return undefined;
+      if (!event.isError) { conv.errs = []; return undefined; }
+      const errs = (conv.errs = [...(conv.errs || []), errorKey(textOf(event.content))]);
+      const same = errs.length >= SAME_ERRORS && errs.slice(-SAME_ERRORS).every((x) => x === errs[errs.length - 1]);
+      if (!same && errs.length < FAILS) return undefined;
+      conv.errs = [];
+      if (conv.errStrikes) { stopLoop(conv, LOOP_ERRORS); return undefined; }
+      conv.errStrikes = 1;
+      log(`되풀이 알림: ${same ? `같은 오류 ${SAME_ERRORS}번` : `실패 ${FAILS}번 연속`}`);
+      noteLoop(conv, NOTE_ERRORS);
+      const note = same
+        ? `(RobinCode 알림) 같은 오류가 ${SAME_ERRORS}번 연달아 났어요. 같은 방법을 조금씩 바꿔 다시 하지 말고, 오류의 원인을 먼저 확인하거나 다른 방법을 쓰세요. 모르면 robin에게 짧게 물어보세요.`
+        : `(RobinCode 알림) 도구가 ${FAILS}번 연달아 실패했어요. 멈추고 지금까지 알아낸 것을 정리한 뒤 다른 방법을 쓰거나 robin에게 짧게 물어보세요.`;
+      return { content: [...(Array.isArray(event.content) ? event.content : []), { type: "text", text: `\n\n${note}` }] };
     });
     pi.on("tool_call", async (event) => {
-      // the same call again and again (it gives the same result): the third
-      // is refused with a reason, a fourth stops the run
+      // going round (the same call, or a few in turn): the first time it is
+      // refused with a reason, a call that keeps it going stops the run
       const key = `${event.toolName}\n${JSON.stringify(event.input ?? null)}`;
-      conv.calls = conv.calls?.key === key ? { key, n: conv.calls.n + 1 } : { key, n: 1 };
-      if (conv.calls.n >= SAME_CALLS + 1) { stopLoop(conv, LOOP_CALLS); return { block: true, reason: "같은 호출을 되풀이해서 멈췄어요." }; }
-      if (conv.calls.n >= SAME_CALLS) {
-        return { block: true, reason: `같은 도구를 같은 값으로 ${SAME_CALLS}번 연달아 불렀어요. 결과는 바뀌지 않아요. 다른 방법을 쓰거나, 지금까지 알아낸 것으로 답하세요.` };
+      conv.trail = [...(conv.trail || []), key].slice(-30);
+      const k = cycleOf(conv.trail);
+      if (k && conv.toolStrikes) { stopLoop(conv, LOOP_CALLS); return refused(event, "같은 호출을 되풀이해서 멈췄어요."); }
+      if (k) {
+        conv.toolStrikes = 1;
+        log(`되풀이 알림: 도구 ${k === 1 ? "같은 호출" : `${k}개 번갈아`} ${CYCLE_TIMES}번`);
+        noteLoop(conv, NOTE_CYCLE);
+        return refused(event, k === 1
+          ? `같은 도구를 같은 값으로 ${CYCLE_TIMES}번 연달아 불렀어요. 결과는 바뀌지 않아요. 다른 방법을 쓰거나, 지금까지 알아낸 것으로 답하세요.`
+          : `도구 호출 ${k}개를 같은 순서로 ${CYCLE_TIMES}번 되풀이했어요. 결과는 바뀌지 않아요. 다른 방법을 쓰거나, 지금까지 알아낸 것으로 답하세요.`);
       }
       // the file as it is right before the change runs (after robin said yes)
       const going = () => { if (FILE_TOOLS.has(event.toolName)) beforeChange(conv, event.toolCallId, event.input?.path); return undefined; };
@@ -509,7 +600,7 @@ const approvalsFor = (conv) => ({
       sayRunning();
       if (decision === "always") { conv.mode = "auto"; if (conv === cur) broadcast({ t: "mode", mode: conv.mode }); return going(); }
       if (decision === "yes") return going();
-      return { block: true, reason: "robin이 이 도구 호출을 허락하지 않았어요. 다른 방법을 물어보거나 멈추세요." };
+      return refused(event, "robin이 이 도구 호출을 허락하지 않았어요. 다른 방법을 물어보거나 멈추세요.");
     });
   },
 });
@@ -739,7 +830,7 @@ function onEvent(conv, e) {
   switch (e.type) {
     case "message_start":
       if (e.message.role === "user") {
-        if (!conv.turn) { conv.turn = { start: Date.now(), tokens: 0, genMs: 0 }; conv.calls = null; conv.stopWhy = null; conv.loops = 0; conv.noThink = false; setTimeout(sayRunning, 0); }
+        if (!conv.turn) { conv.turn = { start: Date.now(), tokens: 0, genMs: 0 }; conv.trail = []; conv.errs = []; conv.toolStrikes = 0; conv.errStrikes = 0; conv.stopWhy = null; conv.thinkEnded = false; conv.noThink = false; setTimeout(sayRunning, 0); }
         broadcast({ t: "user", text: wordsOf(e.message.content), images: imagesOf(e.message.content) });
       }
       if (e.message.role === "custom" || e.message.role === "assistant") conv.resuming = false;
@@ -752,18 +843,13 @@ function onEvent(conv, e) {
       if (a.type === "thinking_delta") { if (conv.live) conv.live.thinking += a.delta; broadcast({ t: "thinking", delta: a.delta }); }
       // going round in circles: looked at every 200 characters or so
       const live = conv.live;
-      if (live && !conv.stopWhy && (a.type === "text_delta" || a.type === "thinking_delta")) {
+      if (live && !conv.stopWhy && !conv.ending && (a.type === "text_delta" || a.type === "thinking_delta")) {
         const size = live.thinking.length + live.text.length;
         if (size - (live.checked || 0) >= 200) {
           live.checked = size;
-          const hit = looping(live.thinking, 6) || looping(live.text, 10);
-          if (hit) {
-            const again = conv.loops > 0;
-            conv.loops = (conv.loops || 0) + 1;
-            log(`되풀이 ${again ? "다시, 멈춤" : "끊고 이어 감"}: ${live.text.length ? "답" : "생각"} ${hit}, 생각 ${live.thinking.length}자·답 ${live.text.length}자${conv.noThink ? ", 생각 끈 채" : ""}`);
-            if (!again) conv.noThink = true;
-            stopLoop(conv, again ? LOOP_SAY : LOOP_RETRY);
-          }
+          const inThinking = looping(live.thinking.slice(live.thinkFrom || 0), 6);
+          const hit = inThinking || looping(live.text, 10);
+          if (hit && !conv.ending) sawLoop(conv, live, hit, !!inThinking);
         }
       }
       break;
@@ -818,7 +904,6 @@ function onEvent(conv, e) {
       if (e.aborted && conv.stopWhy === LOOP_RETRY) {
         conv.stopWhy = null;
         conv.live = null;
-        conv.calls = null;
         conv.resuming = true;
         try { conv.session.sessionManager.appendCustomEntry(NOTE, { text: LOOP_RETRY, tone: "skip" }); } catch (err) { log("끊은 까닭을 남기지 못했어요:", err.message); }
         broadcast({ t: "loop_retry", text: LOOP_RETRY });
@@ -842,7 +927,6 @@ function onEvent(conv, e) {
       conv.live = null;
       const why = e.aborted ? conv.stopWhy || undefined : undefined;
       conv.stopWhy = null;
-      conv.calls = null;
       if (why) {
         try { conv.session.sessionManager.appendCustomEntry(NOTE, { text: why }); } catch (err) { log("멈춘 까닭을 남기지 못했어요:", err.message); }
       }
