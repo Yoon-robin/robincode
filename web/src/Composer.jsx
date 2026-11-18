@@ -390,9 +390,12 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
           <span className={`lamp ${think ? "on" : "idle"}`} aria-hidden="true" />{think ? "생각 켬" : "생각 끔"}
         </button>
         {meter}
-        <span className="keys">{state.busy
-          ? <><kbd>Enter</kbd> 다음 단계 전에 · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> 끝난 뒤에 · <kbd>↑</kbd> 기다리는 말 고치기 · <kbd>Esc</kbd> 멈추기</>
-          : <><kbd>Enter</kbd> 보내기 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄 바꿈 · <kbd>@</kbd> 파일 · <kbd>/</kbd> 명령 · <kbd>!</kbd> PowerShell · <kbd>↑</kbd> 보낸 말 · <kbd>Shift</kbd>+<kbd>Tab</kbd> 모드</>}</span>
+        {/* the most needed first: what does not fit drops whole (it wraps onto
+            a hidden second line) instead of being cut mid-word as "Esc 멈…" */}
+        <span className="keys">{(state.busy
+          ? [<><kbd>Esc</kbd> 멈추기</>, <><kbd>Enter</kbd> 다음 단계 전에</>, <><kbd>Ctrl</kbd>+<kbd>Enter</kbd> 끝난 뒤에</>, <><kbd>↑</kbd> 기다리는 말 고치기</>]
+          : [<><kbd>Enter</kbd> 보내기</>, <><kbd>Shift</kbd>+<kbd>Enter</kbd> 줄 바꿈</>, <><kbd>Shift</kbd>+<kbd>Tab</kbd> 모드</>, <><kbd>↑</kbd> 보낸 말</>, <><kbd>/help</kbd> 단축키</>]
+        ).map((k, i) => <span key={i} className="key">{k}</span>)}</span>
       </div>
     </footer>
   );

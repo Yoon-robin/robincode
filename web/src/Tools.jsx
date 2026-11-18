@@ -179,6 +179,13 @@ const Step = memo(function Step({ tool, onDecide }) {
   const diff = useMemo(() => (showDiff && made ? editRows(tool.args) : null), [showDiff, made, tool.args]);
   const canOpen = !running && (!!tool.output || showDiff);
   const live = running && !tool.ask && !!tool.output;
+  // how much a done edit/write changed, on its line: +3 −1 (seen without opening)
+  const delta = useMemo(() => {
+    if (tool.status !== "ok" || (tool.name !== "edit" && tool.name !== "write")) return null;
+    if (tool.name === "write") return { add: String(tool.args?.content ?? "").replace(/\n$/, "").split("\n").length, del: 0 };
+    const rows = editRows(tool.args);
+    return { add: rows.filter((r) => r[0] === "+").length, del: rows.filter((r) => r[0] === "-").length };
+  }, [tool.status, tool.name, tool.args]);
   return (
     <li className={`step ${status}${think ? " think" : ""}`} data-step={tool.id}>
       <button type="button" className="step-head" aria-expanded={canOpen ? open : undefined} disabled={!canOpen}
@@ -186,6 +193,7 @@ const Step = memo(function Step({ tool, onDecide }) {
         <span className="step-tag">{tool.ask ? "[ ?? ]" : TAG[tool.status]}</span>
         <span className="step-name">{tool.name}</span>
         <span className="step-what">{think ? (running ? "" : firstLine(tool.output)) : describe(tool.name, tool.args)}</span>
+        {delta && <span className="step-delta" aria-label={`${delta.add}줄 더함, ${delta.del}줄 뺌`}><span className="add">+{delta.add}</span>{delta.del > 0 && <span className="del">−{delta.del}</span>}</span>}
         {running && !tool.ask && tool.startedAt ? <Elapsed from={tool.startedAt} />
           : tool.ms != null ? <span className="step-ms">{tool.ms < 1000 ? `${tool.ms}ms` : `${(tool.ms / 1000).toFixed(1)}초`}</span> : null}
         {canOpen && <span className="chev" aria-hidden="true" />}
