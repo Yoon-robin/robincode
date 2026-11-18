@@ -926,7 +926,9 @@ export default function App() {
   }, [state.ready, state.sessionFile]);
   useEffect(() => {
     if (draftKey.current === null) return undefined;
-    const t = setTimeout(() => keepDraft(drafts.current, draftKey.current, draft), 300);
+    // the conversation it was typed in, even if another is open by then
+    const key = draftKey.current;
+    const t = setTimeout(() => keepDraft(drafts.current, key, draft), 300);
     return () => clearTimeout(t);
   }, [draft]);
   useEffect(() => {

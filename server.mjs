@@ -1040,7 +1040,10 @@ function onEvent(conv, e) {
           log("되풀이 뒤 이어 가지 못했어요:", err.message);
           conv.resuming = false;
           conv.turn = null;
-          broadcast({ t: "settled", aborted: true, why: LOOP_SAY, context: contextUsage() });
+          // stopped after all: what waited goes back too (as below)
+          let unsent = [];
+          try { unsent = conv.session.clearQueue().followUp; } catch { /* nothing waiting */ }
+          broadcast({ t: "settled", aborted: true, why: LOOP_SAY, context: contextUsage(), unsent });
           setTimeout(afterwards(conv), 0);
         });
         break;
