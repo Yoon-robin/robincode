@@ -123,7 +123,8 @@ export function reducer(state, action) {
     case "decided": {
       const items = state.items.slice();
       updateTool(items, action.id, { ask: false, decision: action.decision });
-      if (action.decision === "always") items.push(line("[ OK ]", "이번 대화는 묻지 않고 실행해요. 아래 모드 단추(Shift+Tab)로 다시 묻게 할 수 있어요."));
+      if (action.decision === "always" && state.mode === "plan") items.push(line("[ OK ]", "이번만 허용했어요. 계획 모드는 그대로예요."));
+      else if (action.decision === "always") items.push(line("[ OK ]", "이번 대화는 묻지 않고 실행해요. 아래 모드 단추(Shift+Tab)로 다시 묻게 할 수 있어요."));
       if (action.decision === "rule" && action.rule) items.push(line("[ OK ]", `${action.rule.key.startsWith("web:") ? `${action.rule.label} 페이지는` : `"${action.rule.label}" 명령은`} 이 폴더에서 이제 묻지 않아요.`));
       return { ...state, items };
     }
@@ -185,7 +186,8 @@ function onEvent(state, e) {
     }
     case "git": return { ...state, git: e.git ?? null };
     case "user": {
-      const items = [...state.items, { kind: "user", id: nid(), text: e.text, images: e.images || [] }];
+      // midway: robin's word to a turn that runs (it does not end its task list)
+      const items = [...state.items, { kind: "user", id: nid(), text: e.text, images: e.images || [], ...(state.busy ? { midway: true } : {}) }];
       return {
         ...state, items, busy: true, startedAt: state.busy ? state.startedAt : Date.now(), phase: "think", retry: null, saved: true,
         title: state.title || e.text.replace(/\s+/g, " ").trim().slice(0, 80) || (e.images?.length ? "그림" : ""),

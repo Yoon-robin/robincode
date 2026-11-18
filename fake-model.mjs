@@ -305,8 +305,14 @@ createServer(async (req, res) => {
   }
   const said = textOf(last.content);
   const pointed = said.match(/@(\S+)/)?.[1];
+  // robin's newest message (a note RobinCode put after it does not count)
+  const newest = textOf([...messages].reverse().find((m) => m.role === "user" && !/^\(RobinCode|^\[/.test(textOf(m.content)))?.content);
+  const asIs = newest.startsWith("명령 그대로:") ? newest : "";
   if (pictures) {
     await streamText(res, `그림 ${pictures}장을 받았어요. 가짜 모델이라 그림 안은 못 봐요.`, usage);
+  } else if (asIs && (tools.includes("powershell") || tools.includes("bash"))) {
+    // "명령 그대로: <명령>": exactly that command (the "늘 허용" tests: what must still ask)
+    await streamToolCall(res, tools.includes("powershell") ? "powershell" : "bash", { command: asIs.slice("명령 그대로:".length).trim() }, usage);
   } else if (/(긴 답|long answer)/i.test(said)) {
     // "긴 답": about 8 s of writing (a conversation that goes on while robin is in another)
     const words = "천천히 길게 답하는 중이에요. 다른 대화로 가도 이 답은 계속 써져요. ";

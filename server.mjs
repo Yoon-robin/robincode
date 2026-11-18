@@ -446,19 +446,41 @@ function applyMode(conv) {
   try { conv.session.setActiveToolsByName(conv.mode === "plan" ? LOOK_TOOLS : TOOLS); } catch (e) { log("도구를 바꾸지 못했어요:", e.message); }
 }
 // "늘 허용": a command by how it starts (`npm test`, `git status`), a web page
-// by its site, for one folder. A command that chains or redirects (`;`, `&&`,
-// `|`, `>`, `$(…)`) never matches, so an allowed start cannot carry another in
-const CHAINED = /[;&|`<>\r\n]|\$\(/;
+// by its site, for one folder. Only a plain command can match: PowerShell runs
+// more than `; & |` — a newline, `( )` in an argument, `@{ }`, `$var`, a
+// backtick — so the whole command (as it is, before any tidying) may hold only
+// these characters, else it is asked every time
+const PLAIN = /^[A-Za-z0-9_ .,:=+\/\\'"~*-]+$/;
+// shells and interpreters run whatever follows them: never "always"
+const NO_RULE = new Set(["node", "nodejs", "python", "python3", "py", "pythonw", "powershell", "pwsh", "cmd", "bash", "sh", "zsh", "wsl", "iex",
+  "invoke-expression", "invoke-command", "icm", "start-process", "saps", "start", "invoke-item", "ii", "&", "deno", "bun", "bunx", "npx", "pnpx",
+  "ruby", "perl", "php", "java", "lua", "rundll32", "regsvr32", "mshta", "wscript", "cscript", "msiexec", "sudo", "runas", "env", "xargs", "nohup", "timeout"]);
+// these take a name of what to run next: the start keeps it (`npm run build`)
+const RUNNERS = new Set(["run", "exec", "x", "dlx", "run-script"]);
+const WORDISH = /^[a-z][\w:.-]*$/i;
+const spaced = (c) => c.trim().replace(/ +/g, " ");
+const tidy = (c) => spaced(c).toLowerCase();
 function commandStart(command) {
-  const c = String(command || "").replace(/\s+/g, " ").trim();
-  if (!c || CHAINED.test(c)) return null;
-  const [first, second] = c.split(" ");
-  return (second && /^[a-z][\w:.-]*$/i.test(second) ? `${first} ${second}` : first).toLowerCase();
+  const raw = String(command || "").trim();
+  if (!raw || !PLAIN.test(raw)) return null;
+  const words = tidy(raw).split(" ");
+  // "only this command" keeps its case: `git -C x` is not `git -c x`
+  const exact = { exact: true, start: spaced(raw) };
+  const [first, second, third] = words;
+  if (NO_RULE.has(first) || NO_RULE.has(first.replace(/\.exe$/, ""))) return null;
+  // `git config` can make later git commands run a program
+  if (first === "git" && second === "config") return null;
+  // an option or a path next (`git -C x`, `node -e`, `Remove-Item .\dist`):
+  // only this very command
+  if (!second || !WORDISH.test(second)) return exact;
+  if (RUNNERS.has(second)) return third && WORDISH.test(third) ? { start: `${first} ${second} ${third}` } : exact;
+  return { start: `${first} ${second}` };
 }
 function ruleOf(name, input) {
   if (name === "powershell" || name === "bash") {
-    const start = commandStart(input?.command);
-    return start ? { key: `cmd:${start}`, label: start } : null;
+    const s = commandStart(input?.command);
+    if (!s) return null;
+    return s.exact ? { key: `exact:${s.start}`, label: s.start } : { key: `cmd:${s.start}`, label: s.start };
   }
   if (name === "webfetch") {
     try {
@@ -473,9 +495,14 @@ function allowedByRule(conv, name, input) {
   const rules = rulesOf(conv.cwd);
   if (!rules.length) return false;
   if (name === "powershell" || name === "bash") {
-    const c = String(input?.command || "").replace(/\s+/g, " ").trim().toLowerCase();
-    if (!c || CHAINED.test(c)) return false;
-    return rules.some((r) => r.startsWith("cmd:") && (c === r.slice(4) || c.startsWith(`${r.slice(4)} `)));
+    const raw = String(input?.command || "").trim();
+    // checked as it is (a newline turned into a space would pass)
+    if (!raw || !PLAIN.test(raw)) return false;
+    const c = tidy(raw);
+    const first = c.split(" ")[0];
+    if (NO_RULE.has(first) || NO_RULE.has(first.replace(/\.exe$/, ""))) return false;
+    return rules.some((r) => (r.startsWith("exact:") && spaced(raw) === r.slice(6))
+      || (r.startsWith("cmd:") && (c === r.slice(4) || c.startsWith(`${r.slice(4)} `))));
   }
   const rule = ruleOf(name, input);
   return !!rule && rules.includes(rule.key);
@@ -680,14 +707,30 @@ function registerTools(pi, conv) {
 }
 // a web page as text: scripts, styles and tags out, at most 30000 characters
 const PAGE_MAX = 3e6;
+// a redirect to another site is not followed (robin allowed this site, or this
+// one call, not where it sends): the model is told the address and may ask again
+const bareHost = (h) => h.toLowerCase().replace(/^www\./, "");
 async function fetchPage(address, signal) {
   let u;
   try { u = new URL(address); } catch { throw new Error(`주소가 아니에요: ${address}`); }
   if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("http·https 주소만 읽어요.");
-  const r = await fetch(u, {
-    redirect: "follow", headers: { "user-agent": "Mozilla/5.0 (RobinCode)", accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" },
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000),
-  });
+  const host = bareHost(u.hostname);
+  const timeout = AbortSignal.timeout(20000);
+  let r;
+  for (let hop = 0; ; hop++) {
+    r = await fetch(u, {
+      redirect: "manual", headers: { "user-agent": "Mozilla/5.0 (RobinCode)", accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" },
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    const to = r.status >= 300 && r.status < 400 && r.headers.get("location");
+    if (!to) break;
+    await r.body?.cancel().catch(() => {});
+    const next = new URL(to, u);
+    if (next.protocol !== "http:" && next.protocol !== "https:") throw new Error(`http·https가 아닌 곳으로 보내요: ${next.href}`);
+    if (bareHost(next.hostname) !== host) throw new Error(`다른 사이트로 보내요: ${next.href} — 그 주소로 다시 읽으면 robin에게 따로 물어요.`);
+    if (hop >= 5) throw new Error("다시 보내기(redirect)가 너무 많아요.");
+    u = next;
+  }
   const type = (r.headers.get("content-type") || "").toLowerCase();
   if (!/text\/|json|xml|javascript/.test(type) && type) throw new Error(`글이 아니라서 읽지 않았어요 (${type.split(";")[0]}, HTTP ${r.status}).`);
   const reader = r.body?.getReader();
@@ -705,13 +748,17 @@ async function fetchPage(address, signal) {
   const title = html ? (raw.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] || "").trim() : "";
   let text = html ? htmlText(raw) : raw;
   if (text.length > 30000) text = `${text.slice(0, 30000)}\n… (${text.length - 30000}자 더)`;
-  return `${r.url}${r.ok ? "" : ` (HTTP ${r.status})`}${title ? `\n제목: ${entities(title)}` : ""}\n\n${text.trim() || "(글이 없어요)"}`;
+  return `${u.href}${r.ok ? "" : ` (HTTP ${r.status})`}${title ? `\n제목: ${entities(title)}` : ""}\n\n${text.trim() || "(글이 없어요)"}`;
 }
+const codePoint = (n) => (Number.isInteger(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "�");
 const entities = (s) => s
-  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-  .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+  .replace(/&#x([0-9a-f]{1,8});/gi, (_, h) => codePoint(parseInt(h, 16)))
+  .replace(/&#(\d{1,8});/g, (_, d) => codePoint(Number(d)))
   .replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&");
-function htmlText(html) {
+function htmlText(page) {
+  // the lazy patterns below look ahead for a closing tag: on a big page with
+  // many unclosed ones that is slow, and only the first 30000 characters stay
+  const html = page.length > 400000 ? page.slice(0, 400000) : page;
   return entities(html
     .replace(/<!--[^]*?-->/g, "")
     .replace(/<(script|style|noscript|svg|head|template)\b[^]*?<\/\1>/gi, "")
@@ -842,7 +889,9 @@ const approvalsFor = (conv) => ({
       pending.delete(event.toolCallId);
       asking.delete(event.toolCallId);
       sayRunning();
-      if (decision === "always") { conv.mode = "auto"; applyMode(conv); if (conv === cur) broadcast({ t: "mode", mode: conv.mode }); return going(); }
+      // in plan mode "늘 묻지 않기" is this once only: plan mode stays (no other tools open mid-turn)
+      if (decision === "always" && conv.mode !== "plan") { conv.mode = "auto"; applyMode(conv); if (conv === cur) broadcast({ t: "mode", mode: conv.mode }); return going(); }
+      if (decision === "always") return going();
       if (decision === "rule" && rule) { addRule(conv.cwd, rule.key); return going(); }
       if (decision === "yes") return going();
       return refused(event, "robin이 이 도구 호출을 허락하지 않았어요. 다른 방법을 물어보거나 멈추세요.");
@@ -977,7 +1026,9 @@ async function starting(conv, check) {
   sayRunning();
   let problem;
   try { problem = await check(); } catch (e) { problem = { message: e.message }; }
-  if (problem) { conv.starting = false; sayRunning(); }
+  // what was sent during the check is not left waiting for a turn that never
+  // came: it goes now, or comes back to the box ("unsent")
+  if (problem) { conv.starting = false; sayRunning(); if (conv.held.length) setTimeout(() => flushHeld(conv), 0); }
   return problem;
 }
 // a turn of robin's begins (the model checked first): { ok } or why not
@@ -1004,16 +1055,21 @@ async function begin(conv, said, images = [], text = said) {
 // steer: told to the model right after the step it is on; follow: sent when
 // the turn is over. Pi keeps the words; conv.q keeps them with their pictures,
 // in Pi's order (steer first)
+// Pi hands out each kind from the front and may have changed the words (a
+// /template is expanded), so ours are matched by count, not by text: the last
+// n of that kind are the n Pi still has
 function matchQueue(pool, steering = [], followUp = []) {
-  const left = pool.slice();
-  const take = (kind, texts) => texts.map((text) => {
-    const k = left.findIndex((x) => x.kind === kind && x.text === text);
-    return k >= 0 ? left.splice(k, 1)[0] : { kind, text, images: [] };
-  });
+  const take = (kind, texts) => {
+    const ours = pool.filter((x) => x.kind === kind);
+    const kept = ours.slice(Math.max(0, ours.length - texts.length));
+    return texts.map((text, k) => kept[k - (texts.length - kept.length)] || { id: newQid(), kind, text, images: [] });
+  };
   return [...take("steer", steering), ...take("follow", followUp)];
 }
+let qid = 0;
+const newQid = () => `q${++qid}`;
 async function enqueue(conv, kind, text, images = []) {
-  conv.q.push({ kind, text, images });
+  conv.q.push({ id: newQid(), kind, text, images });
   const pics = images.length ? images : undefined;
   await (kind === "steer" ? conv.session.steer(text, pics) : conv.session.followUp(text, pics));
 }
@@ -1028,7 +1084,7 @@ function takeQueue(conv, withHeld = true) {
   return items;
 }
 const queuedOf = (conv) => [...conv.q, ...conv.held.map((x) => ({ ...x, held: true }))]
-  .map((x) => ({ kind: x.kind, text: x.text, pictures: x.images?.length || 0, held: !!x.held }));
+  .map((x) => ({ id: x.id, kind: x.kind, text: x.text, pictures: x.images?.length || 0, held: !!x.held }));
 const sayQueued = (conv) => { if (conv === cur) sendAll({ t: "queued", queued: queuedOf(conv) }); };
 // what waited for a summary (or for the model check) goes now
 async function flushHeld(conv) {
@@ -1057,7 +1113,9 @@ const gitBusy = new Set();
 function refreshGit(dir) {
   if (!dir || gitBusy.has(keyOf(dir))) return;
   gitBusy.add(keyOf(dir));
-  run("git", ["-C", dir, "status", "--porcelain=v1", "--branch", "--untracked-files=normal"], 10000).then(({ ok, out }) => {
+  // read only: no index lock (robin's own git in that folder is not blocked)
+  // and no fsmonitor program from the folder's config
+  run("git", ["--no-optional-locks", "-c", "core.fsmonitor=", "-C", dir, "status", "--porcelain=v1", "--branch", "--untracked-files=normal"], 10000).then(({ ok, out }) => {
     gitBusy.delete(keyOf(dir));
     let info = null;
     if (ok) {
@@ -1792,7 +1850,7 @@ const server = createServer(async (req, res) => {
         if (session.isStreaming || conv.resuming) { await enqueue(conv, kind, said, images); send(res, 200, { ok: true, queued: kind }); return; }
         // summarizing, or the model still being checked for the last send: kept here until then
         if (session.isCompacting || conv.starting || conv.held.length) {
-          conv.held.push({ kind, text: said, images });
+          conv.held.push({ id: newQid(), kind, text: said, images });
           sayQueued(conv);
           send(res, 200, { ok: true, queued: "held" });
           return;
@@ -1803,15 +1861,18 @@ const server = createServer(async (req, res) => {
       }
       case "/api/unqueue": {
         // what waits is not sent after all: its words (and pictures) go back
-        // to the window. One of them (index), or all
+        // to the window. One of them (its id; an index from an old window), or all
         const conv = cur;
-        if (body.index == null) { const items = takeQueue(conv); sayQueued(conv); send(res, 200, { items }); return; }
+        if (body.id == null && body.index == null) { const items = takeQueue(conv); sayQueued(conv); send(res, 200, { items }); return; }
         const list = [...conv.q, ...conv.held];
-        const item = list[Number(body.index)];
+        // the id, so a list that changed under robin's click does not take another
+        const item = body.id != null ? list.find((x) => x.id === String(body.id)) : list[Number(body.index)];
         if (!item) { send(res, 404, { error: "이미 보냈어요." }); return; }
         if (conv.held.includes(item)) conv.held = conv.held.filter((x) => x !== item);
-        else if (!conv.session.isStreaming) { const items = takeQueue(conv); sayQueued(conv); send(res, 200, { items }); return; }
-        else {
+        else if (!conv.session.isStreaming && !conv.resuming) {
+          // the turn is over: what Pi still had went out already, only this one is ours
+          conv.q = conv.q.filter((x) => x !== item);
+        } else {
           // Pi takes its queue back only as a whole: the others go in again
           const rest = conv.q.filter((x) => x !== item);
           takeQueue(conv, false);
@@ -1834,7 +1895,9 @@ const server = createServer(async (req, res) => {
         let out = "";
         let last = 0;
         conv.session.executeBash(command, (chunk) => {
+          // only the end is shown while it runs: a chatty command does not grow this without end
           out += chunk;
+          if (out.length > 400000) out = out.slice(-200000);
           if (Date.now() - last > 150) { last = Date.now(); to({ t: "shell_update", id, output: tail(plain(out)) }); }
         }, { operations: psOps, id })
           .then((r) => to({ t: "shell_end", id, output: clip(plain(r.output || "")), exitCode: r.exitCode ?? null, cancelled: !!r.cancelled }))
@@ -1856,8 +1919,10 @@ const server = createServer(async (req, res) => {
       }
       case "/api/approve": {
         const decide = pending.get(String(body.id));
-        if (decide) decide(["yes", "no", "always", "rule"].includes(body.decision) ? body.decision : "no");
-        send(res, 200, { ok: !!decide });
+        // "rule" for a call that cannot have one (a chained command, an interpreter) is not an answer: it still waits
+        const noRule = body.decision === "rule" && !asking.get(String(body.id))?.rule;
+        if (decide && !noRule) decide(["yes", "no", "always", "rule"].includes(body.decision) ? body.decision : "no");
+        send(res, 200, { ok: !!decide && !noRule });
         return;
       }
       case "/api/rewind": {
@@ -1976,6 +2041,7 @@ const server = createServer(async (req, res) => {
           let had = "";
           try { had = readFileSync(own, "utf8"); } catch { had = "# 이 폴더에서 일할 때\n"; }
           writeFileSync(own, `${had.replace(/\s*$/, "\n")}- ${line.replace(/^[-*]\s*/, "")}\n`);
+          refreshGit(conv.cwd);
         }
         // read again (also when changed outside: an editor, /init), so what
         // shows is what the model gets from the next message; the mode's tools
@@ -1992,7 +2058,7 @@ const server = createServer(async (req, res) => {
       case "/api/rules": {
         // what "늘 허용" let through without asking, in this folder; remove: one of them
         if (body.remove) removeRule(cur.cwd, String(body.remove));
-        send(res, 200, { rules: rulesOf(cur.cwd).map((key) => ({ key, kind: key.startsWith("web:") ? "web" : "cmd", label: key.replace(/^(cmd|web):/, "") })) });
+        send(res, 200, { rules: rulesOf(cur.cwd).map((key) => ({ key, kind: key.startsWith("web:") ? "web" : key.startsWith("exact:") ? "exact" : "cmd", label: key.replace(/^(cmd|web|exact):/, "") })) });
         return;
       }
       case "/api/open-file": {

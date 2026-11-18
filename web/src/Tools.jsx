@@ -132,7 +132,7 @@ function Approval({ tool, onDecide }) {
         {/* Claude Code's "don't ask again for …": this command's start, or this site, in this folder */}
         {rule && (
           <button type="button" className="btn" onClick={() => onDecide(tool.id, "rule")}
-            title={web ? "이 사이트의 페이지는 이 폴더에서 묻지 않고 읽어요." : `"${rule.label}"로 시작하는 명령은 이 폴더에서 묻지 않고 실행해요. ; | > 같은 것으로 이어 붙인 명령은 그래도 물어요.`}>
+            title={web ? "이 사이트의 페이지는 이 폴더에서 묻지 않고 읽어요." : rule.key.startsWith("exact:") ? "똑같은 이 명령은 이 폴더에서 묻지 않고 실행해요." : `"${rule.label}"로 시작하는 명령은 이 폴더에서 묻지 않고 실행해요. ; | > 같은 것으로 이어 붙인 명령은 그래도 물어요.`}>
             <kbd className="key">4</kbd>{web ? <><span className="mono">{rule.label}</span>은 늘 허용</> : <><span className="mono">{rule.label}</span> 늘 허용</>}
           </button>
         )}
@@ -281,7 +281,8 @@ export const ShellRun = memo(function ShellRun({ item }) {
 export function latestTodo(items) {
   for (let i = items.length - 1; i >= 0; i--) {
     const x = items[i];
-    if (x.kind === "user") return null; // a list from an earlier request is over
+    // a list from an earlier request is over (a word sent while it ran is not one)
+    if (x.kind === "user") { if (x.midway) continue; return null; }
     if (x.kind !== "tools") continue;
     const t = x.tools.findLast((s) => s.name === "todo" && Array.isArray(s.args?.items));
     if (t) return t.args.items;

@@ -481,11 +481,11 @@ const Conversation = memo(function Conversation({ state, asking, onDecide, onPic
           {state.queued.length > 0 && (
             <div className="queued" role="group" aria-label="기다리는 말">
               {state.queued.map((q, k) => (
-                <div key={k} className={`queued-bubble ${q.held ? "held" : q.kind}`}>
+                <div key={q.id || k} className={`queued-bubble ${q.held ? "held" : q.kind}`}>
                   <span className="queued-when">{q.held ? "요약이 끝나면" : q.kind === "steer" ? "다음 단계 전에" : "끝나면"}</span>
                   <div className="queued-text">{q.text}{q.pictures ? <span className="queued-pics"> · 그림 {q.pictures}장</span> : null}</div>
                   <button type="button" className="icon-btn queued-x" aria-label="이 말은 보내지 않고 입력 칸으로" title="보내지 않고 입력 칸으로 (고쳐서 다시 보내요)"
-                    onClick={() => onUnqueue(k)}><Icon name="close" /></button>
+                    onClick={() => onUnqueue(q.id)}><Icon name="close" /></button>
                 </div>
               ))}
               <p className="queued-note">
@@ -994,6 +994,7 @@ function FindBar({ items, onClose }) {
   const [at, setAt] = useState(0);
   const [ranges, setRanges] = useState([]);
   const input = useRef(null);
+  const shown = useRef("");
   useEffect(() => { input.current?.focus(); input.current?.select(); }, []);
   // looked for again as the conversation grows, a moment after it settles
   useEffect(() => {
@@ -1008,12 +1009,16 @@ function FindBar({ items, onClose }) {
       if (now >= 0) CSS.highlights.set("find-now", new Highlight(ranges[now])); else CSS.highlights.delete("find-now");
     }
     const r = ranges[now];
-    if (r) {
+    // only when robin types or steps: the conversation growing under the bar
+    // finds again but does not pull the view back each time
+    const key = `${q.trim()}\n${now}`;
+    if (r && shown.current !== key) {
+      shown.current = key;
       const el = r.startContainer.parentElement;
       // a long code block scrolls by itself; the thread to the line
       el?.scrollIntoView({ block: "center" });
     }
-  }, [ranges, now]);
+  }, [ranges, now]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { if (CAN_MARK) { CSS.highlights.delete("find"); CSS.highlights.delete("find-now"); } }, []);
   const go = (d) => { if (ranges.length) setAt((k) => (Math.min(k, ranges.length - 1) + d + ranges.length) % ranges.length); };
   return (
@@ -1107,13 +1112,13 @@ function RulesPanel({ onClose, onError }) {
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Sheet label="늘 허용한 것" onClose={onClose}>
-      <p className="gpu-note">물을 때 "늘 허용"(4)을 누른 것은 이 폴더에서 다시 묻지 않아요. 명령은 그 시작이 같을 때만, 이어 붙이거나(<span className="mono">; && |</span>) 넘기면(<span className="mono">&gt;</span>) 다시 물어요.</p>
+      <p className="gpu-note">물을 때 "늘 허용"(4)을 누른 것은 이 폴더에서 다시 묻지 않아요. 명령은 그 시작이 같을 때만(… 붙은 것) 또는 똑같을 때만, 이어 붙이거나(<span className="mono">; && |</span>) 넘기거나(<span className="mono">&gt;</span>) 괄호·<span className="mono">$</span>·줄 바꿈이 있으면 다시 물어요. node·python·powershell처럼 아무거나 돌리는 것은 늘 허용이 없어요.</p>
       {rules === null ? <p className="gpu-note">읽는 중<span className="cursor" aria-hidden="true" /></p>
         : rules.length === 0 ? <p className="gpu-note">아직 없어요.</p> : (
           <ul className="rule-list">
             {rules.map((r) => (
               <li key={r.key} className="rule">
-                <span className="rule-kind">{r.kind === "web" ? "사이트" : "명령"}</span>
+                <span className="rule-kind">{r.kind === "web" ? "사이트" : r.kind === "exact" ? "이 명령만" : "명령"}</span>
                 <span className="mono rule-label">{r.label}{r.kind === "cmd" ? " …" : ""}</span>
                 <button type="button" className="mini-btn" onClick={() => load({ remove: r.key })}>지우기</button>
               </li>
@@ -1307,12 +1312,14 @@ export default function App() {
     if (pics.length) addPicturesRef.current?.(pics);
     requestAnimationFrame(() => box.current?.focus());
   }, []);
-  // one of them (index), or all
-  const unqueue = useCallback((index) => {
-    api("/api/unqueue", index == null ? {} : { index }).then((r) => { if (r.items?.length) giveBack(r.items); }).catch(fail);
+  // one of them (its id), or all
+  const unqueue = useCallback((id) => {
+    api("/api/unqueue", id == null ? {} : { id }).then((r) => { if (r.items?.length) giveBack(r.items); }).catch(fail);
   }, [giveBack]); // eslint-disable-line react-hooks/exhaustive-deps
   const decide = useCallback((id, decision) => {
     const tool = askingRef.current;
+    // "늘 허용" for a call that has no rule (a chained command, an interpreter): nothing to answer
+    if (decision === "rule" && !(tool?.id === id && tool.rule)) return;
     dispatch({ type: "decided", id, decision, rule: tool?.id === id ? tool.rule : null });
     api("/api/approve", { id, decision }).catch((e) => dispatch({ type: "local-error", message: e.message }));
     focusBox();
@@ -1549,7 +1556,7 @@ export default function App() {
   // for the memo'd conversation and list: the same functions while robin types
   const on = {
     unqueue: useStable(unqueue),
-    unqueueLast: useStable(() => { if (state.queued.length) unqueue(state.queued.length - 1); }),
+    unqueueLast: useStable(() => { const last = state.queued.at(-1); if (last) unqueue(last.id); }),
     planGo: useStable(planGo),
     command: useStable(runCommand),
     shell: useStable(shell),
