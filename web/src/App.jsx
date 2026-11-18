@@ -910,20 +910,22 @@ export default function App() {
   // What is being typed belongs to its conversation: opening another one
   // used to carry it along into that one, and a reload (or RobinCode
   // starting again for a new version) lost it. Kept per conversation in this
-  // window's storage.
+  // window's storage. A new conversation nothing was sent in yet is in no
+  // list and cannot be opened again, so what was typed there waits under
+  // "new" for the next new conversation.
   const drafts = useRef(null);
   if (!drafts.current) drafts.current = loadDrafts();
+  const convKey = state.saved && state.sessionFile ? state.sessionFile : "new";
   const draftKey = useRef(null);
   const draftNow = useRef("");
   draftNow.current = draft;
   useEffect(() => {
     if (!state.ready) return;
-    const key = state.sessionFile || "";
-    if (draftKey.current === key) return;
+    if (draftKey.current === convKey) return;
     if (draftKey.current !== null) keepDraft(drafts.current, draftKey.current, draftNow.current);
-    draftKey.current = key;
-    setDraft(drafts.current[key]?.text || "");
-  }, [state.ready, state.sessionFile]);
+    draftKey.current = convKey;
+    setDraft(drafts.current[convKey]?.text || "");
+  }, [state.ready, convKey]);
   useEffect(() => {
     if (draftKey.current === null) return undefined;
     // the conversation it was typed in, even if another is open by then
@@ -1041,9 +1043,11 @@ export default function App() {
   };
   const newChat = () => once(() => api("/api/new"));
   const open = (path) => once(() => api("/api/open", { path }));
-  const remove = (s) => api("/api/delete", { path: s.path }).then(() => {
+  // the one on screen, deleted and brought back, is opened again (not only listed)
+  const remove = (s) => api("/api/delete", { path: s.path }).then((r) => {
     loadSessions();
-    say("대화를 지웠어요.", { label: "되돌리기", run: () => api("/api/restore", { path: s.path }).then(loadSessions).catch(fail) });
+    say("대화를 지웠어요.", { label: "되돌리기", run: () => api("/api/restore", { path: s.path })
+      .then(() => (r.current ? api("/api/open", { path: s.path }) : null)).then(loadSessions).catch(fail) });
   }).catch(fail);
   const rename = (s, name) => api("/api/rename", { path: s.path, name }).then(loadSessions).catch(fail);
   // back to just before one of robin's messages, its words (and pictures) in
@@ -1219,7 +1223,7 @@ export default function App() {
           </div>
         )}
         <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} onRewind={rewind} onRetry={retry} onBranch={branchTo} onGpu={() => setGpuOpen(true)} onUnqueue={unqueue} />
-        <Composer state={state} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}
+        <Composer state={state} convKey={convKey} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}
           setDraft={setDraft} lastSent={lastSent} attachRef={attachRef} picturesRef={picturesRef} onSend={send} onStop={stop} onError={say}
           notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />} />
         {gpuOpen && <GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); focusBox(); }} />}

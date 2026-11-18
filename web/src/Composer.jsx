@@ -76,7 +76,7 @@ function Mentions({ list, q, pick, onPick, onHover }) {
   );
 }
 
-export function Composer({ state, meter, notice, box, draft, setDraft, lastSent, attachRef, picturesRef, onSend, onStop, onError }) {
+export function Composer({ state, convKey, meter, notice, box, draft, setDraft, lastSent, attachRef, picturesRef, onSend, onStop, onError }) {
   const [pictures, setPictures] = useState([]);
   const [mention, setMention] = useState(null);
   const [files, setFiles] = useState(null);
@@ -124,6 +124,24 @@ export function Composer({ state, meter, notice, box, draft, setDraft, lastSent,
       id: `${Date.now()}-${k}`, mimeType: im.mimeType, data: im.data, url: `data:${im.mimeType};base64,${im.data}`,
     })));
   }, [picturesRef]);
+
+  // pictures belong to their conversation, like the words (App keeps those):
+  // opening another one carried them along into it. Kept here while the
+  // window is open (the 10 most recent conversations).
+  const kept = useRef(new Map());
+  const keyNow = useRef(convKey);
+  const picturesNow = useRef(pictures);
+  picturesNow.current = pictures;
+  useEffect(() => {
+    if (keyNow.current === convKey) return;
+    const map = kept.current;
+    map.delete(keyNow.current);
+    if (picturesNow.current.length) map.set(keyNow.current, picturesNow.current);
+    while (map.size > 10) map.delete(map.keys().next().value);
+    keyNow.current = convKey;
+    setPictures(map.get(convKey) || []);
+    map.delete(convKey);
+  }, [convKey]);
 
   // ---- @ files
   const look = (el) => {
@@ -219,7 +237,9 @@ export function Composer({ state, meter, notice, box, draft, setDraft, lastSent,
               // Esc here only closes the list (it must not stop the agent)
               if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); dismissed.current = mention.start; setMention(null); return; }
             }
-            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
+            // Enter sends; on an empty box while it runs it does nothing (a
+            // second Enter after sending stopped the turn): the button and Esc stop
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!stop) submit(); }
             // like a shell: the last thing sent comes back on an empty line
             else if (e.key === "ArrowUp" && !draft && lastSent) { e.preventDefault(); setDraft(lastSent); }
           }}

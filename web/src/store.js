@@ -30,6 +30,7 @@ export const initial = {
   compactOnly: false, // ...and that is all that is going on (not a turn)
   running: [], // conversations going on, this one too: [{ path, title, asking }]
   queued: [], // robin's messages sent while the turn runs, waiting for its end
+  saved: false, // something was ever sent in it (a new one is in no list until then)
 };
 
 let seq = 0;
@@ -161,13 +162,13 @@ function onEvent(state, e) {
         ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, model: s.model }, fake: s.fake, gpu: s.gpu, gpuFake: !!s.gpuFake, gpuJob: s.gpuJob || null,
         mode: s.mode, thinking: !!s.thinking, think: now.think, context: s.context, busy: s.busy, startedAt: s.busy ? s.startedAt || Date.now() : 0,
         phase: s.compacting ? "compact" : now.current ? "write" : "think", compacting: !!s.compacting, compactOnly: !!s.compacting,
-        items: now.items, current: now.current, sessionFile: s.sessionFile, title: s.title, retry: null, running: s.running || [], queued: s.queued || [],
+        items: now.items, current: now.current, sessionFile: s.sessionFile, title: s.title, retry: null, running: s.running || [], queued: s.queued || [], saved: !!s.saved,
       };
     }
     case "user": {
       const items = [...state.items, { kind: "user", id: nid(), text: e.text, images: e.images || [] }];
       return {
-        ...state, items, busy: true, startedAt: state.busy ? state.startedAt : Date.now(), phase: "think", retry: null,
+        ...state, items, busy: true, startedAt: state.busy ? state.startedAt : Date.now(), phase: "think", retry: null, saved: true,
         title: state.title || e.text.replace(/\s+/g, " ").trim().slice(0, 80) || (e.images?.length ? "그림" : ""),
       };
     }

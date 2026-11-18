@@ -1199,6 +1199,8 @@ const state = () => {
     asking: [...asking.values()].filter((a) => a.conv === cur).map(({ id, name, args }) => ({ id, name, args })),
     // what is being written now, and since when (robin came back to a running one)
     live: busyNow() ? cur.live : null, startedAt: busyNow() ? cur.turn?.start || null : null,
+    // anything ever sent in it (else it is in no list, and cannot be opened again)
+    saved: (() => { try { return session.sessionManager.getEntries().some(isUser); } catch { return false; } })(),
     // sent while the turn runs, waiting for its end
     queued: (() => { try { return [...(session?.getFollowUpMessages() || [])]; } catch { return []; } })(),
     running: runningList(),
