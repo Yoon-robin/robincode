@@ -4,7 +4,7 @@
 // folding out right under the step it is about. With thinking on, what the
 // model thinks is a step too ("생각"), its newest lines showing while it
 // thinks. A long finished run of steps folds into one summary line.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DiffLines, editRows, writeRows } from "./Diff.jsx";
 import { CopyButton } from "./Markdown.jsx";
 import { useNow, seconds } from "./time.js";
@@ -90,6 +90,8 @@ function Approval({ tool, onDecide }) {
   const isFile = name === "edit" || name === "write";
   const title = name === "edit" ? "이 파일을 고칠까요?" : name === "write" ? "이 파일을 쓸까요?" : "이 명령을 실행할까요?";
   const yesLabel = name === "edit" ? "고치기" : name === "write" ? "쓰기" : "실행";
+  // the card stays (hidden) once answered: its diff is made once, not at every drawing
+  const rows = useMemo(() => (name === "edit" ? editRows(args) : name === "write" ? writeRows(args) : null), [name, args]);
   // once the fold has opened, bring the buttons into view if they are not
   useEffect(() => {
     const id = setTimeout(() => yes.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 230);
@@ -101,7 +103,7 @@ function Approval({ tool, onDecide }) {
       {isFile ? (
         <div className="ask-file">
           <div className="ask-path">{args.path}</div>
-          <DiffLines rows={name === "edit" ? editRows(args) : writeRows(args)} />
+          <DiffLines rows={rows} />
         </div>
       ) : (
         <pre className="ask-cmd"><span className="ps">PS&gt;</span> {String(args.command ?? JSON.stringify(args))}</pre>
@@ -121,7 +123,9 @@ function Approval({ tool, onDecide }) {
   );
 }
 
-function Step({ tool, onDecide }) {
+// memo: a step is drawn again only when it changes, not at every token of an
+// answer elsewhere in the conversation
+const Step = memo(function Step({ tool, onDecide }) {
   const [open, setOpen] = useState(false);
   // the body is made the first time it opens (a diff is not free), then kept
   // so it can fold shut again
@@ -145,6 +149,7 @@ function Step({ tool, onDecide }) {
   const running = tool.status === "run";
   const think = !!tool.think;
   const showDiff = tool.name === "edit" && tool.status === "ok";
+  const diff = useMemo(() => (showDiff && made ? editRows(tool.args) : null), [showDiff, made, tool.args]);
   const canOpen = !running && (!!tool.output || showDiff);
   const live = running && !tool.ask && !!tool.output;
   return (
@@ -169,7 +174,7 @@ function Step({ tool, onDecide }) {
         <Fold open={open}>
           {made && (
             <div ref={body} className="step-body">
-              {showDiff && <DiffLines rows={editRows(tool.args)} />}
+              {diff && <DiffLines rows={diff} />}
               {think && <p className="think-out">{tool.output}</p>}
               {!think && tool.output && (
                 <div className="out">
@@ -184,10 +189,10 @@ function Step({ tool, onDecide }) {
       {ASKS.has(tool.name) && <Fold open={!!tool.ask} grow>{asked.current && <Approval tool={tool} onDecide={onDecide} />}</Fold>}
     </li>
   );
-}
+});
 
 // `settled`: nothing more will join this run (the answer moved on, or it ended)
-export function ToolGroup({ tools, onDecide, settled }) {
+export const ToolGroup = memo(function ToolGroup({ tools, onDecide, settled }) {
   const [open, setOpen] = useState(false);
   const done = tools.every((t) => t.status !== "run" && !t.ask);
   const folds = settled && done && tools.length >= FOLD_AT;
@@ -229,4 +234,4 @@ export function ToolGroup({ tools, onDecide, settled }) {
       </Fold>
     </div>
   );
-}
+});

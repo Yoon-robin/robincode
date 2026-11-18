@@ -86,18 +86,25 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
 
   // grow with the text; measured again when the width changes (the first
   // measure can come before the layout has a width)
-  const fit = useCallback(() => {
+  // Typing on (the text only grows) only reads the height: collapsing the box
+  // to "auto" at every key made the browser lay the whole window out twice
+  const was = useRef("");
+  const fit = useCallback((again) => {
     const el = box.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    const grew = again !== true && el.value.length >= was.current.length && el.value.startsWith(was.current.slice(0, -1));
+    was.current = el.value;
+    if (grew && el.scrollHeight <= el.clientHeight) return;
+    if (!grew) el.style.height = "auto";
+    const px = `${el.scrollHeight}px`;
+    if (el.style.height !== px) el.style.height = px;
   }, [box]);
-  useLayoutEffect(fit, [draft, fit]);
+  useLayoutEffect(() => fit(), [draft, fit]);
   useEffect(() => {
     box.current?.focus();
     let width = 0;
     const watch = new ResizeObserver(([entry]) => {
-      if (Math.abs(entry.contentRect.width - width) > 1) { width = entry.contentRect.width; fit(); }
+      if (Math.abs(entry.contentRect.width - width) > 1) { width = entry.contentRect.width; fit(true); }
     });
     watch.observe(box.current);
     return () => watch.disconnect();

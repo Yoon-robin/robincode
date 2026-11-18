@@ -322,6 +322,11 @@ createServer(async (req, res) => {
   } else if (/(새 파일|new file)/i.test(said) && tools.includes("write")) {
     // "새 파일": writes notes.md (going back can take it away again)
     await streamToolCall(res, "write", { path: "notes.md", content: "# 메모\n\n가짜 모델이 쓴 파일이에요.\n" }, usage);
+  } else if (/큰 수정/.test(said) && tools.includes("edit")) {
+    // "큰 수정": a 250-line change (its text is not in the file, so it fails
+    // once allowed); the approval card's diff is big (typing lag tests)
+    const lines = (tag) => Array.from({ length: 250 }, (_, i) => (i % 3 ? `줄 ${i} 그대로예요` : `줄 ${i} ${tag}`)).join("\n");
+    await streamToolCall(res, "edit", { path: "README.md", edits: [{ oldText: lines("고치기 전"), newText: lines("고친 뒤") }] }, usage);
   } else if (/(고쳐|edit)/i.test(said) && tools.includes("edit")) {
     // "다르게 고쳐": another change to the same line (two branches, two READMEs)
     const line = /(다르게|differently)/i.test(said) ? "다르게 고친 판이에요." : "시험용 폴더예요.";

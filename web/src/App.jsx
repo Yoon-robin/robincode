@@ -1,7 +1,7 @@
 // The RobinCode window, in RobinAI's frame: past conversations, the folder and
 // the GPU on the left, the conversation and the composer on the right. On a
 // narrow window the left side becomes a drawer behind the menu button.
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { api, connect, pickerUrl } from "./api.js";
 import { askingTool, initial, reducer } from "./store.js";
 import { Composer, PICTURE_TYPES } from "./Composer.jsx";
@@ -375,7 +375,9 @@ function turnEnds(items, busy) {
   return ends;
 }
 
-function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBranch, onGpu, onUnqueue }) {
+// memo: what is typed lives in App, and every key drew the whole conversation
+// (and the list on the left) again, which grew slow in a long one
+const Conversation = memo(function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBranch, onGpu, onUnqueue }) {
   const scroller = useRef(null);
   const content = useRef(null);
   const stick = useRef(true);
@@ -480,7 +482,7 @@ function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBr
       {away && <button type="button" className="to-bottom" onClick={toBottom}><Icon name="down" />아래로</button>}
     </div>
   );
-}
+});
 
 // past conversations by day, newest first (the list comes sorted)
 const DAY = 86400000;
@@ -566,7 +568,7 @@ function moveInList(e) {
   all[Math.max(0, Math.min(all.length - 1, k + (e.key === "ArrowDown" ? 1 : -1)))]?.focus();
 }
 
-function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch, onGpu }) {
+const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch, onGpu }) {
   const now = useNow(60000);
   const nav = useRef(null);
   const runOf = (path) => state.running.find((r) => r.path === path);
@@ -655,6 +657,14 @@ function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew,
       </div>
     </aside>
   );
+});
+
+// the same function every time (so the memo'd parts above are not drawn
+// again for a new one), always calling the newest
+function useStable(fn) {
+  const now = useRef(fn);
+  now.current = fn;
+  return useCallback((...args) => now.current(...args), []);
 }
 
 // an installed RobinCode (the zip from ai.yoonrobin.xyz) says its version and
@@ -1189,6 +1199,22 @@ export default function App() {
   }, [soon, notify]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lastSent = [...state.items].reverse().find((x) => x.kind === "user")?.text || "";
+  // for the memo'd conversation and list: the same functions while robin types
+  const on = {
+    pick: useStable((s) => send(s)),
+    rewind: useStable(rewind),
+    retry: useStable(retry),
+    branch: useStable(branchTo),
+    gpu: useStable(() => setGpuOpen(true)),
+    notify: useStable(toggleNotify),
+    close: useStable(() => closeSide(true)),
+    new: useStable(newChat),
+    open: useStable(open),
+    remove: useStable(remove),
+    rename: useStable(rename),
+    leaveSearch: useStable(() => { if (isNarrow()) closeSide(true); else focusBox(); }),
+    sideGpu: useStable(() => { closeSide(false); setGpuOpen(true); }),
+  };
   const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
   const dropProps = {
     onDragEnter: (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth.current += 1; setDrag(true); },
@@ -1204,9 +1230,8 @@ export default function App() {
   };
   return (
     <div className="app" data-side={side ? "open" : undefined}>
-      <Sidebar state={state} notify={notify} onNotify={toggleNotify} closeRef={closeRef} searchRef={searchRef} onClose={() => closeSide(true)} onNew={newChat} onOpen={open}
-        onDelete={remove} onRename={rename} onLeaveSearch={() => { if (isNarrow()) closeSide(true); else focusBox(); }}
-        onGpu={() => { closeSide(false); setGpuOpen(true); }} />
+      <Sidebar state={state} notify={notify} onNotify={on.notify} closeRef={closeRef} searchRef={searchRef} onClose={on.close} onNew={on.new} onOpen={on.open}
+        onDelete={on.remove} onRename={on.rename} onLeaveSearch={on.leaveSearch} onGpu={on.sideGpu} />
       <div className="scrim" onClick={() => closeSide(true)} aria-hidden="true" />
       <main className="main" {...dropProps}>
         <header className="main-head">
@@ -1222,7 +1247,7 @@ export default function App() {
             <button type="button" className="mini-btn" onClick={keepGpu} disabled={keeping}>{keeping ? "알리는 중…" : "계속 켜 두기"}</button>
           </div>
         )}
-        <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} onRewind={rewind} onRetry={retry} onBranch={branchTo} onGpu={() => setGpuOpen(true)} onUnqueue={unqueue} />
+        <Conversation state={state} asking={asking} onDecide={decide} onPick={on.pick} onRewind={on.rewind} onRetry={on.retry} onBranch={on.branch} onGpu={on.gpu} onUnqueue={unqueue} />
         <Composer state={state} convKey={convKey} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}
           setDraft={setDraft} lastSent={lastSent} attachRef={attachRef} picturesRef={picturesRef} onSend={send} onStop={stop} onError={say}
           notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />} />
