@@ -6,7 +6,6 @@
 //   cd robincode && npm run build && npm i --no-save playwright && node test/ui.mjs
 //   (a browser: `npx playwright install chromium`, or PLAYWRIGHT_BROWSERS_PATH)
 // `!명령` runs PowerShell, so that part is only checked on Windows.
-import { chromium } from "playwright";
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -14,6 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// the repository's `npm test` (node --test) finds this file too: it needs a
+// browser and takes minutes, so it is run on its own, as above
+if (process.env.NODE_TEST_CONTEXT) { console.log("[SKIP] robincode/test/ui.mjs runs on its own: cd robincode && node test/ui.mjs"); process.exit(0); }
+const { chromium } = await import("playwright");
 const here = fileURLToPath(new URL("..", import.meta.url));
 const win = process.platform === "win32";
 const freePort = () => new Promise((resolve) => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const { port } = s.address(); s.close(() => resolve(port)); }); });

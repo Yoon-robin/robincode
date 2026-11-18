@@ -19,7 +19,10 @@ const tempRoot = `${resolve(process.env.TEMP || join(local, "Temp")).replace(/\\
 const same = (a, b) => a.toLowerCase() === b.toLowerCase();
 
 // C:\a\b\ -> C:\a\b, C: -> C:\
+// (elsewhere, as on the Linux server where the tests also run, "\" is not a
+// separator: /a/b/ -> /a/b, and the path is left as it is)
 export function cleanPath(p) {
+  if (process.platform !== "win32") { const s = resolve(String(p)); return s.length > 1 ? s.replace(/\/+$/, "") : s; }
   let s = resolve(String(p).replace(/\//g, "\\"));
   if (s.length > 3) s = s.replace(/\\+$/, "");
   return s;
