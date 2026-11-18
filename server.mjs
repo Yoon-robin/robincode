@@ -84,6 +84,20 @@ function alertBox(text) {
 let phase = { text: "준비하는 중이에요.", error: null, ready: false };
 const setPhase = (text) => { phase = { text, error: null, ready: false }; log(text); };
 const mtime = (p) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
+// What the instruction files are now: AGENTS.md and CLAUDE.md in the folder
+// and every folder above it (one may be made), and the ones loaded (RobinCode's
+// own too), each by date and size. The same print, nothing to read again.
+function memoryPrint(conv, rl) {
+  const paths = new Set();
+  for (let d = resolve(conv.cwd); ; d = dirname(d)) {
+    for (const n of ["AGENTS.md", "CLAUDE.md"]) paths.add(join(d, n));
+    if (dirname(d) === d) break;
+  }
+  try { for (const f of rl.getAgentsFiles().agentsFiles) paths.add(f.path); } catch { /* none */ }
+  return [...paths].sort().map((p) => { try { const s = statSync(p); return `${p}:${s.mtimeMs}:${s.size}`; } catch { return ""; } }).filter(Boolean).join("|");
+}
+// how many times /api/memory read the files again (the queue test checks it)
+let reloads = 0;
 function newestIn(dir, skip) {
   let t = 0;
   let entries;
@@ -2043,16 +2057,22 @@ const server = createServer(async (req, res) => {
           writeFileSync(own, `${had.replace(/\s*$/, "\n")}- ${line.replace(/^[-*]\s*/, "")}\n`);
           refreshGit(conv.cwd);
         }
-        // read again (also when changed outside: an editor, /init), so what
-        // shows is what the model gets from the next message; the mode's tools
-        // are set again after it
+        // read again when one of them changed (also outside: an editor, /init),
+        // so what shows is what the model gets from the next message; the
+        // mode's tools are set again after it. Not on every opening: a reload
+        // rebuilds the session's tools, slow in a long conversation (B-414)
         if (!running(conv)) {
-          await conv.session.reload().catch((e) => log("지시 파일을 다시 읽지 못했어요:", e.message));
-          applyMode(conv);
+          const print = memoryPrint(conv, rl);
+          if (line || print !== conv.memoryPrint) {
+            await conv.session.reload().catch((e) => log("지시 파일을 다시 읽지 못했어요:", e.message));
+            applyMode(conv);
+            conv.memoryPrint = memoryPrint(conv, rl);
+            reloads++;
+          }
         }
         let files = [];
         try { files = rl.getAgentsFiles().agentsFiles.map((f) => ({ path: f.path, shown: shown(f.path), lines: f.content.split("\n").length, content: f.content.slice(0, 20000) })); } catch { /* none */ }
-        send(res, 200, { files, own, ownShown: shown(own), added: !!line });
+        send(res, 200, { files, own, ownShown: shown(own), added: !!line, reloads });
         return;
       }
       case "/api/rules": {

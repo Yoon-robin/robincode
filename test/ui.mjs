@@ -3,8 +3,9 @@
 // It starts its own server (--fake) on a free port with its own home and work
 // folder in a temp folder (never robin's RobinCode data) and removes them.
 //
-//   cd robincode && npm run build && npm i --no-save playwright && node test/ui.mjs
-//   (a browser: `npx playwright install chromium`, or PLAYWRIGHT_BROWSERS_PATH)
+//   cd robincode && npm run build && npm i --no-save playwright && npm run test:ui
+//   (a browser: `npx playwright install chromium`, or PLAYWRIGHT_BROWSERS_PATH;
+//   on the server: PLAYWRIGHT_BROWSERS_PATH=~/.hermes/tools npm run test:ui)
 // `!명령` runs PowerShell, so that part is only checked on Windows.
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -15,8 +16,16 @@ import { fileURLToPath } from "node:url";
 
 // the repository's `npm test` (node --test) finds this file too: it needs a
 // browser and takes minutes, so it is run on its own, as above
-if (process.env.NODE_TEST_CONTEXT) { console.log("[SKIP] robincode/test/ui.mjs runs on its own: cd robincode && node test/ui.mjs"); process.exit(0); }
-const { chromium } = await import("playwright");
+if (process.env.NODE_TEST_CONTEXT) { console.log("[SKIP] robincode/test/ui.mjs runs on its own: cd robincode && npm run test:ui"); process.exit(0); }
+// what is missing, said in one line instead of a stack of the importer's
+const { chromium } = await import("playwright").catch(() => {
+  console.error("[FAIL] playwright가 없어요: cd robincode && npm i --no-save playwright");
+  process.exit(2);
+});
+if (!existsSync(fileURLToPath(new URL("../web/dist/index.html", import.meta.url)))) {
+  console.error("[FAIL] 창이 빌드되지 않았어요: cd robincode && npm run build");
+  process.exit(2);
+}
 const here = fileURLToPath(new URL("..", import.meta.url));
 const win = process.platform === "win32";
 const freePort = () => new Promise((resolve) => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const { port } = s.address(); s.close(() => resolve(port)); }); });
@@ -27,20 +36,28 @@ writeFileSync(join(work, "README.md"), "# rc-test\n");
 writeFileSync(join(work, "package.json"), '{ "name": "rc-test", "version": "1.0.0" }\n');
 writeFileSync(join(work, "src", "index.js"), 'console.log("hi");\n');
 writeFileSync(join(work, "a.txt"), "a\n");
+// a name only a folded tool result shows (Ctrl+F there)
+writeFileSync(join(work, "folded-only.txt"), "f\n");
 const git = (...a) => execFileSync("git", ["-C", work, ...a], { stdio: "ignore" });
 git("init", "-q", "-b", "main"); git("add", "-A"); git("-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-qm", "init");
 const [port, fakePort] = [await freePort(), await freePort()];
 const server = spawn(process.execPath, [join(here, "server.mjs"), work, "--fake", "--no-window", "--port", String(port)], {
-  stdio: "ignore", windowsHide: true,
+  // its own process group off Windows, so the fake model it starts goes with it
+  // (SIGKILL to the server alone left one fake-model.mjs behind per run)
+  stdio: "ignore", windowsHide: true, detached: !win,
   env: { ...process.env, ROBINCODE_HOME: join(root, "home"), ROBINCODE_URLFILE: join(root, "url.txt"), ROBINCODE_NO_UPDATE: "1", ROBINCODE_FAKE_PORT: String(fakePort), ROBINCODE_FAKE_GPU: join(root, "gpu.json") },
 });
 const stopServer = () => {
-  try { if (win) execFileSync("taskkill", ["/PID", String(server.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }); else server.kill("SIGKILL"); } catch { /* gone */ }
+  try { if (win) execFileSync("taskkill", ["/PID", String(server.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }); else process.kill(-server.pid, "SIGKILL"); } catch { /* gone */ }
 };
 process.on("exit", stopServer);
 for (let i = 0; i < 300 && !existsSync(join(root, "url.txt")); i++) await new Promise((r) => setTimeout(r, 100));
 const url = readFileSync(join(root, "url.txt"), "utf8").trim();
-const browser = await chromium.launch({ args: ["--mute-audio"] });
+const browser = await chromium.launch({ args: ["--mute-audio"] }).catch((e) => {
+  console.error(`[FAIL] 브라우저를 못 띄웠어요(${String(e.message).split("\n")[0]}) — npx playwright install --only-shell chromium, 또는 PLAYWRIGHT_BROWSERS_PATH`);
+  stopServer();
+  process.exit(2);
+});
 const page = await (await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true })).newPage();
 const errs = [];
 page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
@@ -231,6 +248,19 @@ ok(marked > 0, `표시 ${marked}개`);
 await page.keyboard.press("Escape");
 await page.waitForTimeout(200);
 ok(await page.locator(".find-bar").count() === 0 && (await page.evaluate(() => !CSS.highlights?.has("find"))), "Esc로 찾기 닫힘");
+// words only in a folded result: counted as such, Enter opens it and goes there
+await page.keyboard.press("Control+f");
+await page.waitForTimeout(200);
+await page.keyboard.type("folded-only");
+await page.waitForTimeout(400);
+const hc = await page.locator(".find-count").innerText();
+ok(/접힌 곳 [1-9]/.test(hc), `접힌 결과도 셈: ${hc}`);
+await page.keyboard.press("Enter");
+await page.waitForTimeout(700);
+const hc2 = await page.locator(".find-count").innerText();
+ok(/^1\/\d+/.test(hc2) && await page.locator(".step-out", { hasText: "folded-only" }).first().isVisible(), `Enter로 펼쳐 그곳으로: ${hc2}`);
+await page.keyboard.press("Escape");
+await page.waitForTimeout(200);
 
 // ---- /export
 const dl = page.waitForEvent("download", { timeout: 8000 });

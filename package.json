@@ -8,7 +8,8 @@
     "start": "node server.mjs",
     "build": "vite build",
     "watch": "vite build --watch",
-    "build:picker": "vite build --config vite.picker.config.js"
+    "build:picker": "vite build --config vite.picker.config.js",
+    "test:ui": "node test/ui.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

@@ -141,6 +141,9 @@ function Approval({ tool, onDecide }) {
   );
 }
 
+// Ctrl+F asks a folded step (and its folded run) to open: the step's id
+export const REVEAL = "robincode:reveal-step";
+
 // memo: a step is drawn again only when it changes, not at every token of an
 // answer elsewhere in the conversation
 const Step = memo(function Step({ tool, onDecide }) {
@@ -156,6 +159,12 @@ const Step = memo(function Step({ tool, onDecide }) {
     if (tool.status === "fail") { setMade(true); setOpen(true); }
   }, [tool.status]);
   useEffect(() => () => clearTimeout(reveal.current), []);
+  // Ctrl+F found the words in this step's folded result: it opens (B-415)
+  useEffect(() => {
+    const on = (e) => { if (e.detail === tool.id) { setMade(true); setOpen(true); } };
+    window.addEventListener(REVEAL, on);
+    return () => window.removeEventListener(REVEAL, on);
+  }, [tool.id]);
   const toggle = () => {
     setMade(true);
     setOpen((v) => !v);
@@ -171,7 +180,7 @@ const Step = memo(function Step({ tool, onDecide }) {
   const canOpen = !running && (!!tool.output || showDiff);
   const live = running && !tool.ask && !!tool.output;
   return (
-    <li className={`step ${status}${think ? " think" : ""}`}>
+    <li className={`step ${status}${think ? " think" : ""}`} data-step={tool.id}>
       <button type="button" className="step-head" aria-expanded={canOpen ? open : undefined} disabled={!canOpen}
         onClick={toggle}>
         <span className="step-tag">{tool.ask ? "[ ?? ]" : TAG[tool.status]}</span>
@@ -230,6 +239,12 @@ export const ToolGroup = memo(function ToolGroup({ tools, onDecide, settled }) {
   // made once it has shown (so it can fold shut), not for runs read back
   const shown = useRef(false);
   if (pane) shown.current = true;
+  // a folded run opens when Ctrl+F goes to a step in it
+  useEffect(() => {
+    const on = (e) => { if (tools.some((t) => t.id === e.detail)) setOpen(true); };
+    window.addEventListener(REVEAL, on);
+    return () => window.removeEventListener(REVEAL, on);
+  }, [tools]);
   return (
     <div className="group">
       {folds && (

@@ -6,7 +6,7 @@ import { api, connect, pickerUrl } from "./api.js";
 import { askingTool, initial, reducer } from "./store.js";
 import { Composer, PICTURE_TYPES } from "./Composer.jsx";
 import { CopyButton, Markdown } from "./Markdown.jsx";
-import { ANSWER_KEYS, ShellRun, TodoPanel, ToolGroup, describe, latestTodo } from "./Tools.jsx";
+import { ANSWER_KEYS, REVEAL, ShellRun, TodoPanel, ToolGroup, describe, latestTodo } from "./Tools.jsx";
 import { Icon } from "./icons.jsx";
 import { ago, seconds, useNow } from "./time.js";
 import { MODE_NAMES, nextMode } from "./modes.js";
@@ -976,7 +976,8 @@ function findRanges(root, q) {
   if (!root || !q) return out;
   const want = q.toLowerCase();
   const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode: (n) => (n.parentElement?.closest(".sr, [aria-hidden='true'], button") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    // not what cannot be seen: a folded run's steps are in the page but inert
+    acceptNode: (n) => (n.parentElement?.closest(".sr, [aria-hidden='true'], button, [inert]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
   });
   for (let n = walk.nextNode(); n && out.length < 2000; n = walk.nextNode()) {
     const text = n.nodeValue.toLowerCase();
@@ -989,20 +990,60 @@ function findRanges(root, q) {
   }
   return out;
 }
+// How many times the words are where they cannot be seen: a step's result
+// that is folded (not made yet, or shut), or a step in a folded run (its
+// line too). [{ id, n }] in the conversation's order.
+const count = (text, want) => { let n = 0; for (let at = text.indexOf(want); at >= 0; at = text.indexOf(want, at + want.length)) n++; return n; };
+function findFolded(items, q) {
+  const out = [];
+  if (!q) return out;
+  const want = q.toLowerCase();
+  for (const x of items) {
+    if (x.kind !== "tools") continue;
+    for (const t of x.tools) {
+      const li = document.querySelector(`[data-step="${CSS.escape(String(t.id))}"]`);
+      if (!li) continue;
+      const shut = !!li.closest("[inert]");
+      const body = li.querySelector(".step-out, .think-out");
+      let n = 0;
+      if (t.output && (shut || !body || body.closest("[inert]"))) n += count(String(t.output).toLowerCase(), want);
+      if (shut) n += count((li.querySelector(".step-head")?.textContent || "").toLowerCase(), want);
+      if (n) out.push({ id: t.id, n, li });
+    }
+  }
+  return out;
+}
 function FindBar({ items, onClose }) {
   const [q, setQ] = useState("");
   const [at, setAt] = useState(0);
   const [ranges, setRanges] = useState([]);
+  const [folded, setFolded] = useState([]);
+  const [tick, setTick] = useState(0);
   const input = useRef(null);
   const shown = useRef("");
+  // a step being opened: once it has unfolded, the first match in it
+  const opening = useRef(null);
+  const wait = useRef(0);
   useEffect(() => { input.current?.focus(); input.current?.select(); }, []);
+  useEffect(() => () => clearTimeout(wait.current), []);
   // looked for again as the conversation grows, a moment after it settles
   useEffect(() => {
-    const t = setTimeout(() => setRanges(findRanges(document.querySelector(".msgs"), q.trim())), 80);
+    const t = setTimeout(() => {
+      const found = findRanges(document.querySelector(".msgs"), q.trim());
+      setRanges(found);
+      setFolded(findFolded(items, q.trim()));
+      if (opening.current != null) {
+        const li = document.querySelector(`[data-step="${CSS.escape(String(opening.current))}"]`);
+        const k = li ? found.findIndex((r) => li.contains(r.startContainer)) : -1;
+        opening.current = null;
+        if (k >= 0) setAt(k);
+      }
+    }, 80);
     return () => clearTimeout(t);
-  }, [q, items]);
+  }, [q, items, tick]);
   useEffect(() => { setAt(0); }, [q]);
   const now = ranges.length ? Math.min(at, ranges.length - 1) : -1;
+  const hidden = folded.reduce((a, f) => a + f.n, 0);
   useEffect(() => {
     if (CAN_MARK) {
       CSS.highlights.set("find", new Highlight(...ranges));
@@ -1020,7 +1061,29 @@ function FindBar({ items, onClose }) {
     }
   }, [ranges, now]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { if (CAN_MARK) { CSS.highlights.delete("find"); CSS.highlights.delete("find-now"); } }, []);
-  const go = (d) => { if (ranges.length) setAt((k) => (Math.min(k, ranges.length - 1) + d + ranges.length) % ranges.length); };
+  // open the folded step after the one shown (or the first), then go to it
+  const reveal = (back) => {
+    const here = ranges[now]?.startContainer;
+    const after = (f) => !here || (here.compareDocumentPosition(f.li) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const pick = back ? (folded.findLast((f) => !after(f)) || folded.at(-1)) : (folded.find(after) || folded[0]);
+    if (!pick) return false;
+    opening.current = pick.id;
+    window.dispatchEvent(new CustomEvent(REVEAL, { detail: pick.id }));
+    // the fold takes 200ms to open
+    clearTimeout(wait.current);
+    wait.current = setTimeout(() => setTick((k) => k + 1), 260);
+    return true;
+  };
+  // past the last one seen (or before the first), a folded one opens before it wraps
+  const go = (d) => {
+    const edge = !ranges.length || (d > 0 ? now === ranges.length - 1 : now === 0);
+    if (edge && folded.length && reveal(d < 0)) return;
+    if (ranges.length) setAt((k) => (Math.min(k, ranges.length - 1) + d + ranges.length) % ranges.length);
+  };
+  const can = ranges.length > 0 || hidden > 0;
+  const said = !q.trim() ? "" : ranges.length
+    ? `${now + 1}/${ranges.length}${hidden ? ` · 접힌 곳 ${hidden}` : ""}`
+    : hidden ? `접힌 곳 ${hidden}` : "없음";
   return (
     <div className="find-bar" role="search">
       <Icon name="search" />
@@ -1032,9 +1095,9 @@ function FindBar({ items, onClose }) {
           // Esc here only closes this (it must not stop the agent)
           else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
         }} />
-      <span className="find-count" aria-live="polite">{q.trim() ? (ranges.length ? `${now + 1}/${ranges.length}` : "없음") : ""}</span>
-      <button type="button" className="icon-btn" aria-label="앞의 것" title="앞의 것 (Shift+Enter)" disabled={!ranges.length} onClick={() => go(-1)}><Icon name="left" /></button>
-      <button type="button" className="icon-btn" aria-label="다음 것" title="다음 것 (Enter)" disabled={!ranges.length} onClick={() => go(1)}><Icon name="right" /></button>
+      <span className="find-count" aria-live="polite" title={hidden ? "접힌 도구 결과에도 있어요. Enter로 펼쳐서 가요." : undefined}>{said}</span>
+      <button type="button" className="icon-btn" aria-label="앞의 것" title="앞의 것 (Shift+Enter)" disabled={!can} onClick={() => go(-1)}><Icon name="left" /></button>
+      <button type="button" className="icon-btn" aria-label="다음 것" title="다음 것 (Enter)" disabled={!can} onClick={() => go(1)}><Icon name="right" /></button>
       <button type="button" className="icon-btn" aria-label="찾기 닫기" title="닫기 (Esc)" onClick={onClose}><Icon name="close" /></button>
     </div>
   );
