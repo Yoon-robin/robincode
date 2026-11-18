@@ -210,6 +210,8 @@ const Step = memo(function Step({ tool, onDecide }) {
         <span className="step-tag">{tool.ask ? "[ ?? ]" : TAG[tool.status]}</span>
         <span className="step-name">{tool.name}</span>
         <span className="step-what">{think ? (running ? "" : firstLine(tool.output)) : describe(tool.name, tool.args)}</span>
+        {/* said no to one that cannot be put back: what it was */}
+        {tool.status === "skip" && tool.risk && <span className="step-why">{tool.risk}</span>}
         {delta && <span className="step-delta" aria-label={`${delta.add}줄 더함, ${delta.del}줄 뺌`}><span className="add">+{delta.add}</span>{delta.del > 0 && <span className="del">−{delta.del}</span>}</span>}
         {running && !tool.ask && tool.startedAt ? <Elapsed from={tool.startedAt} />
           : tool.ms != null ? <span className="step-ms">{tool.ms < 1000 ? `${tool.ms}ms` : `${(tool.ms / 1000).toFixed(1)}초`}</span> : null}

@@ -523,14 +523,16 @@ function Mark({ text, q }) {
   return <>{text.slice(0, at)}<mark>{text.slice(at, at + q.length)}</mark>{text.slice(at + q.length)}</>;
 }
 
-// a conversation going on: "도는 중" (or waiting for a yes) where its time was
+// a conversation going on: "도는 중" (or waiting for a yes) where its time was;
+// one that ended while robin was in another: "끝났어요" until it is opened
 function RunMark({ run }) {
+  if (run.done) return <span className="conv-time conv-run conv-done">끝났어요 · 아직 안 봤어요</span>;
   return run.asking
     ? <span className="conv-time conv-run conv-ask">[ ?? ] 허락을 기다려요</span>
     : <span className="conv-time conv-run">[ .. ] 도는 중<span className="cursor" aria-hidden="true" /></span>;
 }
 
-function Conv({ s, q, current, run, now, folder, onOpen, onDelete, onRename }) {
+function Conv({ s, q, current, run, now, folder, pinned, onPin, onOpen, onDelete, onRename }) {
   const [editing, setEditing] = useState(false);
   const done = useRef(false);
   const finish = (value) => {
@@ -564,6 +566,11 @@ function Conv({ s, q, current, run, now, folder, onOpen, onDelete, onRename }) {
           </button>
           {onRename && (
             <span className="conv-acts">
+              {onPin && (
+                <button type="button" className={`icon-btn conv-act${pinned ? " on" : ""}`} aria-pressed={!!pinned}
+                  aria-label={`"${s.title}" ${pinned ? "고정 풀기" : "위에 고정"}`} title={pinned ? "고정 풀기" : "위에 고정"}
+                  onClick={() => onPin(s.path)}><Icon name="pin" /></button>
+              )}
               <button type="button" className="icon-btn conv-act" aria-label={`"${s.title}" 이름 바꾸기`} title="이름 바꾸기"
                 disabled={!!run} onClick={edit}><Icon name="edit" /></button>
               <button type="button" className="icon-btn conv-act" aria-label={`"${s.title}" 지우기`} title="지우기"
@@ -589,7 +596,25 @@ function moveInList(e) {
 const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch, onGpu }) {
   const now = useNow(60000);
   const nav = useRef(null);
-  const runOf = (path) => state.running.find((r) => r.path === path);
+  // ended while robin was elsewhere: marked until opened (this window's run only)
+  const [unseen, setUnseen] = useState(() => new Set());
+  const wasRunning = useRef([]);
+  useEffect(() => {
+    const live = new Set(state.running.map((r) => r.path));
+    const ended = wasRunning.current.filter((p) => !live.has(p) && p !== state.sessionFile);
+    wasRunning.current = [...live];
+    if (ended.length) setUnseen((u) => new Set([...u, ...ended]));
+  }, [state.running, state.sessionFile]);
+  useEffect(() => {
+    setUnseen((u) => (u.has(state.sessionFile) ? new Set([...u].filter((p) => p !== state.sessionFile)) : u));
+  }, [state.sessionFile]);
+  const [pins, setPins] = useState(loadPins);
+  const pin = useCallback((path) => setPins((p) => {
+    const next = p.includes(path) ? p.filter((x) => x !== path) : [path, ...p].slice(0, 20);
+    keepPins(next);
+    return next;
+  }), []);
+  const runOf = (path) => state.running.find((r) => r.path === path) || (unseen.has(path) ? { done: true } : undefined);
   // words to find: the server looks in every conversation's names and text
   const [q, setQ] = useState("");
   const [found, setFound] = useState(null);
@@ -604,8 +629,11 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
   }, [words, state.sessions]);
   const conv = (s, hit) => (
     <Conv key={s.path} s={s} q={hit} current={s.path === state.sessionFile} run={runOf(s.path)} now={now}
-      onOpen={onOpen} onDelete={onDelete} onRename={onRename} />
+      pinned={pins.includes(s.path)} onPin={pin} onOpen={onOpen} onDelete={onDelete} onRename={onRename} />
   );
+  // pinned ones on top, in the order pinned (one deleted falls away by itself)
+  const pinned = pins.map((p) => (state.sessions || []).find((s) => s.path === p)).filter(Boolean);
+  const rest = (state.sessions || []).filter((s) => !pins.includes(s.path));
   // going on in another folder (this folder's list does not have them)
   const listed = new Set((state.sessions || []).map((s) => s.path));
   const elsewhere = state.running.filter((r) => r.path !== state.sessionFile && !listed.has(r.path)
@@ -650,7 +678,7 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
         ) : state.sessions === null ? null : state.sessions.length === 0 ? (
           <><p className="side-label">지난 대화</p><p className="conv-empty">아직 없어요.</p></>
         ) : (
-          byDay(state.sessions, now).map(([day, list]) => (
+          [...(pinned.length ? [["고정", pinned]] : []), ...byDay(rest, now)].map(([day, list]) => (
             <section key={day} className="conv-day" aria-label={day}>
               <p className="side-label">{day}</p>
               <ul className="conv-list">{list.map((s) => conv(s, ""))}</ul>
@@ -941,6 +969,18 @@ function keepDraft(all, key, text) {
   const keys = Object.keys(all);
   if (keys.length > 30) for (const k of keys.sort((a, b) => all[a].at - all[b].at).slice(0, keys.length - 30)) delete all[k];
   try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(all)); } catch { /* storage off or full */ }
+}
+
+// ---- pinned conversations: their files, the 20 most recent pins
+const PINS_KEY = "robincode-pins";
+function loadPins() {
+  try {
+    const all = JSON.parse(localStorage.getItem(PINS_KEY) || "[]");
+    return Array.isArray(all) ? all.filter((x) => typeof x === "string") : [];
+  } catch { return []; }
+}
+function keepPins(list) {
+  try { localStorage.setItem(PINS_KEY, JSON.stringify(list)); } catch { /* storage off or full */ }
 }
 
 // ---- what was sent (↑ ↓ in the box), the 100 most recent, every conversation's

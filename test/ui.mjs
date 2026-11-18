@@ -295,6 +295,25 @@ await say("/new");
 await page.waitForTimeout(1000);
 ok(before > 0 && (await page.locator(".msg-user").count()) === 0, "/new 새 대화");
 
+// ---- a turn that ends while robin is in another conversation is marked; a pin stays on top
+await say("할 일 해 줘");
+await page.waitForFunction(() => document.title.startsWith("["), null, { timeout: 5000 }).catch(() => {});
+await page.waitForTimeout(800);
+const other = page.locator(".conv-open").filter({ hasNotText: "할 일 해 줘" }).first();
+const otherTitle = (await other.locator(".conv-title").innerText()).trim();
+await other.click();
+await page.waitForFunction(() => document.querySelectorAll(".conv-done").length === 1, null, { timeout: 40000 }).catch(() => {});
+ok((await page.locator(".conv", { hasText: "할 일 해 줘" }).locator(".conv-done").count()) === 1, "다른 대화에 있는 동안 끝난 대화: 끝났어요 표시");
+const row = page.locator(".conv", { hasText: otherTitle }).first();
+await row.hover();
+await row.getByRole("button", { name: /위에 고정/ }).click();
+await page.waitForTimeout(300);
+const firstDay = await page.locator(".conv-day").first().getAttribute("aria-label");
+const firstTitle = (await page.locator(".conv-day").first().locator(".conv-title").first().innerText()).trim();
+await page.locator(".conv-open", { hasText: "할 일 해 줘" }).first().click();
+await page.waitForTimeout(600);
+ok(firstDay === "고정" && firstTitle === otherTitle && (await page.locator(".conv-done").count()) === 0, `고정은 맨 위(${firstDay}: ${firstTitle}), 열면 끝났어요 표시가 사라짐`);
+
 ok(errs.length === 0, `콘솔 오류 ${errs.length}개 ${errs.slice(0, 3).join(" | ")}`);
 if (process.env.ROBINCODE_UI_SHOT) await page.screenshot({ path: process.env.ROBINCODE_UI_SHOT });
 await browser.close();
