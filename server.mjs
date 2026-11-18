@@ -29,11 +29,12 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync,
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { connect } from "node:net";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { addRecent, allFolders, cleanPath, folderExists, hideRecent, rows as folderRows, unhideRecent } from "./folders.mjs";
 import { danger } from "./guard.mjs";
+import { hint as nearHint, nearest } from "./near.mjs";
 
 // Pi, loaded once its packages are there (getReady)
 let createAgentSession, DefaultResourceLoader, estimateTokens, ModelRuntime, SessionManager, compactWith, psOps, Type;
@@ -536,6 +537,48 @@ function removeRule(dir, key) {
   if (!settings.allow[k].length) delete settings.allow[k];
   saveSettings();
 }
+// ---- a tool result too big for a 27B's context --------------------------------
+// Pi cuts a result at 2000 lines or 50KB (~12k tokens, a tenth of the window,
+// read again on every request after). RobinCode cuts it again near 16KB: the
+// start of what was read or found, the start and the end of a command's output
+// (an error is at the end); the whole is put in a file the model can read with
+// offset (OpenCode 2.3, Claude Code's 30k with a path)
+const OUT_MAX = 16000;
+const OUT_DIR = join(tmpdir(), "robincode-out");
+function trimResult(name, id, content) {
+  if (!Array.isArray(content)) return null;
+  const texts = content.filter((p) => p.type === "text");
+  const all = texts.map((p) => p.text).join("");
+  if (all.length <= OUT_MAX) return null;
+  let file = "";
+  try {
+    mkdirSync(OUT_DIR, { recursive: true });
+    file = join(OUT_DIR, `${String(id).replace(/[^\w-]/g, "_").slice(0, 60) || Date.now()}.txt`);
+    writeFileSync(file, all);
+  } catch { file = ""; }
+  const shell = name === "powershell" || name === "bash";
+  const head = shell ? all.slice(0, 4000) : all.slice(0, OUT_MAX - 1400);
+  // read's own last words (where to go on from: offset=…) stay
+  const tail = shell ? all.slice(-(OUT_MAX - 5000)) : all.slice(-400);
+  const cut = all.length - head.length - tail.length;
+  const where = file ? ` 전체는 ${file} 에 있어요(read로 offset·limit을 주어 필요한 곳만 읽으세요).` : "";
+  const note = `\n\n… (RobinCode: 결과가 길어 ${cut}자를 뺐어요.${where}${name === "read" ? " 이 파일은 offset·limit으로 나눠 읽거나 grep으로 찾으세요." : ""})\n\n`;
+  return [...content.filter((p) => p.type !== "text"), { type: "text", text: head + note + tail }];
+}
+// results of past days are let go
+try { for (const f of readdirSync(OUT_DIR)) { const p = join(OUT_DIR, f); if (Date.now() - mtime(p) > 2 * 86400000) unlinkSync(p); } } catch { /* none */ }
+
+// an edit whose oldText is not in the file: the file's nearest lines (near.mjs)
+function editMiss(conv, event) {
+  const m = /Could not find (?:the exact text|edits\[(\d+)\])/.exec(textOf(event.content));
+  if (!m) return "";
+  const input = event.input || {};
+  const edits = Array.isArray(input.edits) ? input.edits : input.oldText != null ? [input] : [];
+  const edit = edits[Number(m[1] || 0)];
+  if (!edit || !input.path) return "";
+  try { return nearHint(nearest(readFileSync(resolve(conv.cwd, String(input.path)), "utf8"), String(edit.oldText ?? ""))); } catch { return ""; }
+}
+
 // a command with no time limit of its own gets this one: one that never ends
 // (a dev server, a watch, a prompt waiting for an answer nobody gives) held the
 // turn — and the GPU, paid by the hour — for good. Claude Code: 2 minutes.
@@ -884,8 +927,10 @@ const approvalsFor = (conv) => ({
         }
       }
       if (event.isError && /Command timed out after \d+ seconds/.test(textOf(event.content))) notes.push(TIMED_OUT);
-      if (!notes.length) return undefined;
-      return { content: [...(Array.isArray(event.content) ? event.content : []), ...notes.map((text) => ({ type: "text", text: `\n\n${text}` }))] };
+      if (event.isError && event.toolName === "edit") { const h = editMiss(conv, event); if (h) notes.push(h); }
+      const trimmed = event.toolName === "webfetch" ? null : trimResult(event.toolName, event.toolCallId, event.content);
+      if (!notes.length && !trimmed) return undefined;
+      return { content: [...(trimmed || (Array.isArray(event.content) ? event.content : [])), ...notes.map((text) => ({ type: "text", text: `\n\n${text}` }))] };
     });
     pi.on("tool_call", async (event) => {
       // going round (the same call, or a few in turn): the first time it is
@@ -1219,6 +1264,12 @@ async function startSession(sessionManager, base = cwd) {
         },
       },
     }, null, 2));
+    // Pi's settings: what RobinCode sets is put in, the rest left as it is
+    const settingsPath = join(agentDir, "settings.json");
+    let piSettings = {};
+    try { piSettings = JSON.parse(readFileSync(settingsPath, "utf8")) || {}; } catch { /* none yet */ }
+    piSettings.compaction = { ...piSettings.compaction, reserveTokens: RESERVE };
+    writeFileSync(settingsPath, JSON.stringify(piSettings, null, 2));
     runtime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath });
     await runtime.setRuntimeApiKey("robinai", apiKey);
   }
@@ -1454,9 +1505,13 @@ function compactionError(message = "") {
   if (/token cap/i.test(message)) return { message: "요약하지 못했어요: 요약이 한 번에 쓸 수 있는 길이(16384토큰)를 넘어서 잘렸어요. 다시 해 보거나 새 대화로 이어 가 주세요." };
   return { message: `요약하지 못했어요: ${message.replace(/^Compaction failed:\s*/, "")}` };
 }
-// Pi compacts once the context passes the window minus its reserve (16384 by
-// default), so the bar is full at that point, not at the window's end
-const RESERVE = 16384;
+// Pi compacts once the context passes the window minus its reserve, so the bar
+// is full at that point, not at the window's end. Pi's 16384 waited until
+// ~114k: a 27B follows its instructions less well long before that, and every
+// request reads the whole context again on the GPU (paid by the hour). 40960:
+// at ~90k (Goose: 80%; Gemini CLI masks old results from 30k). In Pi's
+// settings.json (startSession) so a reload keeps it
+const RESERVE = 40960;
 function contextUsage() {
   try {
     const u = session?.getContextUsage();

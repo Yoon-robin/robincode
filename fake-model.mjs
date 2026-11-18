@@ -361,6 +361,9 @@ createServer(async (req, res) => {
   } else if (/(새 파일|new file)/i.test(said) && tools.includes("write")) {
     // "새 파일": writes notes.md (going back can take it away again)
     await streamToolCall(res, "write", { path: "notes.md", content: "# 메모\n\n가짜 모델이 쓴 파일이에요.\n" }, usage);
+  } else if (/틀린 수정/.test(said) && tools.includes("edit")) {
+    // "틀린 수정": oldText a little off from README's first line (the nearest-lines note)
+    await streamToolCall(res, "edit", { path: "README.md", edits: [{ oldText: "# tests", newText: "# test 고침" }] }, usage);
   } else if (/큰 수정/.test(said) && tools.includes("edit")) {
     // "큰 수정": a 250-line change (its text is not in the file, so it fails
     // once allowed); the approval card's diff is big (typing lag tests)
