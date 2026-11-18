@@ -10,15 +10,22 @@ import { CopyButton } from "./Markdown.jsx";
 import { useNow, seconds } from "./time.js";
 
 const TAG = { run: "[ .. ]", ok: "[ OK ]", fail: "[FAIL]", skip: "[SKIP]" };
-const ASKS = new Set(["powershell", "bash", "edit", "write"]);
+const ASKS = new Set(["powershell", "bash", "edit", "write", "webfetch"]);
 const LIVE_LINES = 8;
 const THINK_CHARS = 1600; // more than the box's four lines hold, even one long line
 const FOLD_AT = 5; // steps in one run before a finished run folds into a summary
 // the keys that answer a question, in the order of its buttons
-export const ANSWER_KEYS = { 1: "yes", 2: "always", 3: "no" };
+// (4: "늘 허용" for this command or site, when the question has one)
+export const ANSWER_KEYS = { 1: "yes", 2: "always", 3: "no", 4: "rule" };
 
 export function describe(name, args = {}) {
   switch (name) {
+    case "todo": {
+      const items = Array.isArray(args.items) ? args.items : [];
+      const now = items.find((x) => x.status === "in_progress");
+      return `${items.filter((x) => x.status === "completed").length}/${items.length}${now ? ` · ${now.text}` : ""}`;
+    }
+    case "webfetch": return args.url ?? "";
     case "read": return `${args.path ?? ""}${args.offset ? ` · ${args.offset}줄부터` : ""}`;
     case "ls": return args.path || ".";
     case "find": case "grep": return [args.pattern, args.path].filter(Boolean).join("  ·  ");
@@ -88,8 +95,10 @@ function Approval({ tool, onDecide }) {
   const yes = useRef(null);
   const { name, args } = tool;
   const isFile = name === "edit" || name === "write";
-  const title = name === "edit" ? "이 파일을 고칠까요?" : name === "write" ? "이 파일을 쓸까요?" : "이 명령을 실행할까요?";
-  const yesLabel = name === "edit" ? "고치기" : name === "write" ? "쓰기" : "실행";
+  const web = name === "webfetch";
+  const title = name === "edit" ? "이 파일을 고칠까요?" : name === "write" ? "이 파일을 쓸까요?" : web ? "이 웹 페이지를 읽을까요?" : "이 명령을 실행할까요?";
+  const yesLabel = name === "edit" ? "고치기" : name === "write" ? "쓰기" : web ? "읽기" : "실행";
+  const rule = tool.rule;
   // the card stays (hidden) once answered: its diff is made once, not at every drawing
   const rows = useMemo(() => (name === "edit" ? editRows(args) : name === "write" ? writeRows(args) : null), [name, args]);
   // once the fold has opened, bring the buttons into view if they are not
@@ -105,6 +114,8 @@ function Approval({ tool, onDecide }) {
           <div className="ask-path">{args.path}</div>
           <DiffLines rows={rows} />
         </div>
+      ) : web ? (
+        <pre className="ask-cmd">{String(args.url ?? "")}</pre>
       ) : (
         <pre className="ask-cmd"><span className="ps">PS&gt;</span> {String(args.command ?? JSON.stringify(args))}</pre>
       )}
@@ -118,6 +129,13 @@ function Approval({ tool, onDecide }) {
         <button type="button" className="btn" onClick={() => onDecide(tool.id, "no")}>
           <kbd className="key">3</kbd>안 돼요
         </button>
+        {/* Claude Code's "don't ask again for …": this command's start, or this site, in this folder */}
+        {rule && (
+          <button type="button" className="btn" onClick={() => onDecide(tool.id, "rule")}
+            title={web ? "이 사이트의 페이지는 이 폴더에서 묻지 않고 읽어요." : `"${rule.label}"로 시작하는 명령은 이 폴더에서 묻지 않고 실행해요. ; | > 같은 것으로 이어 붙인 명령은 그래도 물어요.`}>
+            <kbd className="key">4</kbd>{web ? <><span className="mono">{rule.label}</span>은 늘 허용</> : <><span className="mono">{rule.label}</span> 늘 허용</>}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -235,3 +253,66 @@ export const ToolGroup = memo(function ToolGroup({ tools, onDecide, settled }) {
     </div>
   );
 });
+
+// robin's own `!명령`: the command, its output as it comes, how it ended
+export const ShellRun = memo(function ShellRun({ item }) {
+  const running = item.status === "run";
+  const failed = !running && (item.cancelled || (item.exitCode != null && item.exitCode !== 0));
+  const tag = running ? "[ .. ]" : item.cancelled ? "[SKIP]" : failed ? "[FAIL]" : "[ OK ]";
+  return (
+    <div className={`shell-run${running ? " run" : failed ? " fail" : ""}`}>
+      <div className="shell-head">
+        <span className="step-tag">{tag}</span>
+        <span className="shell-cmd"><span className="ps">!</span> {item.command}</span>
+        {running && item.startedAt ? <Elapsed from={item.startedAt} />
+          : item.exitCode != null && item.exitCode !== 0 ? <span className="step-ms">끝 코드 {item.exitCode}</span> : null}
+      </div>
+      {item.output ? (
+        <div className="out">
+          <pre className="step-out">{running ? lastLines(item.output, 40) : item.output}</pre>
+          {!running && <CopyButton text={item.output} className="mini-btn out-copy" />}
+        </div>
+      ) : !running && <p className="shell-none">출력이 없어요.</p>}
+    </div>
+  );
+});
+
+// the model's task list (its newest todo call), pinned above the message box
+export function latestTodo(items) {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const x = items[i];
+    if (x.kind === "user") return null; // a list from an earlier request is over
+    if (x.kind !== "tools") continue;
+    const t = x.tools.findLast((s) => s.name === "todo" && Array.isArray(s.args?.items));
+    if (t) return t.args.items;
+  }
+  return null;
+}
+const TODO_MARK = { pending: "[  ]", in_progress: "[..]", completed: "[OK]" };
+export function TodoPanel({ todo, busy }) {
+  const [open, setOpen] = useState(true);
+  if (!todo?.length) return null;
+  const done = todo.filter((x) => x.status === "completed").length;
+  if (!busy && done === todo.length) return null;
+  return (
+    <section className={`todo${open ? " open" : ""}`} aria-label="할 일">
+      <button type="button" className="todo-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="todo-title">할 일</span>
+        <span className="todo-count">{done}/{todo.length}</span>
+        <span className="todo-now">{todo.find((x) => x.status === "in_progress")?.text || ""}</span>
+        <span className="chev" aria-hidden="true" />
+      </button>
+      {open && (
+        <ol className="todo-list">
+          {todo.map((x, k) => (
+            <li key={k} className={`todo-item ${x.status}`}>
+              <span className="todo-mark" aria-hidden="true">{TODO_MARK[x.status] || TODO_MARK.pending}</span>
+              <span className="todo-text">{x.text}</span>
+              <span className="sr">{x.status === "completed" ? "끝" : x.status === "in_progress" ? "하는 중" : "할 것"}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}

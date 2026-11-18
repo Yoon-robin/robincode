@@ -1,14 +1,16 @@
 // The RobinCode window, in RobinAI's frame: past conversations, the folder and
 // the GPU on the left, the conversation and the composer on the right. On a
 // narrow window the left side becomes a drawer behind the menu button.
-import { memo, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api, connect, pickerUrl } from "./api.js";
 import { askingTool, initial, reducer } from "./store.js";
 import { Composer, PICTURE_TYPES } from "./Composer.jsx";
 import { CopyButton, Markdown } from "./Markdown.jsx";
-import { ANSWER_KEYS, ToolGroup, describe } from "./Tools.jsx";
+import { ANSWER_KEYS, ShellRun, TodoPanel, ToolGroup, describe, latestTodo } from "./Tools.jsx";
 import { Icon } from "./icons.jsx";
 import { ago, seconds, useNow } from "./time.js";
+import { MODE_NAMES, nextMode } from "./modes.js";
+import { BUILTIN, INIT_PROMPT } from "./commands.js";
 
 const LOGO = [
   "█▀█ █▀█ █▀▄ ▀█▀ █▄ █ █▀▀ █▀█ █▀▄ █▀▀",
@@ -377,7 +379,7 @@ function turnEnds(items, busy) {
 
 // memo: what is typed lives in App, and every key drew the whole conversation
 // (and the list on the left) again, which grew slow in a long one
-const Conversation = memo(function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBranch, onGpu, onUnqueue }) {
+const Conversation = memo(function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBranch, onGpu, onUnqueue, onPlanGo }) {
   const scroller = useRef(null);
   const content = useRef(null);
   const stick = useRef(true);
@@ -447,6 +449,12 @@ const Conversation = memo(function Conversation({ state, asking, onDecide, onPic
                           <Icon name="retry" /><span>다시 답하기</span>
                         </button>
                       )}
+                      {/* a plan written in plan mode: go ahead with it (back to the mode before) */}
+                      {item === lastAnswer && !state.busy && state.mode === "plan" && item.planned && (
+                        <button type="button" className="act act-go" title={`${MODE_NAMES[state.planFrom] || "묻고 실행"} 모드로 바꾸고 이 계획대로 고치라고 보내요`} onClick={onPlanGo}>
+                          <Icon name="right" /><span>이 계획대로 하기</span>
+                        </button>
+                      )}
                       {item.meta && <TurnMeta stats={item.meta} />}
                     </div>
                   )}
@@ -460,20 +468,30 @@ const Conversation = memo(function Conversation({ state, asking, onDecide, onPic
                 </div>
               );
             }
+            if (item.kind === "shell") {
+              return <div key={item.id} className={`msg msg-shell${marks(item)}`}><ShellRun item={item} /></div>;
+            }
             return <Line key={item.id} item={item} onGpu={onGpu} />;
           })}
           {/* kept (only hidden) while a thought shows its own clock, so the
               thread does not jump by a line as thoughts start and end */}
           {state.busy && !asking && <StatusRow state={state} quiet={!!state.think} />}
-          {/* sent while it runs: these wait for the turn to end, and can be taken back */}
+          {/* sent while it runs: told after the step it is on, or sent when
+              it ends; each can be taken back (to the box, to change) */}
           {state.queued.length > 0 && (
-            <div className="queued" role="group" aria-label="이 답이 끝나면 보낼 말">
-              {state.queued.map((text, k) => (
-                <div key={k} className="queued-bubble"><div className="queued-text">{text}</div></div>
+            <div className="queued" role="group" aria-label="기다리는 말">
+              {state.queued.map((q, k) => (
+                <div key={k} className={`queued-bubble ${q.held ? "held" : q.kind}`}>
+                  <span className="queued-when">{q.held ? "요약이 끝나면" : q.kind === "steer" ? "다음 단계 전에" : "끝나면"}</span>
+                  <div className="queued-text">{q.text}{q.pictures ? <span className="queued-pics"> · 그림 {q.pictures}장</span> : null}</div>
+                  <button type="button" className="icon-btn queued-x" aria-label="이 말은 보내지 않고 입력 칸으로" title="보내지 않고 입력 칸으로 (고쳐서 다시 보내요)"
+                    onClick={() => onUnqueue(k)}><Icon name="close" /></button>
+                </div>
               ))}
               <p className="queued-note">
-                이 답이 끝나면 보내요.
-                <button type="button" className="link-act" onClick={onUnqueue}>보내지 않기</button>
+                {state.queued.some((q) => q.kind === "steer" && !q.held) ? "모델이 지금 단계를 마치면 바로 전해요." : "이 답이 끝나면 보내요."}
+                <span className="queued-keys"> 빈 칸에서 <kbd>↑</kbd>로 꺼내 고쳐요.</span>
+                <button type="button" className="link-act" onClick={() => onUnqueue()}>모두 보내지 않기</button>
               </p>
             </div>
           )}
@@ -651,6 +669,18 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
               title="다른 폴더에서 새 대화를 열어요. 이 대화는 목록에 남고, 도는 중이면 그대로 계속해요.">바꾸기</a>
           </span>
         </div>
+        {/* the folder's git branch, and how many files differ from it */}
+        {state.git && (
+          <div className="side-row git-row" title={`git 브랜치 ${state.git.branch}${state.git.changed ? `, 바뀌었거나 새로 생긴 파일 ${state.git.changed}개` : ", 바뀐 파일 없음"}${state.git.ahead ? `, 올리지 않은 커밋 ${state.git.ahead}개` : ""}${state.git.behind ? `, 받지 않은 커밋 ${state.git.behind}개` : ""}`}>
+            <span className="side-label">git</span>
+            <span className="mono git-line">
+              {state.git.branch}
+              {state.git.changed > 0 && <span className="git-changed"> · 바뀐 파일 {state.git.changed}</span>}
+              {state.git.ahead > 0 && <span className="git-ahead"> ↑{state.git.ahead}</span>}
+              {state.git.behind > 0 && <span className="git-ahead"> ↓{state.git.behind}</span>}
+            </span>
+          </div>
+        )}
         <div className="side-row"><span className="side-label">모델</span><span className="mono">{state.info.model}</span></div>
         <Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} onOpen={onGpu} />
         <UpdateRow />
@@ -913,6 +943,223 @@ function keepDraft(all, key, text) {
   try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(all)); } catch { /* storage off or full */ }
 }
 
+// ---- what was sent (↑ ↓ in the box), the 100 most recent, every conversation's
+const SENT_KEY = "robincode-sent";
+function loadSent() {
+  try {
+    const all = JSON.parse(localStorage.getItem(SENT_KEY) || "[]");
+    return Array.isArray(all) ? all.filter((x) => typeof x === "string") : [];
+  } catch { return []; }
+}
+function keepSent(text) {
+  const t = text.trim().slice(0, 20000);
+  if (!t) return;
+  const all = loadSent().filter((x) => x !== t);
+  all.push(t);
+  try { localStorage.setItem(SENT_KEY, JSON.stringify(all.slice(-100))); } catch { /* storage off or full */ }
+}
+
+// a file to save (the window asks where)
+function saveFile(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// ---- Ctrl+F: words in the conversation, marked where they are (CSS highlights)
+const CAN_MARK = typeof CSS !== "undefined" && !!CSS.highlights && typeof Highlight !== "undefined";
+function findRanges(root, q) {
+  const out = [];
+  if (!root || !q) return out;
+  const want = q.toLowerCase();
+  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.parentElement?.closest(".sr, [aria-hidden='true'], button") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
+  for (let n = walk.nextNode(); n && out.length < 2000; n = walk.nextNode()) {
+    const text = n.nodeValue.toLowerCase();
+    for (let at = text.indexOf(want); at >= 0 && out.length < 2000; at = text.indexOf(want, at + want.length)) {
+      const r = document.createRange();
+      r.setStart(n, at);
+      r.setEnd(n, at + want.length);
+      out.push(r);
+    }
+  }
+  return out;
+}
+function FindBar({ items, onClose }) {
+  const [q, setQ] = useState("");
+  const [at, setAt] = useState(0);
+  const [ranges, setRanges] = useState([]);
+  const input = useRef(null);
+  useEffect(() => { input.current?.focus(); input.current?.select(); }, []);
+  // looked for again as the conversation grows, a moment after it settles
+  useEffect(() => {
+    const t = setTimeout(() => setRanges(findRanges(document.querySelector(".msgs"), q.trim())), 80);
+    return () => clearTimeout(t);
+  }, [q, items]);
+  useEffect(() => { setAt(0); }, [q]);
+  const now = ranges.length ? Math.min(at, ranges.length - 1) : -1;
+  useEffect(() => {
+    if (CAN_MARK) {
+      CSS.highlights.set("find", new Highlight(...ranges));
+      if (now >= 0) CSS.highlights.set("find-now", new Highlight(ranges[now])); else CSS.highlights.delete("find-now");
+    }
+    const r = ranges[now];
+    if (r) {
+      const el = r.startContainer.parentElement;
+      // a long code block scrolls by itself; the thread to the line
+      el?.scrollIntoView({ block: "center" });
+    }
+  }, [ranges, now]);
+  useEffect(() => () => { if (CAN_MARK) { CSS.highlights.delete("find"); CSS.highlights.delete("find-now"); } }, []);
+  const go = (d) => { if (ranges.length) setAt((k) => (Math.min(k, ranges.length - 1) + d + ranges.length) % ranges.length); };
+  return (
+    <div className="find-bar" role="search">
+      <Icon name="search" />
+      <input ref={input} value={q} placeholder="대화에서 찾기" aria-label="대화에서 찾기" spellCheck={false}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === "Enter") { e.preventDefault(); go(e.shiftKey ? -1 : 1); }
+          // Esc here only closes this (it must not stop the agent)
+          else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
+        }} />
+      <span className="find-count" aria-live="polite">{q.trim() ? (ranges.length ? `${now + 1}/${ranges.length}` : "없음") : ""}</span>
+      <button type="button" className="icon-btn" aria-label="앞의 것" title="앞의 것 (Shift+Enter)" disabled={!ranges.length} onClick={() => go(-1)}><Icon name="left" /></button>
+      <button type="button" className="icon-btn" aria-label="다음 것" title="다음 것 (Enter)" disabled={!ranges.length} onClick={() => go(1)}><Icon name="right" /></button>
+      <button type="button" className="icon-btn" aria-label="찾기 닫기" title="닫기 (Esc)" onClick={onClose}><Icon name="close" /></button>
+    </div>
+  );
+}
+
+// ---- /memory and /help: a sheet over the conversation
+function Sheet({ label, onClose, children }) {
+  const panel = useRef(null);
+  useEffect(() => {
+    panel.current?.focus();
+    // Esc closes this (it must not stop the agent)
+    const esc = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); } };
+    document.addEventListener("keydown", esc, true);
+    return () => document.removeEventListener("keydown", esc, true);
+  }, [onClose]);
+  return (
+    <div className="modal-back" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <section className="sheet" role="dialog" aria-modal="true" aria-label={label} ref={panel} tabIndex={-1}>
+        <header className="gpu-panel-head">
+          <p className="gpu-kicker"><span className="prompt">&gt;</span> {label}</p>
+          <button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}><Icon name="close" /></button>
+        </header>
+        {children}
+      </section>
+    </div>
+  );
+}
+function MemoryPanel({ onClose, onError }) {
+  const [r, setR] = useState(null);
+  const [line, setLine] = useState("");
+  const [saving, setSaving] = useState(false);
+  const load = (body) => api("/api/memory", body).then(setR);
+  useEffect(() => { load().catch((e) => onError(`읽지 못했어요: ${e.message}`)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const add = () => {
+    if (!line.trim() || saving) return;
+    setSaving(true);
+    load({ add: line }).then(() => setLine("")).catch((e) => onError(e.message === "busy" ? "도는 중이라 끝난 뒤에 더할 수 있어요." : `더하지 못했어요: ${e.message}`))
+      .finally(() => setSaving(false));
+  };
+  const openFile = (path) => api("/api/open-file", { path }).catch((e) => onError(e.message));
+  return (
+    <Sheet label="모델이 읽는 지시 파일" onClose={onClose}>
+      <p className="gpu-note">모델은 대화를 시작할 때 이 파일들을 먼저 읽어요(AGENTS.md, CLAUDE.md: 이 폴더와 위 폴더들의 것).</p>
+      {r === null ? <p className="gpu-note">읽는 중<span className="cursor" aria-hidden="true" /></p>
+        : r.files.length === 0 ? <p className="gpu-note">아직 없어요. 아래에 한 줄을 적거나 <span className="mono">/init</span>으로 만들어요.</p>
+          : (
+            <ul className="mem-files">
+              {r.files.map((f) => (
+                <li key={f.path} className="mem-file">
+                  <div className="mem-head">
+                    <span className="mono mem-path" title={f.path}>{f.shown}</span>
+                    <span className="gpu-faint">{f.lines}줄</span>
+                    <button type="button" className="mini-btn" onClick={() => openFile(f.path)}>편집기로 열기</button>
+                  </div>
+                  <pre className="mem-text">{f.content}</pre>
+                </li>
+              ))}
+            </ul>
+          )}
+      {r && (
+        <form className="mem-add" onSubmit={(e) => { e.preventDefault(); add(); }}>
+          <label className="side-label" htmlFor="mem-line"><span className="mono">{r.ownShown}</span>에 한 줄 더하기</label>
+          <div className="mem-add-row">
+            <input id="mem-line" value={line} onChange={(e) => setLine(e.target.value)} placeholder="예: 커밋 메시지는 한국어로" spellCheck={false} maxLength={500} />
+            <button type="submit" className="btn btn-primary" disabled={!line.trim() || saving}>{saving ? "더하는 중…" : "더하기"}</button>
+          </div>
+        </form>
+      )}
+    </Sheet>
+  );
+}
+function RulesPanel({ onClose, onError }) {
+  const [rules, setRules] = useState(null);
+  const load = (body) => api("/api/rules", body).then((r) => setRules(r.rules)).catch((e) => onError(`읽지 못했어요: ${e.message}`));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Sheet label="늘 허용한 것" onClose={onClose}>
+      <p className="gpu-note">물을 때 "늘 허용"(4)을 누른 것은 이 폴더에서 다시 묻지 않아요. 명령은 그 시작이 같을 때만, 이어 붙이거나(<span className="mono">; && |</span>) 넘기면(<span className="mono">&gt;</span>) 다시 물어요.</p>
+      {rules === null ? <p className="gpu-note">읽는 중<span className="cursor" aria-hidden="true" /></p>
+        : rules.length === 0 ? <p className="gpu-note">아직 없어요.</p> : (
+          <ul className="rule-list">
+            {rules.map((r) => (
+              <li key={r.key} className="rule">
+                <span className="rule-kind">{r.kind === "web" ? "사이트" : "명령"}</span>
+                <span className="mono rule-label">{r.label}{r.kind === "cmd" ? " …" : ""}</span>
+                <button type="button" className="mini-btn" onClick={() => load({ remove: r.key })}>지우기</button>
+              </li>
+            ))}
+          </ul>
+        )}
+    </Sheet>
+  );
+}
+const KEYS = [
+  ["Enter", "보내기 (도는 중이면 지금 단계 다음에 전해요)"],
+  ["Ctrl+Enter", "도는 중에: 다 끝난 뒤에 보내요"],
+  ["Shift+Enter", "줄 바꿈"],
+  ["↑ (빈 칸)", "기다리는 말을 꺼내 고쳐요. 없으면 보낸 말을 차례로"],
+  ["Esc", "멈추기"],
+  ["Shift+Tab", "모드 바꾸기: 묻고 실행 → 수정은 바로 → 바로 실행 → 계획만"],
+  ["Ctrl+F", "대화에서 찾기"],
+  ["Ctrl+K", "지난 대화 찾기"],
+  ["1 2 3 4", "물을 때: 실행 · 늘 묻지 않기 · 거절 · 이 명령은 늘 허용"],
+  ["@", "이 폴더의 파일 넣기"],
+  ["!명령", "PowerShell로 바로 실행 (결과는 대화에 남아요)"],
+];
+function HelpPanel({ commands, onClose }) {
+  return (
+    <Sheet label="명령과 단축키" onClose={onClose}>
+      <p className="side-label">명령</p>
+      <dl className="help-list">
+        {BUILTIN.map((c) => (
+          <div key={c.name} className="help-row"><dt className="mono">/{c.name}{c.arg ? ` [${c.arg}]` : ""}</dt><dd>{c.hint}</dd></div>
+        ))}
+        {(commands?.prompts || []).map((p) => (
+          <div key={`p-${p.name}`} className="help-row"><dt className="mono">/{p.name}</dt><dd>{p.description || "이 폴더의 프롬프트 템플릿"}</dd></div>
+        ))}
+        {(commands?.skills || []).map((s) => (
+          <div key={`s-${s.name}`} className="help-row"><dt className="mono">/skill:{s.name}</dt><dd>{s.description || "스킬"}</dd></div>
+        ))}
+      </dl>
+      <p className="side-label">단축키</p>
+      <dl className="help-list">
+        {KEYS.map(([k, v]) => <div key={k} className="help-row"><dt className="mono">{k}</dt><dd>{v}</dd></div>)}
+      </dl>
+    </Sheet>
+  );
+}
+const MODE_WORDS = { ask: "ask", 묻기: "ask", edits: "edits", edit: "edits", 수정: "edits", auto: "auto", 바로: "auto", plan: "plan", 계획: "plan" };
+
 // ---- the app ---------------------------------------------------------------------
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initial);
@@ -954,6 +1201,10 @@ export default function App() {
   const [notify, setNotify] = useState(notifyNow);
   const [gpuOpen, setGpuOpen] = useState(false);
   const picturesRef = useRef(null); // the composer's "these are the pictures"
+  const addPicturesRef = useRef(null); // the composer's "these too" (taken back from the queue)
+  const askingRef = useRef(null); // the question on screen (its "늘 허용" rule)
+  const [panel, setPanel] = useState(null); // "memory" | "help" | null
+  const [finding, setFinding] = useState(false); // Ctrl+F
   const box = useRef(null);
   const menuRef = useRef(null);
   const closeRef = useRef(null);
@@ -994,6 +1245,7 @@ export default function App() {
   useEffect(() => connect((e) => {
     if (e.t === "bg_done") onBg.current?.(e);
     if (e.t === "settled" && e.unsent?.length) onUnsent.current?.(e.unsent);
+    if (e.t === "unsent" && e.items?.length) onUnsent.current?.(e.items, e.why);
     dispatch({ type: "event", e });
   }, (up) => dispatch({ type: "link", up })), []);
   useEffect(() => { if (state.ready) loadSessions(); }, [state.ready, state.sessionFile, state.busy, state.running.length, loadSessions]);
@@ -1016,33 +1268,52 @@ export default function App() {
   const closeSide = (toMenu) => { setSide(false); if (toMenu && isNarrow()) menuRef.current?.focus(); };
 
   // true once the server took it; on a failure the words go back in the box
-  const send = useCallback(async (text, pictures = []) => {
+  // when: while it runs, "now" (after the step it is on) or "end" (after the turn)
+  // Sent one after another (a second message typed while the first is on
+  // its way goes after it, in order); the same words twice at once (a double
+  // click) go once
+  const inFlight = useRef(null); // { text, done }
+  const send = useCallback((text, pictures = [], when = "now") => {
     const t = text.trim();
-    if ((!t && !pictures.length) || sending.current) return false;
-    sending.current = true;
+    if ((!t && !pictures.length) || (inFlight.current && inFlight.current.text === t && !pictures.length)) return Promise.resolve(false);
     setDraft("");
-    try {
-      await api("/api/prompt", { text: t, images: pictures.map(({ mimeType, data }) => ({ mimeType, data })) });
-      return true;
-    } catch (e) {
-      dispatch({ type: "local-error", message: `보내지 못했어요: ${e.message}`, gpu: e.gpuOff });
-      setDraft(t);
-      return false;
-    } finally {
-      sending.current = false;
-    }
+    if (t) keepSent(t);
+    const before = inFlight.current?.done;
+    const done = (async () => {
+      if (before) await before;
+      sending.current = true;
+      try {
+        await api("/api/prompt", { text: t, when, images: pictures.map(({ mimeType, data }) => ({ mimeType, data })) });
+        return true;
+      } catch (e) {
+        dispatch({ type: "local-error", message: `보내지 못했어요: ${e.message}`, gpu: e.gpuOff });
+        setDraft((d) => (d.trim() ? `${t}\n${d}` : t));
+        return false;
+      } finally {
+        sending.current = false;
+      }
+    })();
+    const me = { text: t, done };
+    inFlight.current = me;
+    done.finally(() => { if (inFlight.current === me) inFlight.current = null; });
+    return done;
   }, []);
   const stop = useCallback(() => { api("/api/abort").catch(() => {}); }, []);
-  // messages that waited for a turn's end, back in the box (above what is being typed)
-  const giveBack = useCallback((texts) => {
-    setDraft((d) => [...texts, d].filter((t) => t && t.trim()).join("\n"));
+  // messages that waited, back in the box (above what is being typed), their pictures too
+  const giveBack = useCallback((items) => {
+    const list = items.map((x) => (typeof x === "string" ? { text: x, images: [] } : x));
+    setDraft((d) => [...list.map((x) => x.text), d].filter((t) => t && t.trim()).join("\n"));
+    const pics = list.flatMap((x) => x.images || []);
+    if (pics.length) addPicturesRef.current?.(pics);
     requestAnimationFrame(() => box.current?.focus());
   }, []);
-  const unqueue = useCallback(() => {
-    api("/api/unqueue").then((r) => { if (r.texts?.length) giveBack(r.texts); }).catch(() => {});
-  }, [giveBack]);
+  // one of them (index), or all
+  const unqueue = useCallback((index) => {
+    api("/api/unqueue", index == null ? {} : { index }).then((r) => { if (r.items?.length) giveBack(r.items); }).catch(fail);
+  }, [giveBack]); // eslint-disable-line react-hooks/exhaustive-deps
   const decide = useCallback((id, decision) => {
-    dispatch({ type: "decided", id, decision });
+    const tool = askingRef.current;
+    dispatch({ type: "decided", id, decision, rule: tool?.id === id ? tool.rule : null });
     api("/api/approve", { id, decision }).catch((e) => dispatch({ type: "local-error", message: e.message }));
     focusBox();
   }, []);
@@ -1106,12 +1377,75 @@ export default function App() {
     sending.current = true;
     api("/api/retry").catch(fail).finally(() => { sending.current = false; });
   };
-  const compact = () => api("/api/compact").catch((e) => (e.message === "busy" || e.gpuOff ? fail(e) : say(e.message)));
+  const compact = (instructions) => api("/api/compact", typeof instructions === "string" && instructions ? { instructions } : {})
+    .catch((e) => (e.message === "busy" || e.gpuOff ? fail(e) : say(e.message)));
+  // the mode asked for last: Shift+Tab pressed again before the server
+  // answered goes on from it, not from the one still on screen
+  const modeNow = useRef(state.mode);
+  const modeAsks = useRef(0);
+  useEffect(() => { if (!modeAsks.current) modeNow.current = state.mode; }, [state.mode]);
+  const setMode = (mode) => {
+    modeNow.current = mode;
+    modeAsks.current += 1;
+    return api("/api/mode", { mode }).then(() => say(`모드: ${MODE_NAMES[mode]}`)).catch(fail)
+      .finally(() => { modeAsks.current -= 1; });
+  };
+  const cycleMode = useStable(() => setMode(nextMode(modeNow.current || "ask")));
+  // the `/` commands the window does itself (commands.js)
+  const runCommand = (name, arg) => {
+    focusBox();
+    if (name === "new" || name === "clear") { newChat(); return; }
+    if (name === "compact") { compact(arg); return; }
+    if (name === "init") { send(INIT_PROMPT); return; }
+    if (name === "memory") {
+      if (!arg) { setPanel("memory"); return; }
+      api("/api/memory", { add: arg }).then((r) => say(`${r.ownShown}에 더했어요. 다음 말부터 모델이 읽어요.`))
+        .catch((e) => (e.message === "busy" ? fail(e) : say(`더하지 못했어요: ${e.message}`)));
+      return;
+    }
+    if (name === "mode") {
+      const want = MODE_WORDS[arg.toLowerCase()];
+      if (arg && !want) { say(`그런 모드는 없어요: ask · edits · auto · plan`); return; }
+      setMode(want || nextMode(state.mode || "ask"));
+      return;
+    }
+    if (name === "plan") { setMode("plan"); return; }
+    if (name === "permissions") { setPanel("rules"); return; }
+    if (name === "think") {
+      api("/api/thinking", { on: !state.thinking }).then((r) => say(r.on ? "생각 켬: 답하기 전에 먼저 생각해요." : "생각 끔: 바로 답해요.")).catch(fail);
+      return;
+    }
+    if (name === "export") {
+      if (!state.items.length) { say("아직 저장할 대화가 없어요."); return; }
+      api("/api/export").then((r) => { saveFile(r.name, r.text); say(`${r.name}로 저장해요.`); }).catch(fail);
+      return;
+    }
+    if (name === "help") setPanel("help");
+  };
+  // robin's own `!명령` (true once it started)
+  const shell = (command, raw) => {
+    keepSent(raw);
+    setDraft("");
+    return api("/api/shell", { command }).then(() => true).catch((e) => { setDraft(raw); fail(e); return false; });
+  };
+  // a plan written in plan mode: back to the mode before it, and go
+  const planGo = () => api("/api/mode", { mode: state.planFrom && state.planFrom !== "plan" ? state.planFrom : "ask" })
+    .then(() => send("이 계획대로 진행해 주세요.")).catch(fail);
+  const [commands, setCommands] = useState(null);
+  useEffect(() => {
+    if (!state.ready) return;
+    api("/api/commands").then(setCommands).catch(() => {});
+  }, [state.ready, state.info.cwd]);
+  const pastRef = useRef(loadSent);
+  const todo = useMemo(() => latestTodo(state.items), [state.items]);
+  const shellRunning = state.items.some((x) => x.kind === "shell" && x.status === "run");
 
   const asking = askingTool(state);
-  onUnsent.current = (texts) => {
-    giveBack(texts);
-    say(texts.length > 1 ? `보내지 않은 말 ${texts.length}개를 입력 칸에 돌려놨어요.` : "보내지 않은 말을 입력 칸에 돌려놨어요.");
+  askingRef.current = asking;
+  onUnsent.current = (items, why) => {
+    giveBack(items);
+    const n = items.length;
+    say(`${why ? `${why} ` : ""}${n > 1 ? `보내지 않은 말 ${n}개를 입력 칸에 돌려놨어요.` : "보내지 않은 말을 입력 칸에 돌려놨어요."}`);
   };
   onBg.current = (e) => {
     const how = e.why ? (/도구를 \d+번 써서/.test(e.why) ? "너무 길어져서 멈췄어요" : "되풀이에 빠져서 멈췄어요")
@@ -1164,9 +1498,23 @@ export default function App() {
         requestAnimationFrame(() => { searchRef.current?.focus(); searchRef.current?.select(); });
         return;
       }
+      // Ctrl+F: words in this conversation
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setFinding(true);
+        requestAnimationFrame(() => { const el = document.querySelector(".find-bar input"); el?.focus(); el?.select(); });
+        return;
+      }
+      // Shift+Tab in the message box (or nowhere): the next mode, as in Claude Code
+      if (e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey
+        && (e.target === box.current || e.target === document.body) && !panel && !gpuOpen) {
+        e.preventDefault();
+        cycleMode();
+        return;
+      }
       if (e.key === "Escape") {
         if (side && isNarrow()) { e.preventDefault(); closeSide(true); }
-        else if (state.busy) { e.preventDefault(); stop(); }
+        else if (state.busy || shellRunning) { e.preventDefault(); stop(); }
         return;
       }
       // 1 / 2 / 3 answer the question on screen, unless something is being
@@ -1180,7 +1528,7 @@ export default function App() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [side, state.busy, asking, stop, decide]);
+  }, [side, state.busy, shellRunning, asking, stop, decide, panel, gpuOpen, cycleMode]);
 
   // the server deletes an unused GPU (20 minutes): a bar 3 minutes before, a
   // Windows notification when the window is not in front, "계속 켜 두기"
@@ -1198,9 +1546,16 @@ export default function App() {
     ping("GPU가 곧 꺼져요", `${state.gpu.idle}분째 안 써서 약 ${soon}분 뒤 서버가 꺼요. 계속 쓰려면 RobinCode에서 "계속 켜 두기"를 누르세요.`);
   }, [soon, notify]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const lastSent = [...state.items].reverse().find((x) => x.kind === "user")?.text || "";
   // for the memo'd conversation and list: the same functions while robin types
   const on = {
+    unqueue: useStable(unqueue),
+    unqueueLast: useStable(() => { if (state.queued.length) unqueue(state.queued.length - 1); }),
+    planGo: useStable(planGo),
+    command: useStable(runCommand),
+    shell: useStable(shell),
+    say: useStable(say),
+    closePanel: useStable(() => { setPanel(null); focusBox(); }),
+    closeFind: useStable(() => { setFinding(false); focusBox(); }),
     pick: useStable((s) => send(s)),
     rewind: useStable(rewind),
     retry: useStable(retry),
@@ -1247,11 +1602,18 @@ export default function App() {
             <button type="button" className="mini-btn" onClick={keepGpu} disabled={keeping}>{keeping ? "알리는 중…" : "계속 켜 두기"}</button>
           </div>
         )}
-        <Conversation state={state} asking={asking} onDecide={decide} onPick={on.pick} onRewind={on.rewind} onRetry={on.retry} onBranch={on.branch} onGpu={on.gpu} onUnqueue={unqueue} />
+        {finding && <FindBar items={state.items} onClose={on.closeFind} />}
+        <Conversation state={state} asking={asking} onDecide={decide} onPick={on.pick} onRewind={on.rewind} onRetry={on.retry} onBranch={on.branch} onGpu={on.gpu}
+          onUnqueue={on.unqueue} onPlanGo={on.planGo} />
+        <TodoPanel todo={todo} busy={state.busy} />
         <Composer state={state} convKey={convKey} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}
-          setDraft={setDraft} lastSent={lastSent} attachRef={attachRef} picturesRef={picturesRef} onSend={send} onStop={stop} onError={say}
+          setDraft={setDraft} pastRef={pastRef} attachRef={attachRef} picturesRef={picturesRef} addPicturesRef={addPicturesRef} commands={commands}
+          onSend={send} onStop={stop} onError={say} onCommand={on.command} onShell={on.shell} onMode={cycleMode} onUnqueueLast={on.unqueueLast}
           notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />} />
-        {gpuOpen && <GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); focusBox(); }} />}
+        {panel === "memory" && <MemoryPanel onClose={on.closePanel} onError={on.say} />}
+        {panel === "help" && <HelpPanel commands={commands} onClose={on.closePanel} />}
+        {panel === "rules" && <RulesPanel onClose={on.closePanel} onError={on.say} />}
+        {gpuOpen &&<GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); focusBox(); }} />}
         {drag && (
           <div className="drop" aria-hidden="true">
             <p><Icon name="image" />여기에 놓으면 그림을 붙여요 <span className="drop-note">{PICTURE_TYPES.map((t) => t.slice(6).toUpperCase()).join("·")} · 4장까지</span></p>

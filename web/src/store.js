@@ -29,8 +29,13 @@ export const initial = {
   compacting: false, // Pi summarizing the start of the conversation
   compactOnly: false, // ...and that is all that is going on (not a turn)
   running: [], // conversations going on, this one too: [{ path, title, asking }]
-  queued: [], // robin's messages sent while the turn runs, waiting for its end
+  // robin's messages sent while the turn runs: [{ kind: steer | follow, text,
+  // pictures, held }] — steer: told after the step the model is on; follow:
+  // sent when the turn ends; held: kept until a summary (or a check) is done
+  queued: [],
   saved: false, // something was ever sent in it (a new one is in no list until then)
+  git: null, // the folder's { branch, changed, ahead, behind }, or null (not a repository)
+  planFrom: "ask", // the mode "이 계획대로 하기" goes back to
 };
 
 let seq = 0;
@@ -76,13 +81,15 @@ function fromHistory(history, still = false) {
     if (m.role === "user") items.push({ kind: "user", id: id("u", m), entryId: m.id, text: m.text, images: m.images || [], alt: m.alt || null, ...flags(m) });
     else if (m.role === "assistant") {
       if (m.thinking) addTool(items, { ...thinkStep(m.thinking, { status: "ok" }), id: id("t", m) }, { id: id("g", m), ...flags(m) });
-      if (m.text) items.push({ kind: "assistant", id: id("a", m), text: m.text, streaming: false, ...flags(m) });
+      if (m.text) items.push({ kind: "assistant", id: id("a", m), text: m.text, streaming: false, planned: !!m.planned, ...flags(m) });
       for (const t of m.tools) addTool(items, { id: t.id, name: t.name, args: t.args || {}, status: "run" }, { id: `g-${t.id}`, ...flags(m) });
       if (m.error) items.push({ kind: "line", id: id("e", m), tag: "[FAIL]", text: m.error, tone: "fail", ...flags(m) });
     } else if (m.role === "tool") {
       if (!updateTool(items, m.id, finished(m.isError, m.output))) {
         addTool(items, { id: m.id, name: m.name, args: {}, ...finished(m.isError, m.output) }, { id: `g-${m.id}`, ...flags(m) });
       }
+    } else if (m.role === "shell") {
+      items.push({ kind: "shell", id: id("s", m), command: m.command, output: m.output, exitCode: m.exitCode, cancelled: m.cancelled, status: "done", ...flags(m) });
     } else if (m.role === "compaction") {
       items.push({ kind: "line", id: id("c", m), tag: "[ OK ]", tone: "",
         text: m.faded ? "앞부분을 요약했어요. 흐린 부분은 모델이 요약으로만 기억해요." : "앞부분을 요약해서 줄였어요.", ...(still && { still }) });
@@ -116,7 +123,8 @@ export function reducer(state, action) {
     case "decided": {
       const items = state.items.slice();
       updateTool(items, action.id, { ask: false, decision: action.decision });
-      if (action.decision === "always") items.push(line("[ OK ]", "이번 대화는 묻지 않고 실행해요. 아래 \"바로 실행\"을 누르면 다시 물어요."));
+      if (action.decision === "always") items.push(line("[ OK ]", "이번 대화는 묻지 않고 실행해요. 아래 모드 단추(Shift+Tab)로 다시 묻게 할 수 있어요."));
+      if (action.decision === "rule" && action.rule) items.push(line("[ OK ]", `${action.rule.key.startsWith("web:") ? `${action.rule.label} 페이지는` : `"${action.rule.label}" 명령은`} 이 폴더에서 이제 묻지 않아요.`));
       return { ...state, items };
     }
     case "local-error":
@@ -131,7 +139,7 @@ export function reducer(state, action) {
 function withAsking(items, asking) {
   if (!asking?.length) return items;
   const out = items.slice();
-  for (const a of asking) if (!updateTool(out, a.id, { ask: true, status: "run", args: a.args || {} })) addTool(out, { id: a.id, name: a.name, args: a.args || {}, status: "run", ask: true });
+  for (const a of asking) if (!updateTool(out, a.id, { ask: true, status: "run", args: a.args || {}, rule: a.rule || null })) addTool(out, { id: a.id, name: a.name, args: a.args || {}, status: "run", ask: true, rule: a.rule || null });
   return out;
 }
 
@@ -163,8 +171,19 @@ function onEvent(state, e) {
         mode: s.mode, thinking: !!s.thinking, think: now.think, context: s.context, busy: s.busy, startedAt: s.busy ? s.startedAt || Date.now() : 0,
         phase: s.compacting ? "compact" : now.current ? "write" : "think", compacting: !!s.compacting, compactOnly: !!s.compacting,
         items: now.items, current: now.current, sessionFile: s.sessionFile, title: s.title, retry: null, running: s.running || [], queued: s.queued || [], saved: !!s.saved,
+        git: s.git ?? null, planFrom: s.planFrom || "ask",
       };
     }
+    // robin's own `!명령`, running in the folder
+    case "shell_start":
+      return { ...state, items: [...state.items, { kind: "shell", id: `sh-${e.id}`, command: e.command, output: "", status: "run", startedAt: Date.now() }] };
+    case "shell_update":
+    case "shell_end": {
+      const items = state.items.map((x) => (x.id === `sh-${e.id}`
+        ? { ...x, output: e.output, ...(e.t === "shell_end" && { status: "done", exitCode: e.exitCode, cancelled: e.cancelled, ms: Date.now() - (x.startedAt || Date.now()) }) } : x));
+      return { ...state, items };
+    }
+    case "git": return { ...state, git: e.git ?? null };
     case "user": {
       const items = [...state.items, { kind: "user", id: nid(), text: e.text, images: e.images || [] }];
       return {
@@ -187,7 +206,7 @@ function onEvent(state, e) {
       const k = current ? items.findIndex((x) => x.id === current) : -1;
       if (k < 0) {
         current = nid();
-        items.push({ kind: "assistant", id: current, text: e.delta, streaming: true });
+        items.push({ kind: "assistant", id: current, text: e.delta, streaming: true, planned: state.mode === "plan" });
       } else items[k] = { ...items[k], text: items[k].text + e.delta };
       return { ...state, items, current, phase: "write", retry: null };
     }
@@ -205,7 +224,7 @@ function onEvent(state, e) {
     case "approve": {
       state = endThink(state);
       const items = state.items.slice();
-      if (!updateTool(items, e.id, { ask: true, args: e.args || {} })) addTool(items, { id: e.id, name: e.name, args: e.args || {}, status: "run", ask: true });
+      if (!updateTool(items, e.id, { ask: true, args: e.args || {}, rule: e.rule || null })) addTool(items, { id: e.id, name: e.name, args: e.args || {}, status: "run", ask: true, rule: e.rule || null });
       return { ...state, items };
     }
     case "tool_update": {
@@ -278,7 +297,7 @@ function onEvent(state, e) {
     case "queued": return { ...state, queued: e.queued || [] };
     case "gpu": return { ...state, gpu: e.gpu, fake: e.fake };
     case "gpu_job": return { ...state, gpuJob: e.job };
-    case "mode": return { ...state, mode: e.mode };
+    case "mode": return { ...state, mode: e.mode, planFrom: e.planFrom || state.planFrom };
     case "thinking_mode": return { ...state, thinking: e.on };
     default: return state;
   }

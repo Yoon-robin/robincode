@@ -724,7 +724,117 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .notify { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .notify .mode { flex: none; min-height: 24px; }
 .notify-note { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11.5px; color: var(--faint); }
-.keys { margin-left: auto; font: 400 11.5px var(--mono); color: var(--faint); }
+.keys { margin-left: auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 400 11.5px var(--mono); color: var(--faint); }
+/* the four modes: one button, Shift+Tab goes on */
+.composer-foot .mode { flex: none; white-space: nowrap; }
+.mode.mode-edits { border-color: var(--line); color: var(--head); }
+.mode.mode-auto { border-color: rgb(251 191 36 / 50%); color: var(--amber); }
+.mode.mode-plan { border-color: rgb(147 197 253 / 45%); color: #bfdbfe; }
+.lamp.plan { background: #93c5fd; box-shadow: 0 0 6px rgb(147 197 253 / 50%); }
+
+/* ---- the `/` list ---- */
+.mention.cmd { gap: 12px; font-family: var(--sans, inherit); }
+.cmd-name { flex: none; min-width: 112px; color: var(--head); font-size: 13px; }
+.cmd-arg { color: var(--faint); }
+.cmd-hint { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; }
+.cmd-kind { flex: none; padding: 0 6px; border: 1px solid var(--line-weak); border-radius: var(--radius-sm); font: 400 10.5px var(--mono); color: var(--faint); }
+
+/* ---- `!명령`: the box says it goes to PowerShell ---- */
+.composer-box.shell-mode { border-color: rgb(251 191 36 / 45%); }
+.composer-box.shell-mode textarea { font-family: var(--mono); }
+.shell-tag { align-self: center; flex: none; margin-right: -2px; padding: 1px 6px; border: 1px solid rgb(251 191 36 / 45%); border-radius: var(--radius-sm); font-size: 11px; color: var(--amber); }
+.shell-run { border: 1px solid var(--line-weak); border-radius: var(--radius); background: var(--card); overflow: hidden; }
+.shell-run.fail { border-color: rgb(248 113 113 / 35%); }
+.shell-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font: 400 12.5px var(--mono); color: var(--text); }
+.shell-run.fail .step-tag { color: var(--red); }
+.shell-cmd { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--head); }
+.shell-cmd .ps { color: var(--amber); }
+.shell-run .out { border-top: 1px solid var(--line-weak); }
+.shell-run .step-out { margin: 0; border: 0; border-radius: 0; }
+.shell-none { margin: 0; padding: 7px 12px 9px; border-top: 1px solid var(--line-weak); font-size: 12.5px; color: var(--faint); }
+
+/* ---- what waits: when each goes in ---- */
+.queued-bubble { position: relative; padding-right: 38px; }
+.queued-bubble.held { border-color: rgb(147 197 253 / 35%); }
+.queued-when { display: block; margin-bottom: 3px; font: 400 11px var(--mono); color: var(--faint); }
+.queued-bubble.steer .queued-when { color: var(--text); }
+.queued-pics { color: var(--faint); }
+.queued-x { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; }
+.queued-x .ico { width: 13px; height: 13px; }
+.queued-keys { color: var(--faint); }
+.queued-keys kbd { font-size: 0.95em; }
+
+/* ---- the model's task list, pinned over the box ---- */
+.todo { width: 100%; max-width: var(--col); margin: 0 auto 8px; padding: 0 24px; animation: rise 0.18s var(--ease) both; }
+.todo-head {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 12px;
+  border: 1px solid var(--line-weak); border-radius: var(--radius); background: var(--card);
+  font: 400 12.5px var(--mono); color: var(--text); text-align: left;
+}
+.todo.open .todo-head { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.todo-title { color: var(--head); font-weight: 700; }
+.todo-count { color: var(--soft); }
+.todo-now { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--soft); }
+.todo.open .chev { transform: translateY(2px) rotate(-135deg); }
+.todo-list {
+  max-height: 168px; margin: 0; padding: 6px 12px 8px; overflow-y: auto; list-style: none;
+  border: 1px solid var(--line-weak); border-top: 0; border-radius: 0 0 var(--radius) var(--radius); background: var(--card); scrollbar-width: thin;
+}
+.todo-item { display: flex; gap: 10px; padding: 2px 0; font-size: 13px; color: var(--text); }
+.todo-mark { flex: none; font: 400 12px/1.6 var(--mono); color: var(--faint); }
+.todo-item.in_progress { color: var(--head); }
+.todo-item.in_progress .todo-mark { color: var(--amber); }
+.todo-item.completed { color: var(--faint); }
+.todo-item.completed .todo-text { text-decoration: line-through; text-decoration-color: rgb(255 255 255 / 25%); }
+.todo-item.completed .todo-mark { color: var(--soft); }
+
+/* ---- plan mode: go ahead with the plan ---- */
+.act.act-go { border-color: rgb(147 197 253 / 45%); color: #bfdbfe; }
+.act.act-go:hover { color: var(--head); }
+
+/* ---- Ctrl+F ---- */
+.find-bar {
+  position: absolute; top: 64px; right: 24px; z-index: 20;
+  display: flex; align-items: center; gap: 4px; width: min(380px, calc(100% - 48px)); padding: 4px 6px 4px 12px;
+  border: 1px solid var(--line-win); border-radius: var(--radius-pop); background: var(--card);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 55%); animation: rise 0.15s var(--ease) both;
+}
+.find-bar > .ico { flex: none; width: 15px; height: 15px; color: var(--faint); }
+.find-bar input { flex: 1; min-width: 0; padding: 6px 4px; border: 0; outline: 0; background: transparent; color: var(--head); font: inherit; font-size: 13.5px; }
+.find-count { flex: none; min-width: 42px; font: 400 11.5px var(--mono); color: var(--soft); text-align: right; margin-right: 4px; }
+.find-bar .icon-btn { width: 28px; height: 28px; }
+::highlight(find) { background-color: rgb(251 191 36 / 28%); color: inherit; }
+::highlight(find-now) { background-color: rgb(251 191 36 / 85%); color: #000; }
+
+/* ---- /memory, /help ---- */
+.sheet {
+  display: grid; gap: 12px; width: min(640px, 100%); max-height: 100%; overflow-y: auto; padding: 18px 20px 20px;
+  border: 1px solid var(--line-win); border-radius: var(--radius-pop); background: var(--card);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 60%); animation: rise 0.18s var(--ease) both; outline: none;
+}
+.sheet p { margin: 0; }
+.mem-files { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.mem-file { border: 1px solid var(--line-weak); border-radius: var(--radius); overflow: hidden; }
+.mem-head { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line-weak); font-size: 12.5px; }
+.mem-path { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--head); }
+.mem-text { max-height: 220px; margin: 0; padding: 8px 12px; overflow: auto; font: 400 12px/1.55 var(--mono); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
+.mem-add { display: grid; gap: 6px; }
+.mem-add-row { display: flex; gap: 8px; }
+.mem-add-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line-win); border-radius: var(--radius-sm); background: var(--win); color: var(--head); font: inherit; font-size: 13.5px; outline: 0; }
+.mem-add-row input:focus { border-color: rgb(255 255 255 / 34%); }
+.rule-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.rule { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--line-weak); border-radius: var(--radius-sm); font-size: 13px; }
+.rule-kind { flex: none; width: 44px; font-size: 12px; color: var(--faint); }
+.rule-label { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--head); }
+.help-list { display: grid; gap: 2px; margin: 0 0 6px; }
+.help-row { display: flex; gap: 14px; padding: 4px 0; font-size: 13px; }
+.help-row dt { flex: none; width: 150px; color: var(--head); font-size: 12.5px; }
+.help-row dd { margin: 0; color: var(--text); }
+
+/* ---- the folder's git branch ---- */
+.git-line { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.git-changed { color: var(--amber); }
+.git-ahead { color: var(--soft); }
 
 /* ---- sidebar, as RobinAI ---- */
 .side { display: flex; flex-direction: column; min-height: 0; padding: 14px 12px 12px; border-right: 1px solid var(--line); background: var(--win); }

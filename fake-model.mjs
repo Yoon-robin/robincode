@@ -106,6 +106,12 @@ createServer(async (req, res) => {
     res.end(req.url === "/health" ? '{"status":"ok"}' : JSON.stringify({ data: [{ id: MODEL, object: "model" }] }));
     return;
   }
+  // a page for the webfetch tool to read ("웹 읽기")
+  if (req.method === "GET" && req.url === "/page") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end("<!doctype html><html><head><title>가짜 페이지</title><style>p{color:red}</style></head><body><h1>시험 페이지</h1><p>RobinCode가 읽는 가짜 웹 페이지예요 &amp; 끝.</p><script>alert(1)</script></body></html>");
+    return;
+  }
   if (req.method === "POST" && req.url.startsWith("/v1/chat/completions/control")) {
     let raw = "";
     for await (const part of req) raw += part;
@@ -189,6 +195,33 @@ createServer(async (req, res) => {
       const at = messages.filter((m) => m.role === "tool").length * 100;
       res.thought = Array.from({ length: n }, (_, i) => (i % 5 === 2 ? said(at + i, 6) : i % 4 === 3 ? "" : said(at + i, 1))).join("\n");
     }
+  }
+  // plan mode (RobinCode's note, and no edit tool): a look first, then a plan
+  if (!tools.includes("edit") && messages.some((m) => /지금은 계획 모드예요/.test(textOf(m.content)))) {
+    if (last.role === "tool" || !tools.includes("ls")) {
+      await streamText(res, "## 계획\n\n1. `README.md` 첫 줄 아래에 설명 한 줄을 더해요.\n2. 고친 뒤 `README.md`를 다시 읽어 확인해요.\n\n정할 것은 없어요.", usage);
+    } else await streamToolCall(res, "ls", { path: "." }, usage);
+    return;
+  }
+  // "할 일": the todo list as it goes (a step every 0.7 s, for queue tests too)
+  if (/할 일/.test(lastUser) && tools.includes("todo")) {
+    const runs = messages.slice(messages.findLastIndex((m) => m.role === "user") + 1).filter((m) => m.role === "tool").length;
+    const list = (k) => ["폴더 보기", "package.json 읽기", "정리해서 답하기"].map((text, i) => ({ text, status: i < k ? "completed" : i === k ? "in_progress" : "pending" }));
+    const plan = [["todo", { items: list(0) }], ["ls", { path: "." }], ["todo", { items: list(1) }], ["read", { path: "package.json" }], ["todo", { items: list(2) }]];
+    await sleep(700);
+    if (runs < plan.length) await streamToolCall(res, plan[runs][0], plan[runs][1], usage);
+    else await streamText(res, "할 일을 다 했어요. 파일은 셋이에요.", usage);
+    return;
+  }
+  // "웹 읽기": this server's /page through the webfetch tool
+  if (/웹 읽기/.test(lastUser) && tools.includes("webfetch") && last.role === "user") {
+    await streamToolCall(res, "webfetch", { url: `http://127.0.0.1:${port}/page` }, usage);
+    return;
+  }
+  // "이 계획대로": back from plan mode, the change
+  if (/계획대로/.test(textOf(last.content)) && tools.includes("edit")) {
+    await streamToolCall(res, "edit", { path: "README.md", edits: [{ oldText: "# rc-test", newText: "# rc-test\n\n계획대로 고쳤어요." }] }, usage);
+    return;
   }
   // "닫기 안 됨": this completion cannot have its thinking ended (an older
   // llama-server), so RobinCode falls back to cutting it
