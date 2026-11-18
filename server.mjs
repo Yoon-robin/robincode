@@ -160,7 +160,8 @@ let modelPort;
 let apiKey;
 async function connectModel() {
   if (FAKE) {
-    modelPort = 18093;
+    // ROBINCODE_FAKE_PORT: a test's own fake model, beside one already running
+    modelPort = Number(process.env.ROBINCODE_FAKE_PORT) || 18093;
     if (!(await health(modelPort))) {
       children.push(spawn(process.execPath, [join(here, "fake-model.mjs"), String(modelPort)], { stdio: "ignore", windowsHide: true }));
       for (let i = 0; i < 40 && !(await health(modelPort)); i++) await sleep(100);
@@ -1022,6 +1023,11 @@ function onEvent(conv, e) {
       setTimeout(afterwards(conv), 0);
       break;
     }
+    // what robin sent while a turn runs waits in Pi's queue until the turn
+    // ends: the window shows it there (and can take it back, /api/unqueue)
+    case "queue_update":
+      broadcast({ t: "queued", queued: [...e.followUp] });
+      break;
     case "agent_settled": {
       // a first loop: the turn goes on (no settled, no stats yet)
       if (e.aborted && conv.stopWhy === LOOP_RETRY && !conv.manualStop) {
@@ -1053,6 +1059,11 @@ function onEvent(conv, e) {
       conv.stopWhy = null;
       conv.ending = false;
       conv.resuming = false;
+      // A stopped turn does not go on to what was waiting behind it. Left in
+      // Pi's queue those messages went out later, behind robin's next message
+      // (about something else by then); they go back to the message box.
+      let unsent = [];
+      if (e.aborted) { try { unsent = conv.session.clearQueue().followUp; } catch { /* nothing waiting */ } }
       if (why) {
         try { conv.session.sessionManager.appendCustomEntry(NOTE, { text: why }); } catch (err) { log("멈춘 까닭을 남기지 못했어요:", err.message); }
       }
@@ -1064,7 +1075,7 @@ function onEvent(conv, e) {
       if (conv === cur) {
         const users = branch().filter(isUser);
         const side = alts();
-        broadcast({ t: "settled", aborted: e.aborted, why, context: contextUsage(), stats,
+        broadcast({ t: "settled", aborted: e.aborted, why, context: contextUsage(), stats, unsent,
           users: users.map((x) => x.id), alts: Object.fromEntries(users.map((x) => [x.id, side.get(x.id) ?? null])) });
       } else {
         // one robin left: the window says it ended (and can open it)
@@ -1185,6 +1196,8 @@ const state = () => {
     asking: [...asking.values()].filter((a) => a.conv === cur).map(({ id, name, args }) => ({ id, name, args })),
     // what is being written now, and since when (robin came back to a running one)
     live: busyNow() ? cur.live : null, startedAt: busyNow() ? cur.turn?.start || null : null,
+    // sent while the turn runs, waiting for its end
+    queued: (() => { try { return [...(session?.getFollowUpMessages() || [])]; } catch { return []; } })(),
     running: runningList(),
     // a name robin gave it, else its first message
     title: session?.sessionName || firstWords || (first ? "그림" : ""),
@@ -1498,6 +1511,14 @@ const server = createServer(async (req, res) => {
           .catch((e) => { if (conv === cur) broadcast({ t: "error", message: e.message }); })
           .finally(() => { if (conv.starting) { conv.starting = false; afterwards(conv)(); } });
         send(res, 200, { ok: true });
+        return;
+      }
+      case "/api/unqueue": {
+        // what waits for the turn to end is not sent after all: its words go
+        // back to the window (Pi tells the rest with a queue_update)
+        let texts = [];
+        try { texts = cur.session.clearQueue().followUp; } catch { /* nothing waiting */ }
+        send(res, 200, { texts });
         return;
       }
       case "/api/abort": {

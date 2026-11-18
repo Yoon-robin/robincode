@@ -229,17 +229,41 @@ module.exports = function start(dir) {
     // where it was last time, if that still fits on a screen
     const area = screen.getPrimaryDisplay().workArea;
     let bounds = { width: Math.min(1180, area.width), height: Math.min(860, area.height) };
+    // maximized, and the size of the letters (Ctrl + / - / 0), as robin left them
+    let maximized = false;
+    let zoom = 0;
     try {
       const b = JSON.parse(readFileSync(boundsFile, "utf8"));
+      maximized = b.maximized === true;
+      if (Number.isFinite(b.zoom)) zoom = Math.max(-3, Math.min(4, b.zoom));
       const on = screen.getAllDisplays().some(({ workArea: a }) => b.x >= a.x - 20 && b.y >= a.y - 20 && b.x + b.width <= a.x + a.width + 20 && b.y + b.height <= a.y + a.height + 20);
-      if (on && b.width >= 420 && b.height >= 480) bounds = b;
+      if (on && b.width >= 420 && b.height >= 480) bounds = { x: b.x, y: b.y, width: b.width, height: b.height };
     } catch { /* first time */ }
     win = new BrowserWindow({
       ...bounds, minWidth: 420, minHeight: 480, show: false, title: "RobinCode", backgroundColor: "#070707",
       icon: existsSync(join(dir, "robincode.ico")) ? join(dir, "robincode.ico") : join(dir, "..", "ops", "windows", "robincode.ico"), autoHideMenuBar: true,
       webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false, preload: join(__dirname, "preload.cjs") },
     });
-    win.once("ready-to-show", () => { if (!TEST) win.show(); });
+    // (maximize() shows the window: not in a test, whose window stays hidden)
+    win.once("ready-to-show", () => { if (!TEST) { if (maximized) win.maximize(); win.show(); } });
+    // The size of the letters. With no menu (above) Chromium's own Ctrl + / -
+    // do nothing, so they are taken here: Ctrl and + or =, -, 0 (back to
+    // 100%), and Ctrl with the wheel. Half a step at a time, kept in
+    // window.json and put back on every page (a new address starts at 100%).
+    const setZoom = (level) => {
+      zoom = Math.max(-3, Math.min(4, Math.round(level * 2) / 2));
+      win?.webContents.setZoomLevel(zoom);
+    };
+    win.webContents.on("before-input-event", (e, input) => {
+      if (input.type !== "keyDown" || !(input.control || input.meta) || input.alt) return;
+      if (input.key === "=" || input.key === "+") setZoom(zoom + 0.5);
+      else if (input.key === "-" || input.key === "_") setZoom(zoom - 0.5);
+      else if (input.key === "0") setZoom(0);
+      else return;
+      e.preventDefault();
+    });
+    win.webContents.on("zoom-changed", (e, direction) => setZoom(zoom + (direction === "in" ? 0.5 : -0.5)));
+    win.webContents.on("did-finish-load", () => { if (zoom) win?.webContents.setZoomLevel(zoom); });
     // the starting screen is written into about:blank: a data: page here made
     // Electron 44 kill a renderer ("crashed", 143) on the way to the server's page
     win.loadURL("about:blank").then(() => {
@@ -264,10 +288,21 @@ module.exports = function start(dir) {
     });
     // a new version's page: does it draw?
     win.webContents.on("did-finish-load", () => { if (ours(win?.webContents.getURL() || "") && loaded) checkDrawn(); });
-    if (TEST) win.webContents.on("console-message", (e) => log(`[창 콘솔] ${e.message}\n`));
+    // Tests drive the hidden window through its console: a key sent over the
+    // debugging port does not pass before-input-event, and window.close() from
+    // the page does not pass "close". "robincode-test:key =" presses Ctrl and
+    // that key the way the keyboard does, "robincode-test:close" is the X.
+    if (TEST) win.webContents.on("console-message", (e) => {
+      log(`[창 콘솔] ${e.message}\n`);
+      const m = /^robincode-test:(key|close)\s*(.*)$/.exec(e.message || "");
+      if (m?.[1] === "key") for (const type of ["keyDown", "keyUp"]) win?.webContents.sendInputEvent({ type, keyCode: m[2], modifiers: ["control"] });
+      else if (m?.[1] === "close") win?.close();
+    });
     // the page says the window size itself on a small screen (fit.js); keep it here
     win.on("close", () => {
-      try { if (!win.isMinimized() && !win.isMaximized()) writeFileSync(boundsFile, JSON.stringify(win.getBounds())); } catch { }
+      // maximized or minimized: the size it goes back to (getNormalBounds), not the screen's
+      try { writeFileSync(boundsFile, JSON.stringify({ ...win.getNormalBounds(), maximized: win.isMaximized(), zoom })); }
+      catch (err) { log(`[창] 창 크기를 남기지 못했어요: ${err.message}\n`); }
     });
     win.on("closed", () => { win = null; app.quit(); });
     startServer();

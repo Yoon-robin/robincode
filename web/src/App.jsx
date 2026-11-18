@@ -375,7 +375,7 @@ function turnEnds(items, busy) {
   return ends;
 }
 
-function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBranch, onGpu }) {
+function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBranch, onGpu, onUnqueue }) {
   const scroller = useRef(null);
   const content = useRef(null);
   const stick = useRef(true);
@@ -394,7 +394,7 @@ function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBr
     const el = scroller.current;
     if (last?.kind === "user") stick.current = true;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [state.items, state.busy, last]);
+  }, [state.items, state.busy, last, state.queued.length]);
   // while it runs, keep following what grows (a fold opening, a code block)
   const empty = state.items.length === 0;
   useEffect(() => {
@@ -463,6 +463,18 @@ function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBr
           {/* kept (only hidden) while a thought shows its own clock, so the
               thread does not jump by a line as thoughts start and end */}
           {state.busy && !asking && <StatusRow state={state} quiet={!!state.think} />}
+          {/* sent while it runs: these wait for the turn to end, and can be taken back */}
+          {state.queued.length > 0 && (
+            <div className="queued" role="group" aria-label="이 답이 끝나면 보낼 말">
+              {state.queued.map((text, k) => (
+                <div key={k} className="queued-bubble"><div className="queued-text">{text}</div></div>
+              ))}
+              <p className="queued-note">
+                이 답이 끝나면 보내요.
+                <button type="button" className="link-act" onClick={onUnqueue}>보내지 않기</button>
+              </p>
+            </div>
+          )}
         </div>
       )}
       {away && <button type="button" className="to-bottom" onClick={toBottom}><Icon name="down" />아래로</button>}
@@ -870,10 +882,58 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
   );
 }
 
+// ---- drafts ----------------------------------------------------------------------
+// { [conversation file]: { text, at } } in this window's storage: the 30 most
+// recent, each up to 20,000 characters
+const DRAFTS_KEY = "robincode-drafts";
+function loadDrafts() {
+  try {
+    const all = JSON.parse(localStorage.getItem(DRAFTS_KEY) || "{}");
+    return all && typeof all === "object" && !Array.isArray(all) ? all : {};
+  } catch { return {}; }
+}
+function keepDraft(all, key, text) {
+  const had = all[key]?.text || "";
+  const now = text.trim() ? text.slice(0, 20000) : "";
+  if (had === now) return;
+  if (now) all[key] = { text: now, at: Date.now() };
+  else delete all[key];
+  const keys = Object.keys(all);
+  if (keys.length > 30) for (const k of keys.sort((a, b) => all[a].at - all[b].at).slice(0, keys.length - 30)) delete all[k];
+  try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(all)); } catch { /* storage off or full */ }
+}
+
 // ---- the app ---------------------------------------------------------------------
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initial);
   const [draft, setDraft] = useState("");
+  // What is being typed belongs to its conversation: opening another one
+  // used to carry it along into that one, and a reload (or RobinCode
+  // starting again for a new version) lost it. Kept per conversation in this
+  // window's storage.
+  const drafts = useRef(null);
+  if (!drafts.current) drafts.current = loadDrafts();
+  const draftKey = useRef(null);
+  const draftNow = useRef("");
+  draftNow.current = draft;
+  useEffect(() => {
+    if (!state.ready) return;
+    const key = state.sessionFile || "";
+    if (draftKey.current === key) return;
+    if (draftKey.current !== null) keepDraft(drafts.current, draftKey.current, draftNow.current);
+    draftKey.current = key;
+    setDraft(drafts.current[key]?.text || "");
+  }, [state.ready, state.sessionFile]);
+  useEffect(() => {
+    if (draftKey.current === null) return undefined;
+    const t = setTimeout(() => keepDraft(drafts.current, draftKey.current, draft), 300);
+    return () => clearTimeout(t);
+  }, [draft]);
+  useEffect(() => {
+    const save = () => { if (draftKey.current !== null) keepDraft(drafts.current, draftKey.current, draftNow.current); };
+    window.addEventListener("pagehide", save);
+    return () => window.removeEventListener("pagehide", save);
+  }, []);
   const [side, setSide] = useState(false); // the drawer, on a narrow window
   const [toast, setToast] = useState(null);
   const [drag, setDrag] = useState(false);
@@ -916,8 +976,10 @@ export default function App() {
 
   // a conversation robin left (it goes on) ended: a note, and Windows' when allowed
   const onBg = useRef(null);
+  const onUnsent = useRef(null);
   useEffect(() => connect((e) => {
     if (e.t === "bg_done") onBg.current?.(e);
+    if (e.t === "settled" && e.unsent?.length) onUnsent.current?.(e.unsent);
     dispatch({ type: "event", e });
   }, (up) => dispatch({ type: "link", up })), []);
   useEffect(() => { if (state.ready) loadSessions(); }, [state.ready, state.sessionFile, state.busy, state.running.length, loadSessions]);
@@ -957,6 +1019,14 @@ export default function App() {
     }
   }, []);
   const stop = useCallback(() => { api("/api/abort").catch(() => {}); }, []);
+  // messages that waited for a turn's end, back in the box (above what is being typed)
+  const giveBack = useCallback((texts) => {
+    setDraft((d) => [...texts, d].filter((t) => t && t.trim()).join("\n"));
+    requestAnimationFrame(() => box.current?.focus());
+  }, []);
+  const unqueue = useCallback(() => {
+    api("/api/unqueue").then((r) => { if (r.texts?.length) giveBack(r.texts); }).catch(() => {});
+  }, [giveBack]);
   const decide = useCallback((id, decision) => {
     dispatch({ type: "decided", id, decision });
     api("/api/approve", { id, decision }).catch((e) => dispatch({ type: "local-error", message: e.message }));
@@ -1023,6 +1093,10 @@ export default function App() {
   const compact = () => api("/api/compact").catch((e) => (e.message === "busy" || e.gpuOff ? fail(e) : say(e.message)));
 
   const asking = askingTool(state);
+  onUnsent.current = (texts) => {
+    giveBack(texts);
+    say(texts.length > 1 ? `보내지 않은 말 ${texts.length}개를 입력 칸에 돌려놨어요.` : "보내지 않은 말을 입력 칸에 돌려놨어요.");
+  };
   onBg.current = (e) => {
     const how = e.why ? (/도구를 \d+번 써서/.test(e.why) ? "너무 길어져서 멈췄어요" : "되풀이에 빠져서 멈췄어요")
       : e.aborted ? "멈췄어요" : e.failed ? "막혔어요" : "끝났어요";
@@ -1142,7 +1216,7 @@ export default function App() {
             <button type="button" className="mini-btn" onClick={keepGpu} disabled={keeping}>{keeping ? "알리는 중…" : "계속 켜 두기"}</button>
           </div>
         )}
-        <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} onRewind={rewind} onRetry={retry} onBranch={branchTo} onGpu={() => setGpuOpen(true)} />
+        <Conversation state={state} asking={asking} onDecide={decide} onPick={(s) => send(s)} onRewind={rewind} onRetry={retry} onBranch={branchTo} onGpu={() => setGpuOpen(true)} onUnqueue={unqueue} />
         <Composer state={state} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}
           setDraft={setDraft} lastSent={lastSent} attachRef={attachRef} picturesRef={picturesRef} onSend={send} onStop={stop} onError={say}
           notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />} />

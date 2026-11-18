@@ -29,6 +29,7 @@ export const initial = {
   compacting: false, // Pi summarizing the start of the conversation
   compactOnly: false, // ...and that is all that is going on (not a turn)
   running: [], // conversations going on, this one too: [{ path, title, asking }]
+  queued: [], // robin's messages sent while the turn runs, waiting for its end
 };
 
 let seq = 0;
@@ -160,7 +161,7 @@ function onEvent(state, e) {
         ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, model: s.model }, fake: s.fake, gpu: s.gpu, gpuFake: !!s.gpuFake, gpuJob: s.gpuJob || null,
         mode: s.mode, thinking: !!s.thinking, think: now.think, context: s.context, busy: s.busy, startedAt: s.busy ? s.startedAt || Date.now() : 0,
         phase: s.compacting ? "compact" : now.current ? "write" : "think", compacting: !!s.compacting, compactOnly: !!s.compacting,
-        items: now.items, current: now.current, sessionFile: s.sessionFile, title: s.title, retry: null, running: s.running || [],
+        items: now.items, current: now.current, sessionFile: s.sessionFile, title: s.title, retry: null, running: s.running || [], queued: s.queued || [],
       };
     }
     case "user": {
@@ -254,7 +255,8 @@ function onEvent(state, e) {
           if (items[i].kind === "assistant") { items[i] = { ...items[i], meta: e.stats }; break; }
         }
       }
-      return { ...state, items, busy: state.compacting, compactOnly: state.compacting, current: null, retry: null, think: null, context: e.context ?? state.context };
+      return { ...state, items, busy: state.compacting, compactOnly: state.compacting, current: null, retry: null, think: null, context: e.context ?? state.context,
+        queued: e.aborted ? [] : state.queued };
     }
     // a loop was cut and the turn goes on (still busy)
     case "loop_retry": {
@@ -272,6 +274,7 @@ function onEvent(state, e) {
     }
     case "retry_end": return { ...state, retry: null };
     case "running": return { ...state, running: e.running || [] };
+    case "queued": return { ...state, queued: e.queued || [] };
     case "gpu": return { ...state, gpu: e.gpu, fake: e.fake };
     case "gpu_job": return { ...state, gpuJob: e.job };
     case "mode": return { ...state, mode: e.mode };
