@@ -33,6 +33,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { addRecent, allFolders, cleanPath, folderExists, hideRecent, rows as folderRows, unhideRecent } from "./folders.mjs";
+import { danger } from "./guard.mjs";
 
 // Pi, loaded once its packages are there (getReady)
 let createAgentSession, DefaultResourceLoader, estimateTokens, ModelRuntime, SessionManager, compactWith, psOps, Type;
@@ -535,6 +536,15 @@ function removeRule(dir, key) {
   if (!settings.allow[k].length) delete settings.allow[k];
   saveSettings();
 }
+// a command with no time limit of its own gets this one: one that never ends
+// (a dev server, a watch, a prompt waiting for an answer nobody gives) held the
+// turn — and the GPU, paid by the hour — for good. Claude Code: 2 minutes.
+const SHELL_TIMEOUT = 300;
+const TIMED_OUT = `(RobinCode 알림) 명령이 끝나지 않아 끊었어요. 서버·watch처럼 계속 도는 것은 Start-Process로 따로 띄우거나 robin에게 맡기고, 오래 걸리는 일이면 timeout(초)을 크게 주세요. 대답을 기다리는 명령은 -y·--yes 같은 값을 주세요.`;
+// git must not wait for an answer on a terminal nobody sees (a password
+// prompt; the editor of a merge). Its login window still opens: robin sees it
+process.env.GIT_TERMINAL_PROMPT ??= "0";
+process.env.GIT_MERGE_AUTOEDIT ??= "no";
 function needsYes(conv, name, input) {
   if (conv.mode === "auto" || !ASK_TOOLS.has(name)) return false;
   if (conv.mode === "edits" && (name === "edit" || name === "write")) return false;
@@ -873,6 +883,7 @@ const approvalsFor = (conv) => ({
           }
         }
       }
+      if (event.isError && /Command timed out after \d+ seconds/.test(textOf(event.content))) notes.push(TIMED_OUT);
       if (!notes.length) return undefined;
       return { content: [...(Array.isArray(event.content) ? event.content : []), ...notes.map((text) => ({ type: "text", text: `\n\n${text}` }))] };
     });
@@ -894,20 +905,28 @@ const approvalsFor = (conv) => ({
       const going = () => { if (FILE_TOOLS.has(event.toolName)) beforeChange(conv, event.toolCallId, event.input?.path); return undefined; };
       // plan mode has no such tools; one asked for anyway (an old turn's) is refused
       if (conv.mode === "plan" && !LOOK_TOOLS.includes(event.toolName)) return refused(event, "계획 모드라 고치거나 실행하지 않아요. 계획만 쓰세요.");
-      if (!needsYes(conv, event.toolName, event.input)) return going();
-      const rule = ruleOf(event.toolName, event.input);
-      asking.set(event.toolCallId, { id: event.toolCallId, name: event.toolName, args: event.input, conv, rule });
-      if (conv === cur) broadcast({ t: "approve", id: event.toolCallId, name: event.toolName, args: event.input, rule });
+      if ((event.toolName === "powershell" || event.toolName === "bash") && event.input && event.input.timeout == null) event.input.timeout = SHELL_TIMEOUT;
+      // what cannot be put back asks in every mode, never "늘 허용" (guard.mjs)
+      const risk = danger(conv.cwd, event.toolName, event.input);
+      if (!risk && !needsYes(conv, event.toolName, event.input)) return going();
+      const rule = risk ? null : ruleOf(event.toolName, event.input);
+      asking.set(event.toolCallId, { id: event.toolCallId, name: event.toolName, args: event.input, conv, rule, risk });
+      if (conv === cur) broadcast({ t: "approve", id: event.toolCallId, name: event.toolName, args: event.input, rule, risk });
       sayRunning();
-      const decision = await new Promise((r) => pending.set(event.toolCallId, r));
+      const answer = await new Promise((r) => pending.set(event.toolCallId, r));
       pending.delete(event.toolCallId);
       asking.delete(event.toolCallId);
       sayRunning();
+      const { decision, note } = typeof answer === "string" ? { decision: answer } : answer;
+      // "모두 허용" for a risky one is this once: the next one asks again
+      if (decision === "always" && risk) return going();
       // in plan mode "늘 묻지 않기" is this once only: plan mode stays (no other tools open mid-turn)
       if (decision === "always" && conv.mode !== "plan") { conv.mode = "auto"; applyMode(conv); if (conv === cur) broadcast({ t: "mode", mode: conv.mode }); return going(); }
       if (decision === "always") return going();
       if (decision === "rule" && rule) { addRule(conv.cwd, rule.key); return going(); }
       if (decision === "yes") return going();
+      // robin's words with the no: why, or what to do instead (Claude Code's comment on a no)
+      if (note) return refused(event, `robin이 이 도구 호출을 허락하지 않았어요. robin의 말: "${note}" — 이 말대로 하세요.`);
       return refused(event, "robin이 이 도구 호출을 허락하지 않았어요. 다른 방법을 물어보거나 멈추세요.");
     });
   },
@@ -1553,7 +1572,7 @@ const state = () => {
     cwd, folder: cwd ? basename(cwd) || cwd : "", model: "Qwen3.8-27B", fake: FAKE, gpuFake: !!FAKE_GPU, gpu, gpuJob: job, mode: cur?.mode || "ask", thinking: !!settings.thinking,
     busy: busyNow(), compacting: !!session?.isCompacting, context: contextUsage(), history: history(),
     sessionFile: session?.sessionFile || null,
-    asking: [...asking.values()].filter((a) => a.conv === cur).map(({ id, name, args, rule }) => ({ id, name, args, rule })),
+    asking: [...asking.values()].filter((a) => a.conv === cur).map(({ id, name, args, rule, risk }) => ({ id, name, args, rule, risk })),
     git: gitNow.get(keyOf(cwd || "")) ?? null,
     // ended in plan mode: "이 계획대로 하기" goes back to this mode
     planFrom: cur?.planFrom || "ask",
@@ -1935,7 +1954,9 @@ const server = createServer(async (req, res) => {
         const decide = pending.get(String(body.id));
         // "rule" for a call that cannot have one (a chained command, an interpreter) is not an answer: it still waits
         const noRule = body.decision === "rule" && !asking.get(String(body.id))?.rule;
-        if (decide && !noRule) decide(["yes", "no", "always", "rule"].includes(body.decision) ? body.decision : "no");
+        const decision = ["yes", "no", "always", "rule"].includes(body.decision) ? body.decision : "no";
+        const note = decision === "no" && typeof body.note === "string" ? body.note.trim().slice(0, 500) : "";
+        if (decide && !noRule) decide(note ? { decision, note } : decision);
         send(res, 200, { ok: !!decide && !noRule });
         return;
       }

@@ -558,6 +558,11 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   background: linear-gradient(to bottom, rgb(255 255 255 / 4%), transparent 60%), var(--card);
 }
 .ask-title { margin: 0 0 10px; font-weight: 700; color: var(--head); letter-spacing: -0.01em; }
+.ask-risk { display: flex; align-items: center; gap: 6px; margin: -4px 0 10px; font-size: 12.5px; color: var(--amber, #f59e0b); }
+.ask-risk svg { width: 14px; height: 14px; flex: none; }
+.ask-note { display: block; width: 100%; margin-top: 10px; padding: 7px 10px; border: 1px solid var(--line-win); border-radius: var(--radius-sm); background: transparent; color: var(--head); font: inherit; font-size: 13px; outline: 0; }
+.ask-note::placeholder { color: var(--faint); }
+.ask-note:focus { border-color: rgb(255 255 255 / 34%); }
 .ask-title .prompt { color: var(--amber); }
 .ask-cmd {
   margin: 0 0 12px;

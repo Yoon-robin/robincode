@@ -140,7 +140,7 @@ export function reducer(state, action) {
 function withAsking(items, asking) {
   if (!asking?.length) return items;
   const out = items.slice();
-  for (const a of asking) if (!updateTool(out, a.id, { ask: true, status: "run", args: a.args || {}, rule: a.rule || null })) addTool(out, { id: a.id, name: a.name, args: a.args || {}, status: "run", ask: true, rule: a.rule || null });
+  for (const a of asking) if (!updateTool(out, a.id, { ask: true, status: "run", args: a.args || {}, rule: a.rule || null, risk: a.risk || null })) addTool(out, { id: a.id, name: a.name, args: a.args || {}, status: "run", ask: true, rule: a.rule || null, risk: a.risk || null });
   return out;
 }
 
@@ -226,7 +226,7 @@ function onEvent(state, e) {
     case "approve": {
       state = endThink(state);
       const items = state.items.slice();
-      if (!updateTool(items, e.id, { ask: true, args: e.args || {}, rule: e.rule || null })) addTool(items, { id: e.id, name: e.name, args: e.args || {}, status: "run", ask: true, rule: e.rule || null });
+      if (!updateTool(items, e.id, { ask: true, args: e.args || {}, rule: e.rule || null, risk: e.risk || null })) addTool(items, { id: e.id, name: e.name, args: e.args || {}, status: "run", ask: true, rule: e.rule || null, risk: e.risk || null });
       return { ...state, items };
     }
     case "tool_update": {

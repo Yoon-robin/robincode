@@ -1379,12 +1379,14 @@ export default function App() {
   const unqueue = useCallback((id) => {
     api("/api/unqueue", id == null ? {} : { id }).then((r) => { if (r.items?.length) giveBack(r.items); }).catch(fail);
   }, [giveBack]); // eslint-disable-line react-hooks/exhaustive-deps
-  const decide = useCallback((id, decision) => {
+  const decide = useCallback((id, decision, note) => {
     const tool = askingRef.current;
     // "늘 허용" for a call that has no rule (a chained command, an interpreter): nothing to answer
     if (decision === "rule" && !(tool?.id === id && tool.rule)) return;
+    // a risky one has no "모두 허용" (the key 2 does nothing there)
+    if (decision === "always" && tool?.id === id && tool.risk) return;
     dispatch({ type: "decided", id, decision, rule: tool?.id === id ? tool.rule : null });
-    api("/api/approve", { id, decision }).catch((e) => dispatch({ type: "local-error", message: e.message }));
+    api("/api/approve", { id, decision, ...(note?.trim() ? { note: note.trim() } : {}) }).catch((e) => dispatch({ type: "local-error", message: e.message }));
     focusBox();
   }, []);
   const once = (call) => {

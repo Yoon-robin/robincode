@@ -7,6 +7,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DiffLines, editRows, writeRows } from "./Diff.jsx";
 import { CopyButton } from "./Markdown.jsx";
+import { Icon } from "./icons.jsx";
 import { useNow, seconds } from "./time.js";
 
 const TAG = { run: "[ .. ]", ok: "[ OK ]", fail: "[FAIL]", skip: "[SKIP]" };
@@ -96,8 +97,10 @@ function Approval({ tool, onDecide }) {
   const { name, args } = tool;
   const isFile = name === "edit" || name === "write";
   const web = name === "webfetch";
-  const title = name === "edit" ? "이 파일을 고칠까요?" : name === "write" ? "이 파일을 쓸까요?" : web ? "이 웹 페이지를 읽을까요?" : "이 명령을 실행할까요?";
-  const yesLabel = name === "edit" ? "고치기" : name === "write" ? "쓰기" : web ? "읽기" : "실행";
+  const title = name === "edit" ? "이 파일을 고칠까요?" : name === "write" ? "이 파일을 쓸까요?" : web ? "이 웹 페이지를 읽을까요?" : name === "read" ? "이 파일을 읽을까요?" : "이 명령을 실행할까요?";
+  const yesLabel = name === "edit" ? "고치기" : name === "write" ? "쓰기" : web ? "읽기" : name === "read" ? "읽기" : "실행";
+  const risk = tool.risk;
+  const [note, setNote] = useState("");
   const rule = tool.rule;
   // the card stays (hidden) once answered: its diff is made once, not at every drawing
   const rows = useMemo(() => (name === "edit" ? editRows(args) : name === "write" ? writeRows(args) : null), [name, args]);
@@ -107,9 +110,13 @@ function Approval({ tool, onDecide }) {
     return () => clearTimeout(id);
   }, []);
   return (
-    <div className="ask" role="group" aria-label={title}>
+    <div className={`ask${risk ? " risky" : ""}`} role="group" aria-label={title}>
       <p className="ask-title"><span className="prompt">&gt;</span> {title}</p>
-      {isFile ? (
+      {/* asked in every mode: what cannot be put back (guard.mjs) */}
+      {risk && <p className="ask-risk"><Icon name="alert" /> {risk} — 되돌릴 수 없어서 어느 모드에서나 물어요.</p>}
+      {name === "read" ? (
+        <pre className="ask-cmd">{String(args.path ?? "")}</pre>
+      ) : isFile ? (
         <div className="ask-file">
           <div className="ask-path">{args.path}</div>
           <DiffLines rows={rows} />
@@ -123,10 +130,12 @@ function Approval({ tool, onDecide }) {
         <button ref={yes} type="button" className="btn btn-primary" onClick={() => onDecide(tool.id, "yes")}>
           <kbd className="key">1</kbd>{yesLabel}
         </button>
-        <button type="button" className="btn" onClick={() => onDecide(tool.id, "always")}>
-          <kbd className="key">2</kbd>이번 대화는 모두 허용
-        </button>
-        <button type="button" className="btn" onClick={() => onDecide(tool.id, "no")}>
+        {!risk && (
+          <button type="button" className="btn" onClick={() => onDecide(tool.id, "always")}>
+            <kbd className="key">2</kbd>이번 대화는 모두 허용
+          </button>
+        )}
+        <button type="button" className="btn" onClick={() => onDecide(tool.id, "no", note)}>
           <kbd className="key">3</kbd>안 돼요
         </button>
         {/* Claude Code's "don't ask again for …": this command's start, or this site, in this folder */}
@@ -137,6 +146,14 @@ function Approval({ tool, onDecide }) {
           </button>
         )}
       </div>
+      {/* a no with words: why, or what to do instead — the model gets them */}
+      <input className="ask-note" value={note} spellCheck={false} maxLength={500}
+        placeholder="안 되면 이유나 대신 할 것 (Enter로 안 돼요)" aria-label="안 되는 이유나 대신 할 것"
+        onChange={(e) => setNote(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === "Enter" && note.trim()) { e.preventDefault(); onDecide(tool.id, "no", note); }
+        }} />
     </div>
   );
 }
