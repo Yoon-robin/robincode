@@ -313,7 +313,12 @@ function onEvent(state, e) {
     case "queued": return { ...state, queued: e.queued || [] };
     case "gpu": return { ...state, gpu: e.gpu, fake: e.fake };
     case "gpu_job": return { ...state, gpuJob: e.job };
-    case "mode": return { ...state, mode: e.mode, planFrom: e.planFrom || state.planFrom };
+    // to "바로 실행": the server said yes to the question on screen too
+    case "mode": {
+      const items = e.mode !== "auto" ? state.items : state.items.map((x) => (x.kind === "tools" && x.tools.some((t) => t.ask)
+        ? { ...x, tools: x.tools.map((t) => (t.ask ? { ...t, ask: false, decision: "yes" } : t)) } : x));
+      return { ...state, items, mode: e.mode, planFrom: e.planFrom || state.planFrom };
+    }
     case "thinking_mode": return { ...state, thinking: e.on };
     default: return state;
   }

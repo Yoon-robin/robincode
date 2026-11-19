@@ -977,8 +977,11 @@ const approvalsFor = (conv) => ({
       // a plain conversation has only the web (an old call for another is refused)
       if (conv.chat && !CHAT_TOOLS.includes(event.toolName)) return refused(event, "일반 대화라서 파일과 명령 도구가 없어요. 말로 답하세요.");
       if ((event.toolName === "powershell" || event.toolName === "bash") && event.input && event.input.timeout == null) event.input.timeout = SHELL_TIMEOUT;
-      // what cannot be put back asks in every mode, never "늘 허용" (guard.mjs)
+      // what cannot be put back asks, never "늘 허용" (guard.mjs) — except in
+      // "바로 실행", which asks nothing (robin 2026-11-19 "바로실행모드에서 1실행
+      // 빨간색으로 뜨는거 하지마 그냥 바로바로실행해 권한무시")
       const risk = danger(conv.cwd, event.toolName, event.input);
+      if (conv.mode === "auto") { if (risk) log(`바로 실행: ${risk} — 묻지 않고 실행`); return going(); }
       if (!risk && !needsYes(conv, event.toolName, event.input)) return going();
       const rule = risk ? null : ruleOf(event.toolName, event.input);
       // a write over a file: what is there now, so the card shows what goes
@@ -2316,6 +2319,8 @@ const server = createServer(async (req, res) => {
         if (mode === "plan" && cur.mode !== "plan") cur.planFrom = cur.mode;
         cur.mode = mode;
         applyMode(cur);
+        // "바로 실행" asks nothing: a question waiting now goes ahead too
+        if (mode === "auto") for (const [id, a] of asking) if (a.conv === cur) pending.get(id)?.("yes");
         broadcast({ t: "mode", mode: cur.mode, planFrom: cur.planFrom || "ask" });
         send(res, 200, { mode: cur.mode });
         return;

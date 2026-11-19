@@ -117,8 +117,8 @@ function Approval({ tool, onDecide }) {
   return (
     <div className={`ask${risk ? " risky" : ""}`} role="group" aria-label={title} tabIndex={-1}>
       <p className="ask-title"><span className="prompt">&gt;</span> {title}</p>
-      {/* asked in every mode: what cannot be put back (guard.mjs) */}
-      {risk && <p className="ask-risk"><Icon name="alert" /> {risk} — 되돌릴 수 없어서 어느 모드에서나 물어요.</p>}
+      {/* what cannot be put back (guard.mjs): asked in every mode but 바로 실행 */}
+      {risk && <p className="ask-risk"><Icon name="alert" /> {risk} — 되돌릴 수 없어요. 바로 실행 모드에서만 묻지 않아요.</p>}
       {name === "read" ? (
         <pre className="ask-cmd">{String(args.path ?? "")}</pre>
       ) : name === "grep" ? (

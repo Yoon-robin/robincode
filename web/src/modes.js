@@ -5,7 +5,7 @@ export const MODE_NAMES = { ask: "묻고 실행", edits: "수정은 바로", aut
 export const MODE_TIPS = {
   ask: "명령 실행, 파일 수정, 웹 페이지 읽기 전에 물어요.",
   edits: "파일 수정은 묻지 않고 바로 해요. 명령과 웹 페이지는 물어요.",
-  auto: "명령, 파일 수정, 웹 페이지를 묻지 않고 바로 해요.",
+  auto: "아무것도 묻지 않고 바로 해요. 지우기, 강제 push처럼 되돌릴 수 없는 것도요.",
   plan: "읽고 찾아보기만 하고 계획을 써요. 아무것도 고치거나 실행하지 않아요.",
 };
 export const LAMPS = { ask: "idle", edits: "on", auto: "warn", plan: "plan" };
