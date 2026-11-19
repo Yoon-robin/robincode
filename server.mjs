@@ -1894,7 +1894,8 @@ const ASSETS = INSTALLED ? join(here, "assets") : join(here, "..", "assets");
 const SHARED = {
   "/fonts/pretendard-latin.woff2": join(ASSETS, "pretendard-latin.woff2"),
   "/fonts/robin-term.woff2": join(ASSETS, "robin-term.woff2"),
-  "/favicon.ico": join(ASSETS, "favicon.ico"),
+  // the tab icon is web/public/favicon.svg; this is for what asks for /favicon.ico itself
+  "/favicon.ico": INSTALLED ? join(here, "robincode.ico") : resolve(here, "..", "ops", "windows", "robincode.ico"),
 };
 function inside(base, rel) {
   const file = resolve(base, `.${rel}`);
