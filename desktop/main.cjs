@@ -23,7 +23,7 @@ const { dirname, join } = require("node:path");
 
 const LOADING = `<!doctype html><meta charset="utf-8"><title>RobinCode</title>
 <style>
-  html,body{margin:0;height:100%;background:#070707;color:#e8e8e8;font:400 15px/1.6 "Pretendard Variable",Pretendard,"Segoe UI","Malgun Gothic",sans-serif}
+  html,body{margin:0;height:100%;background:#0d0f14;color:#c8ccd6;font:400 15px/1.6 "Pretendard Variable",Pretendard,"Segoe UI","Malgun Gothic",sans-serif}
   body{display:grid;place-items:center}
   .box{display:grid;gap:10px;justify-items:start;min-width:260px}
   .k{font:700 12px/1 "Cascadia Code",Consolas,monospace;letter-spacing:.14em;color:#9e9e9e}
@@ -240,7 +240,7 @@ module.exports = function start(dir) {
       if (on && b.width >= 420 && b.height >= 480) bounds = { x: b.x, y: b.y, width: b.width, height: b.height };
     } catch { /* first time */ }
     win = new BrowserWindow({
-      ...bounds, minWidth: 420, minHeight: 480, show: false, title: "RobinCode", backgroundColor: "#070707",
+      ...bounds, minWidth: 420, minHeight: 480, show: false, title: "RobinCode", backgroundColor: "#0d0f14",
       icon: existsSync(join(dir, "robincode.ico")) ? join(dir, "robincode.ico") : join(dir, "..", "ops", "windows", "robincode.ico"), autoHideMenuBar: true,
       webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false, preload: join(__dirname, "preload.cjs") },
     });

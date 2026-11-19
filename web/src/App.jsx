@@ -8,16 +8,11 @@ import { fileHunks } from "./hunks.js";
 import { Composer, PICTURE_TYPES } from "./Composer.jsx";
 import { CopyButton, Markdown } from "./Markdown.jsx";
 import { ANSWER_KEYS, REVEAL, ShellRun, TodoPanel, ToolGroup, describe, latestTodo } from "./Tools.jsx";
-import { Icon } from "./icons.jsx";
+import { AppMark, Icon, Tag } from "./icons.jsx";
 import { ago, seconds, useNow } from "./time.js";
 import { MODE_NAMES, nextMode } from "./modes.js";
 import { BUILTIN, FOLDER_ONLY, INIT_PROMPT } from "./commands.js";
 
-const LOGO = [
-  "█▀█ █▀█ █▀▄ ▀█▀ █▄ █ █▀▀ █▀█ █▀▄ █▀▀",
-  "█▀▄ █ █ █▀▄  █  █ ▀█ █   █ █ █ █ █▀ ",
-  "▀ ▀ ▀▀▀ ▀▀  ▀▀▀ ▀  ▀ ▀▀▀ ▀▀▀ ▀▀  ▀▀▀",
-];
 const SUGGESTIONS = ["이 폴더 구조 설명해 줘", "package.json 읽어 줘", "README 고쳐 줘"];
 // a plain conversation's (no folder: talking, writing, thinking together)
 const CHAT_SUGGESTIONS = ["RobinCode로 뭘 할 수 있어?", "오늘 할 일 정리하는 거 도와줘", "아이디어 같이 생각해 줘"];
@@ -177,24 +172,13 @@ function ContextMeter({ context, busy, onCompact }) {
   );
 }
 
-// text that types itself in, as the brand's terminal lines do
-function Typed({ text, delay = 0, step = 34 }) {
-  const [shown, setShown] = useState(0);
-  useEffect(() => {
-    let k = 0;
-    let timer;
-    const tick = () => { k += 1; setShown(k); if (k < text.length) timer = setTimeout(tick, step); };
-    timer = setTimeout(tick, delay);
-    return () => clearTimeout(timer);
-  }, [text, delay, step]);
-  return <><span className="sr">{text}</span><span aria-hidden="true">{text.slice(0, shown)}</span></>;
-}
-
+// the app's mark and name (brand V3: the pixel logo is gone)
 function Logo() {
   return (
-    <pre className="logo" role="img" aria-label="RobinCode">
-      {LOGO.map((line, k) => <span key={k}>{line}</span>)}
-    </pre>
+    <div className="logo">
+      <AppMark size="big" />
+      <span className="logo-name">RobinCode</span>
+    </div>
   );
 }
 
@@ -291,14 +275,13 @@ function PlacePicker({ info, ready, onPlace }) {
   );
 }
 
-// the empty conversation boots like the site's gate: the logo a line at a
-// time, the question typed in, then where it works and the starters
+// the empty conversation: the mark, the question, where it works, the starters
 function Empty({ info, ready, onPick, onPlace }) {
   const linked = !!(info.chat || info.folder);
   return (
     <section className="empty">
       <Logo />
-      <p className="empty-sub"><span className="prompt">&gt;</span> <Typed text="무엇을 할까요?" delay={180} /><span className="cursor" aria-hidden="true" /></p>
+      <h1 className="empty-sub">무엇을 할까요?</h1>
       {linked && <PlacePicker info={info} ready={ready} onPlace={onPlace} />}
       <p className="empty-note">{!linked ? "연결하는 중이에요."
         : info.chat ? "폴더 없이 이야기해요. 파일을 읽거나 명령을 실행하려면 위에서 폴더를 골라요."
@@ -306,7 +289,7 @@ function Empty({ info, ready, onPick, onPlace }) {
       <div className="starters">
         {(info.chat ? CHAT_SUGGESTIONS : SUGGESTIONS).map((s) => (
           <button key={s} type="button" className="starter" disabled={!ready} onClick={() => onPick(s)}>
-            <span className="prompt">&gt;</span> {s}
+            <span>{s}</span><Icon name="right" />
           </button>
         ))}
       </div>
@@ -320,7 +303,7 @@ const marks = (item) => `${item.still ? " still" : ""}${item.old ? " old" : ""}`
 function Line({ item, onGpu }) {
   return (
     <div className={`line ${item.tone}${marks(item)}`}>
-      <span className="line-tag">{item.tag}</span>
+      <span className="line-tag"><Tag tag={item.tag} /></span>
       <span>{item.text}</span>
       {item.gpu && onGpu && <button type="button" className="mini-btn line-btn" onClick={onGpu}>GPU 켜기…</button>}
     </div>
@@ -409,9 +392,9 @@ function NotifyRow({ notify, onToggle }) {
     <div className="side-row">
       <span className="side-label">알림</span>
       <span className="notify">
-        <button type="button" className={`mode${on ? " on" : ""}`} aria-pressed={on} disabled={blocked} onClick={onToggle}
+        <button type="button" className={`toggle${on ? " on" : ""}`} aria-pressed={on} aria-label="Windows 알림" disabled={blocked} onClick={onToggle}
           title={on ? "다른 창을 보고 있을 때 허락이 필요하거나 끝나면 Windows 알림으로 알려요. 누르면 꺼요." : "누르면 다른 창을 보고 있을 때 허락이 필요하거나 끝나면 Windows 알림으로 알려요."}>
-          <span className={`lamp ${on ? "on" : "idle"}`} aria-hidden="true" />{on ? "켬" : blocked ? "막힘" : "끔"}
+          {blocked && <span className="toggle-word">막힘</span>}<span className="switch" aria-hidden="true" />
         </button>
         {/* what it does is on the button (its title); only a block needs words here */}
         {blocked && <span className="notify-note">{window.robincodeShell ? "Windows 설정 > 알림에서 RobinCode를 켜 주세요" : "창의 사이트 설정에서 알림을 허용해 주세요"}</span>}
@@ -703,10 +686,10 @@ function Mark({ text, q }) {
 // (a third one waits for one of the GPU's two slots: "자리를 기다려요")
 function RunMark({ run, here }) {
   if (run.done) return <span className="conv-run conv-done">끝났어요 · 아직 안 봤어요</span>;
-  if (run.asking) return <span className="conv-run conv-ask">[ ?? ] 허락을 기다려요</span>;
-  if (run.waiting) return <span className="conv-run conv-wait">[ ·· ] GPU 자리를 기다려요</span>;
-  if (run.failed) return <span className="conv-run conv-ask">[ !! ] 보내지 못했어요 · 열면 쓴 말이 돌아와요</span>;
-  return <span className="conv-run">[ .. ] 도는 중{!here && <span className="cursor" aria-hidden="true" />}</span>;
+  if (run.asking) return <span className="conv-run conv-ask"><Tag tag="[ ?? ]" />허락을 기다려요</span>;
+  if (run.waiting) return <span className="conv-run conv-wait"><Tag tag="[ ·· ]" />GPU 자리를 기다려요</span>;
+  if (run.failed) return <span className="conv-run conv-fail"><Tag tag="[ !! ]" />보내지 못했어요 · 열면 쓴 말이 돌아와요</span>;
+  return <span className="conv-run">{here ? <span className="lamp on" aria-hidden="true" /> : <Tag tag="[ .. ]" />}도는 중</span>;
 }
 // where a conversation works: its folder's name, or none (a plain conversation)
 const placeName = (s) => (s.chat ? "일반 대화" : s.folder || "");
@@ -737,12 +720,15 @@ function Conv({ s, q, current, run, now, pinned, onPin, onOpen, onDelete, onRena
       ) : (
         <>
           <button type="button" className="conv-open" title={`${s.title}\n${s.chat ? "일반 대화 (폴더 없음)" : s.cwd || s.folder || ""}`} onClick={() => onOpen(s.path)}>
+            <Icon name={s.chat ? "chat" : "folder"} />
+            <span className="conv-text">
             <span className="conv-title"><Mark text={s.title} q={q} /></span>
             {s.snippet && !run && <span className="conv-snip"><Mark text={s.snippet.text} q={q} /></span>}
             {/* every folder's conversations are in one list: each says where */}
             <span className="conv-time">
               {placeName(s) && <span className={`conv-place${s.chat ? " chat" : ""}`}>{placeName(s)}</span>}
               {run ? <RunMark run={run} here={!!current} /> : s.modified ? <span>{ago(s.modified, now)}</span> : null}
+            </span>
             </span>
           </button>
           {onRename && (
@@ -821,7 +807,7 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
   return (
     <aside className="side" id="side" aria-label="대화 목록">
       <div className="side-head">
-        <span className="brand">ROBINCODE</span>
+        <span className="brand"><AppMark />RobinCode</span>
         <button ref={closeRef} type="button" className="icon-btn side-close" aria-label="목록 닫기" onClick={onClose}><Icon name="close" /></button>
       </div>
       <button type="button" className="btn new-chat" onClick={onNew}
@@ -868,11 +854,12 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
         )}
       </nav>
       <div className="side-foot">
+        <div className="side-card">
         <NotifyRow notify={notify} onToggle={onNotify} />
         <div className="side-row folder-row" title={state.info.chat ? "일반 대화: 폴더 없이 이야기만 해요" : state.info.cwd}>
           <span className="side-label">폴더</span>
           <span className="folder-line">
-            {state.info.chat ? <span>없음 · 일반 대화</span> : <span className="mono">{shortPath(state.info.cwd)}</span>}
+            {state.info.chat ? <span>일반 대화</span> : <span className="mono">{state.info.folder || shortPath(state.info.cwd)}</span>}
             {/* the folder screen, in this window; Esc there comes back */}
             <a className="mini-btn" href={pickerUrl()}
               title="다른 폴더에서 새 대화를 열어요. 이 대화는 목록에 남고, 도는 중이면 그대로 계속해요.">다른 폴더…</a>
@@ -892,6 +879,7 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
         )}
         <div className="side-row"><span className="side-label">모델</span><span className="mono">{state.info.model}</span></div>
         <div className="side-row gpu-row"><span className="side-label">GPU</span><Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} onOpen={onGpu} /></div>
+        </div>
         <VersionRow version={state.version} shellU={shellU} onOpen={onVersion} />
       </div>
     </aside>
@@ -953,19 +941,19 @@ function VersionRow({ version, shellU, onOpen }) {
   if (!version?.version) return null;
   const s = updateStatus(version, shellU);
   const fresh = version.fresh?.length || 0;
-  const tag = s.tone === "new" ? <span className="ver-tag new">[NEW] 새 판</span>
-    : s.kind === "downloading" ? <span className="ver-tag">받는 중<span className="cursor" aria-hidden="true" /></span>
+  const tag = s.tone === "new" ? <span className="ver-tag new"><Tag tag="[NEW]" /> 새 판</span>
+    : s.kind === "downloading" ? <span className="ver-tag"><Tag tag="[ .. ]" />받는 중</span>
     : s.tone === "warn" ? <span className="ver-tag warn">새 판 있음</span>
     : fresh ? <span className="ver-tag">바뀐 것 {fresh}</span>
     : s.kind === "error" ? <span className="ver-tag faint">확인 못 함</span> : null;
   return (
-    <button type="button" className="side-row ver-row" onClick={onOpen} aria-haspopup="dialog" title="판과 바뀐 것 보기 (/version)">
-      <span className="side-label">판</span>
+    <button type="button" className="ver-row" onClick={onOpen} aria-haspopup="dialog" title="판과 바뀐 것 보기 (/version)">
+      <AppMark />
       <span className="ver-line">
-        <span className="mono">{verLabel(version.version).when}</span>
-        {tag}
-        <Icon name="right" />
+        <span className="ver-name">RobinCode</span>
+        <span className="ver-when"><span className="sr">판 </span>{verLabel(version.version).when}{tag}</span>
       </span>
+      <Icon name="right" />
     </button>
   );
 }
@@ -1002,7 +990,7 @@ function VersionPanel({ version: v, shellU: u, running, onClose, onError }) {
         </p>
       </div>
       <div className={`ver-state${s.tone ? ` ${s.tone}` : ""}`} role="status">
-        <span className="ver-mark">{s.mark}</span>
+        <span className="ver-mark"><Tag tag={s.mark} /></span>
         <div>
           <p className="ver-state-text">{s.text}{busy && <span className="cursor" aria-hidden="true" />}</p>
           {s.detail && <p className="ver-detail">{s.detail}</p>}
@@ -1037,7 +1025,7 @@ function VersionPanel({ version: v, shellU: u, running, onClose, onError }) {
             {v.notes.map((n, i) => (
               <li key={n.commit} className={fresh.has(n.commit) ? "fresh" : undefined} style={{ "--i": i }}>
                 <span className="ver-date">{shortDate(n.at)}</span>
-                <span className="ver-subj">{fresh.has(n.commit) && <span className="ver-new">[NEW]</span>}{n.subject}</span>
+                <span className="ver-subj">{fresh.has(n.commit) && <span className="ver-new"><Tag tag="[NEW]" /></span>}{n.subject}</span>
               </li>
             ))}
           </ol>
@@ -1159,7 +1147,7 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
     <div className="modal-back" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <section className="gpu-panel" role="dialog" aria-modal="true" aria-label="GPU 켜기·끄기" ref={panel} tabIndex={-1}>
         <header className="gpu-panel-head">
-          <p className="gpu-kicker"><span className="prompt">&gt;</span> RobinAI GPU <span className="gpu-kicker-sub">Vast.ai RTX 5090</span></p>
+          <p className="gpu-kicker">RobinAI GPU <span className="gpu-kicker-sub">Vast.ai RTX 5090</span></p>
           <button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}><Icon name="close" /></button>
         </header>
         <div className="gpu-now">
@@ -1475,7 +1463,7 @@ function Sheet({ label, wide, onClose, children }) {
     <div className="modal-back" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <section className={`sheet${wide ? " sheet-wide" : ""}`} role="dialog" aria-modal="true" aria-label={label} ref={panel} tabIndex={-1}>
         <header className="gpu-panel-head">
-          <p className="gpu-kicker"><span className="prompt">&gt;</span> {label}</p>
+          <p className="gpu-kicker">{label}</p>
           <button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}><Icon name="close" /></button>
         </header>
         {children}
@@ -1837,7 +1825,7 @@ export default function App() {
   const waiting = !!askingTool(state);
   useEffect(() => {
     const name = state.title ? `${state.title} · RobinCode` : `RobinCode · ${state.info.chat ? "일반 대화" : state.info.folder}`;
-    document.title = waiting ? `[ ?? ] 허락을 기다려요 · ${name}` : state.busy ? `[ .. ] ${name}` : name;
+    document.title = waiting ? `허락을 기다려요 · ${name}` : state.busy ? `도는 중 · ${name}` : name;
   }, [state.title, state.info.folder, state.info.chat, state.busy, waiting]);
   // the drawer means nothing on a wide window
   useEffect(() => {

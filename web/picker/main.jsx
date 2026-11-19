@@ -10,7 +10,7 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AnimatePresence, motion } from "motion/react";
-import { CornerDownRight, Folder, FolderGit2, FolderOpen, FolderX, GitBranch } from "lucide-react";
+import { CornerDownRight, Folder, FolderGit2, FolderOpen, FolderX, GitBranch, Search } from "lucide-react";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "./components/ui/command";
 import { Button, Kbd } from "./components/ui/button";
 import { cn } from "./lib/utils";
@@ -47,10 +47,24 @@ const SECTION = { recent: "최근 연 폴더", search: "찾은 폴더", path: "�
 const spring = { type: "spring", stiffness: 700, damping: 48, mass: 0.7 };
 
 function RowIcon({ row, on }) {
-  const cls = cn("size-[18px] shrink-0 transition-colors", on ? "text-head" : "text-faint");
+  const cls = cn("size-[18px] shrink-0 transition-colors", on ? "text-accent" : "text-faint");
   if (row.kind === "path") return row.ok ? <CornerDownRight className={cls} strokeWidth={1.6} /> : <FolderX className={cn(cls, "text-amber")} strokeWidth={1.6} />;
   if (row.branch) return <FolderGit2 className={cls} strokeWidth={1.5} />;
   return on ? <FolderOpen className={cls} strokeWidth={1.5} /> : <Folder className={cls} strokeWidth={1.5} />;
+}
+
+// RobinCode's mark (a blue square with code brackets) and name, as in the
+// conversation window's sidebar
+function Brand({ sub }) {
+  return (
+    <p className="flex items-center gap-2.5 text-[15px] font-bold tracking-[-0.01em] text-head">
+      <span className="grid size-[26px] place-items-center rounded-[7px] bg-accent-fill" aria-hidden="true">
+        <svg viewBox="0 0 24 24" className="size-[15px] fill-none stroke-white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5" /></svg>
+      </span>
+      RobinCode
+      {sub && <span className="ml-1 text-[13px] font-normal text-faint">{sub}</span>}
+    </p>
+  );
 }
 
 function Row({ row, on }) {
@@ -59,9 +73,7 @@ function Row({ row, on }) {
   return (
     <>
       {on && (
-        <motion.span layoutId="hl" transition={spring} className="absolute inset-0 rounded-box bg-press">
-          <span className="absolute inset-y-3.5 left-0 w-[2px] rounded-full bg-head" />
-        </motion.span>
+        <motion.span layoutId="hl" transition={spring} className="absolute inset-0 rounded-box bg-press" />
       )}
       <span className="relative z-10 grid h-[60px] w-full grid-cols-[18px_1fr_auto] items-center gap-3.5 px-4">
         <RowIcon row={row} on={on} />
@@ -107,8 +119,8 @@ function Opening({ path }) {
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className="mx-auto flex h-full max-w-[860px] flex-col justify-center px-10"
     >
-      <p className="font-mono text-[12px] font-bold tracking-[0.14em] text-head"><span className="tracking-normal text-soft">&gt;</span> ROBINCODE</p>
-      <p className="mt-5 text-[24px] font-bold text-white">이 폴더에서 열어요<span className="ml-1 inline-block h-[0.9em] w-[0.5em] translate-y-[0.1em] animate-blink bg-head" /></p>
+      <Brand />
+      <p className="mt-5 text-[24px] font-bold text-white">이 폴더에서 열어요</p>
       <p className="mt-2 font-mono text-[13px] break-all text-soft">{path}</p>
       <AnimatePresence mode="wait">
         {phase && (
@@ -256,15 +268,12 @@ function Picker() {
         <motion.main key="pick" exit={{ opacity: 0 }} transition={{ duration: 0.12 }} className="h-full">
           <Command shouldFilter={false} loop value={value} onValueChange={setValue} onKeyDown={onKey} label="작업 폴더 고르기" className="mx-auto max-w-[860px]">
             <header className="px-7 pt-6">
-              <p className="font-mono text-[12px] font-bold tracking-[0.14em] text-head">
-                <span className="tracking-normal text-soft">&gt;</span> ROBINCODE
-                <span className="ml-3 font-sans font-normal tracking-normal text-faint">작업 폴더</span>
-              </p>
+              <Brand sub="작업 폴더" />
               <h1 className="mt-4 text-[27px] leading-tight font-bold tracking-[-0.02em] text-white">어디서 열까요?</h1>
             </header>
 
-            <div className="mx-7 mt-5 flex h-[52px] items-center gap-3 rounded-box border border-line bg-card pr-2.5 pl-4 transition-colors focus-within:border-white/35">
-              <span className="font-mono text-[16px] font-bold text-soft">&gt;</span>
+            <div className="mx-7 mt-5 flex h-[52px] items-center gap-3 rounded-[12px] border border-line bg-card pr-2.5 pl-4 transition-colors focus-within:border-accent/60">
+              <Search className="size-4 shrink-0 text-soft" strokeWidth={1.8} />
               <CommandInput
                 ref={input}
                 autoFocus

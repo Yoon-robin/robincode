@@ -67,8 +67,9 @@ await page.goto(url);
 await page.waitForSelector("[aria-label='메시지']", { timeout: 30000 });
 await page.waitForTimeout(1000);
 const box = page.getByLabel("메시지");
-const idle = (t = 30000) => page.waitForFunction(() => !document.title.startsWith("["), null, { timeout: t });
-const asks = (t = 20000) => page.waitForFunction(() => document.title.startsWith("[ ?? ]"), null, { timeout: t });
+// the taskbar title says a turn is running or waiting (brand V3: words, no [ .. ])
+const idle = (t = 30000) => page.waitForFunction(() => !/^(도는 중|허락을 기다려요) · /.test(document.title), null, { timeout: t });
+const asks = (t = 20000) => page.waitForFunction(() => document.title.startsWith("허락을 기다려요 · "), null, { timeout: t });
 const say = async (text, key = "Enter") => { await box.click(); await box.fill(text); await box.press(key); };
 const modeText = () => page.locator(".composer-foot .mode").first().innerText();
 await page.locator(".side").getByRole("button", { name: "새 대화" }).first().click();
@@ -117,7 +118,7 @@ if (win) {
   await box.press("Enter");
   await page.waitForSelector(".shell-run:not(.run)", { timeout: 20000 });
   const sh = await page.locator(".shell-run").last().innerText();
-  ok(/\[ OK \]/.test(sh) && /package\.json/.test(sh), "! 명령 결과가 대화에");
+  ok((await page.locator(".shell-run").last().locator(".tag-ok").count()) === 1 && /package\.json/.test(sh), "! 명령 결과가 대화에");
   ok((await box.inputValue()) === "", "실행 뒤 칸 빔");
 } else {
   await box.fill("");
@@ -150,7 +151,7 @@ ok((await modeText()).includes("계획만"), `빠르게 네 번: ${await modeTex
 
 // ---- plan mode, then go
 await say("README 고쳐 줘");
-await page.waitForFunction(() => document.title.startsWith("["), null, { timeout: 5000 }).catch(() => {});
+await page.waitForFunction(() => /^(도는 중|허락을 기다려요) · /.test(document.title), null, { timeout: 5000 }).catch(() => {});
 await idle();
 await page.waitForTimeout(300);
 const planText = await page.locator(".msg-ai").last().innerText();
@@ -229,7 +230,7 @@ await idle();
 const webStep = await page.locator(".step", { hasText: "webfetch" }).last().innerText();
 ok(!/alert|color:red/.test(webStep), "스크립트·스타일은 뺌");
 let asked = false;
-const watch = setInterval(async () => { if ((await page.title().catch(() => "")).startsWith("[ ?? ]")) asked = true; }, 100);
+const watch = setInterval(async () => { if ((await page.title().catch(() => "")).startsWith("허락을 기다려요 · ")) asked = true; }, 100);
 await say("웹 읽기 다시");
 await page.waitForTimeout(800);
 await idle();
@@ -339,7 +340,7 @@ ok(before > 0 && (await page.locator(".msg-user").count()) === 0, "/new 새 대�
 
 // ---- a turn that ends while robin is in another conversation is marked; a pin stays on top
 await say("할 일 해 줘");
-await page.waitForFunction(() => document.title.startsWith("["), null, { timeout: 5000 }).catch(() => {});
+await page.waitForFunction(() => /^(도는 중|허락을 기다려요) · /.test(document.title), null, { timeout: 5000 }).catch(() => {});
 await page.waitForTimeout(800);
 const other = page.locator(".conv-open").filter({ hasNotText: "할 일 해 줘" }).first();
 const otherTitle = (await other.locator(".conv-title").innerText()).trim();

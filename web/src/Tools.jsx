@@ -1,4 +1,4 @@
-// Tool steps: one terminal line each ([ .. ] -> [ OK ] / [FAIL] / [SKIP]) on a
+// Tool steps: one line each (a turning ring -> a check / an x / a dash) on a
 // rail, a running command's last lines underneath, the output folding out
 // when opened, and the approval question for powershell / edit / write
 // folding out right under the step it is about. With thinking on, what the
@@ -7,7 +7,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DiffLines, editRows, writeRows } from "./Diff.jsx";
 import { CopyButton } from "./Markdown.jsx";
-import { Icon } from "./icons.jsx";
+import { Icon, Tag } from "./icons.jsx";
 import { useNow, seconds } from "./time.js";
 import { glide } from "./api.js";
 
@@ -116,7 +116,7 @@ function Approval({ tool, onDecide }) {
   }, []);
   return (
     <div className={`ask${risk ? " risky" : ""}`} role="group" aria-label={title} tabIndex={-1}>
-      <p className="ask-title"><span className="prompt">&gt;</span> {title}</p>
+      <p className="ask-title"><Icon name={risk ? "alert" : "ask"} /> {title}</p>
       {/* what cannot be put back (guard.mjs): asked in every mode but 바로 실행 */}
       {risk && <p className="ask-risk"><Icon name="alert" /> {risk} — 되돌릴 수 없어요. 바로 실행 모드에서만 묻지 않아요.</p>}
       {name === "read" ? (
@@ -215,7 +215,7 @@ const Step = memo(function Step({ tool, onDecide }) {
     <li className={`step ${status}${think ? " think" : ""}`} data-step={tool.id}>
       <button type="button" className="step-head" aria-expanded={canOpen ? open : undefined} disabled={!canOpen}
         onClick={toggle}>
-        <span className="step-tag">{tool.ask ? "[ ?? ]" : TAG[tool.status]}</span>
+        <span className="step-tag"><Tag tag={tool.ask ? "[ ?? ]" : TAG[tool.status]} /></span>
         <span className="step-name">{tool.name}</span>
         <span className="step-what">{think ? (running ? "" : firstLine(tool.output)) : describe(tool.name, tool.args)}</span>
         {/* said no to one that cannot be put back: what it was */}
@@ -286,7 +286,7 @@ export const ToolGroup = memo(function ToolGroup({ tools, onDecide, settled }) {
     <div className="group">
       {folds && (
         <button type="button" className={`group-head${failed ? " fail" : ""}`} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-          <span className="step-tag">{failed ? "[FAIL]" : "[ OK ]"}</span>
+          <span className="step-tag"><Tag tag={failed ? "[FAIL]" : "[ OK ]"} /></span>
           <span className="group-count">{real ? `도구 ${real}번` : `생각 ${tools.length}번`}</span>
           <span className="group-names">{names.join(" · ")}</span>
           <span className="chev" aria-hidden="true" />
@@ -314,7 +314,7 @@ export const ShellRun = memo(function ShellRun({ item }) {
   return (
     <div className={`shell-run${running ? " run" : failed ? " fail" : ""}`}>
       <div className="shell-head">
-        <span className="step-tag">{tag}</span>
+        <span className="step-tag"><Tag tag={tag} /></span>
         <span className="shell-cmd"><span className="ps">!</span> {item.command}</span>
         {running && item.startedAt ? <Elapsed from={item.startedAt} />
           : item.exitCode != null && item.exitCode !== 0 ? <span className="step-ms">종료 코드 {item.exitCode}</span> : null}

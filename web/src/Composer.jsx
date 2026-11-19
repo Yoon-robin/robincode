@@ -409,10 +409,10 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
           </button>
         )}
         {/* Qwen thinks before it answers: slower, better on hard work */}
-        <button type="button" className={`mode${think ? " on" : ""}`} aria-pressed={think}
+        <button type="button" className={`mode toggle${think ? " on" : ""}`} aria-pressed={think}
           title={think ? "모델이 답하기 전에 먼저 생각해요. 느리지만 어려운 일에 나아요. 누르면 바로 답해요." : "모델이 바로 답해요. 누르면 답하기 전에 먼저 생각해요(느리지만 어려운 일에 나아요)."}
           onClick={() => api("/api/thinking", { on: !think }).catch((e) => onError(`바꾸지 못했어요: ${e.message}`))}>
-          <span className={`lamp ${think ? "on" : "idle"}`} aria-hidden="true" />{think ? "생각 켬" : "생각 끔"}
+          <span className="switch" aria-hidden="true" />생각
         </button>
         {meter}
         {/* the most needed first: what does not fit drops whole (it wraps onto

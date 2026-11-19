@@ -1,7 +1,7 @@
-/* The folder window: Tailwind v4 with the RobinX tokens (docs/brand.md, the
-   same values as the RobinCode window's web/src/styles.css): near-black, white
-   and grays, amber only for "not there", 10px boxes, Pretendard and Robin
-   Term. Korean Pretendard comes from the server (/fonts/pretendard/,
+/* The folder window: Tailwind v4 with the RobinX V3 tokens (docs/brand.md,
+   the same values as the RobinCode window's web/src/styles.css): navy
+   charcoal, one blue for the chosen row, amber only for "not there", 8px
+   boxes, Pretendard (Robin Term for paths). Korean Pretendard comes from the server (/fonts/pretendard/,
    RobinMail's subset files), Latin and Robin Term from the build. */
 @import "tailwindcss" source("./");
 
@@ -9,19 +9,21 @@
 @font-face { font-family: "Pretendard"; src: url("../../../assets/pretendard-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 @theme {
-  --color-page: #080808;
-  --color-card: #0e0e0e;
-  --color-hover: #121212;
-  --color-press: #1a1a1a;
-  --color-text: #e8e8e8;
-  --color-head: #f2f2f2;
-  --color-soft: #9e9e9e;
-  --color-faint: #6f6f6f;
-  --color-dim: #4f4f4f;
-  --color-line: rgb(255 255 255 / 14%);
-  --color-line-weak: rgb(255 255 255 / 8%);
-  --color-amber: #fbbf24;
-  --radius-box: 10px;
+  --color-page: #0d0f14;
+  --color-card: #151821;
+  --color-hover: #1b1f2a;
+  --color-press: #222736;
+  --color-text: #c8ccd6;
+  --color-head: #eceef4;
+  --color-soft: #8b91a1;
+  --color-faint: #7f8597;
+  --color-dim: #7f8597;
+  --color-line: rgb(255 255 255 / 12%);
+  --color-line-weak: rgb(255 255 255 / 7%);
+  --color-accent: #6c84ff;
+  --color-accent-fill: #4f68e8;
+  --color-amber: #f5b942;
+  --radius-box: 8px;
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
   --font-mono: "Robin Term", "Cascadia Code", "Cascadia Mono", Consolas, "Pretendard Variable", "Malgun Gothic", monospace;
   --animate-blink: blink 1s steps(1) infinite;
@@ -40,5 +42,5 @@
     user-select: none;
     color-scheme: dark;
   }
-  ::selection { background: rgb(255 255 255 / 22%); }
+  ::selection { background: rgb(108 132 255 / 32%); }
 }
