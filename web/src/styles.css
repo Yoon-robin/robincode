@@ -73,7 +73,7 @@ body {
   margin: 0;
   background: var(--page);
   color: var(--text);
-  font: 500 15px/1.65 var(--sans);
+  font: 600 15px/1.65 var(--sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   /* Korean breaks between words, not inside one ("써져/요") */
@@ -512,6 +512,11 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .place-more { margin-top: 4px; border-top: 1px solid var(--line-weak); border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
 
 /* ---- answer text (Markdown), as RobinAI ---- */
+/* Long reading text is the one place for 500 (docs/brand.md 굵게, B-456):
+   the conversation and what is being typed. The rest of the window is 600;
+   buttons inside an answer keep it. */
+.bubble-text, .md, .composer textarea { font-weight: 500; }
+.md button { font-weight: 600; }
 .md { overflow-wrap: anywhere; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
