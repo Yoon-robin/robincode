@@ -281,7 +281,14 @@ ok(/접힌 곳 [1-9]/.test(hc), `접힌 결과도 셈: ${hc}`);
 await page.keyboard.press("Enter");
 await page.waitForTimeout(700);
 const hc2 = await page.locator(".find-count").innerText();
-ok(/^1\/\d+/.test(hc2) && await page.locator(".step-out", { hasText: "folded-only" }).first().isVisible(), `Enter로 펼쳐 그곳으로: ${hc2}`);
+// on Windows the `!Get-ChildItem` output above shows the name too: then the
+// opened one is the second, after the one already in view
+const nowInOpened = await page.evaluate(() => {
+  const r = [...(CSS.highlights?.get("find-now") || [])][0];
+  return !!r?.startContainer.parentElement?.closest(".step-out");
+});
+const seen = Number(hc.match(/^(\d+)\//)?.[1] || 0);
+ok(new RegExp(`^${seen + 1}/\\d+`).test(hc2) && nowInOpened && await page.locator(".step-out", { hasText: "folded-only" }).first().isVisible(), `Enter로 펼쳐 그곳으로: ${hc} → ${hc2}`);
 await page.keyboard.press("Escape");
 await page.waitForTimeout(200);
 

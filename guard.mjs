@@ -14,6 +14,12 @@ const ARGS = "[^;|&\\n]*";
 const COMMANDS = [
   // Remove-Item -Recurse, rm -rf, del /s, rd /s (not docker's --rm)
   [new RegExp(`(?<![-\\w])(remove-item|rm|ri|del|erase|rmdir|rd)\\b${ARGS}\\s(-r[a-z]*|/s)\\b`, "i"), "폴더째 지우기"],
+  // what a pipe hands over (`gci -r *.log | Remove-Item`, `ls | % { rm $_ }`),
+  // a wildcard (`Remove-Item *`, `del *.*`), .NET's own, the recycle bin
+  [/\|\s*((foreach-object|%)\s*\{\s*)?(remove-item|rm|ri|del|erase|rmdir|rd)\b(?!-)/i, "넘겨받은 것 모두 지우기"],
+  [new RegExp(`(?<![-\\w])(remove-item|rm|ri|del|erase)\\b${ARGS}\\*`, "i"), "여러 파일 지우기(*)"],
+  [/\[(system\.)?io\.(directory|file)\]::delete\b/i, "지우기(.NET)"],
+  [/\bclear-recyclebin\b/i, "휴지통 비우기"],
   [new RegExp(`\\bgit\\b${ARGS}\\bpush\\b${ARGS}(\\s--force(-with-lease)?\\b|\\s-f\\b|\\s\\+[\\w/])`, "i"), "강제 push"],
   [new RegExp(`\\bgit\\b${ARGS}\\breset\\b${ARGS}\\s--hard\\b`, "i"), "커밋 안 한 것 버리기(reset --hard)"],
   [new RegExp(`\\bgit\\b${ARGS}\\bclean\\b${ARGS}\\s-[a-z]*f`, "i"), "git이 모르는 파일 지우기(clean)"],
@@ -40,7 +46,8 @@ export function outside(cwd, p) {
   const r = relative(resolve(cwd), resolve(cwd, String(p)));
   return r === ".." || r.startsWith(`..${sep}`) || r.startsWith("../") || isAbsolute(r);
 }
-const inGit = (cwd, p) => relative(resolve(cwd), resolve(cwd, String(p))).split(/[\\/]/).includes(".git");
+// Windows (and a Mac's disk) does not tell .GIT from .git
+const inGit = (cwd, p) => relative(resolve(cwd), resolve(cwd, String(p))).split(/[\\/]/).some((part) => part.toLowerCase() === ".git");
 
 // why this call asks whatever the mode, or null
 export function danger(cwd, name, input) {
