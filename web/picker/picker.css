@@ -26,6 +26,11 @@
   --color-raise: #191925;
   --color-amber: #f5b942;
   --radius-box: 7px;  /* a row (--radius-row) */
+  /* B-456: Pretendard one notch heavier (robin "Pretandard 볼드체") */
+  --font-weight-normal: 600;
+  --font-weight-medium: 650;
+  --font-weight-semibold: 700;
+  --font-weight-bold: 800;
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
   --font-mono: "Robin Term", "Cascadia Code", "Cascadia Mono", Consolas, "Pretendard Variable", "Malgun Gothic", monospace;
   --animate-blink: blink 1s steps(1) infinite;
@@ -38,7 +43,7 @@
     margin: 0;
     background: var(--color-page);
     color: var(--color-text);
-    font: 400 14px/1.5 var(--font-sans);
+    font: 600 14px/1.5 var(--font-sans);
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
     user-select: none;

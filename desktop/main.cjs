@@ -25,7 +25,7 @@ const { dirname, join } = require("node:path");
 // colour, see-through) with the mark and a turning ring, as the app
 const LOADING = `<!doctype html><meta charset="utf-8"><title>RobinCode</title>
 <style>
-  html,body{margin:0;height:100%;background:rgb(5 8 15 / 87.5%);color:#d6d6db;font:400 15px/1.6 "Pretendard Variable",Pretendard,"Segoe UI","Malgun Gothic",sans-serif}
+  html,body{margin:0;height:100%;background:rgb(5 8 15 / 87.5%);color:#d6d6db;font:600 15px/1.6 "Pretendard Variable",Pretendard,"Segoe UI","Malgun Gothic",sans-serif}
   body{display:grid;place-items:center}
   .box{display:flex;align-items:center;gap:11px}
   .m{display:grid;place-items:center;width:35px;height:35px;border-radius:7px;background:#11131b;box-shadow:inset 0 0 0 1px #2e3040}
