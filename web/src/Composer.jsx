@@ -145,7 +145,7 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
     const wanted = [...list].filter((f) => PICTURE_TYPES.includes(f.type));
     if (!wanted.length) { if (list.length) onError("PNG·JPEG·WebP·GIF 그림만 붙일 수 있어요."); return; }
     const room = MAX_PICTURES - pictures.length;
-    if (room <= 0) { onError(`그림은 ${MAX_PICTURES}장까지 붙여요.`); return; }
+    if (room <= 0) { onError(`그림은 ${MAX_PICTURES}장까지 붙일 수 있어요.`); return; }
     if (wanted.length > room) onError(`그림은 ${MAX_PICTURES}장까지라 ${room}장만 붙였어요.`);
     // read in the conversation it was put in, even if another is open by now
     const key = keyNow.current;
@@ -334,7 +334,7 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
           value={draft}
           disabled={offline}
           placeholder={offline ? "서버와 연결이 끊겼어요" : state.compacting ? "앞부분을 요약하는 중이에요. 보내면 요약이 끝난 뒤에 보내요"
-            : state.busy ? "이어서 할 말 (Enter: 지금 단계 다음에 · Ctrl+Enter: 다 끝난 뒤에)" : "무엇을 할까요? (@ 파일 · / 명령 · ! PowerShell · 그림 붙여넣기)"}
+            : state.busy ? "이어서 할 말 (Enter: 다음 단계 전에 · Ctrl+Enter: 다 끝나면)" : "무엇을 할까요? (@ 파일 · / 명령 · ! PowerShell · 그림 붙여넣기)"}
           aria-label="메시지"
           aria-autocomplete="list"
           aria-expanded={open || cmdOpen}

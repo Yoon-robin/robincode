@@ -33,6 +33,16 @@ function normal(p, tool) {
 const folderOf = (cwd) => resolve(normal(cwd, false));
 export const toolPath = (cwd, p) => resolve(folderOf(cwd), normal(p, true));
 
+// Windows drops a name's trailing dots and spaces (`.env.` opens .env) and
+// reads `name:stream` as the file itself (`.git::$INDEX_ALLOCATION` is the .git
+// folder): the checks look at the name Windows opens (2026-11-19 security review)
+const DRIVE = /^[a-z]:$/i;
+const cleanPart = (part, i) => (i === 0 && DRIVE.test(part) ? part : part.replace(/:.*$/s, "").replace(/(?<=[^.])[. ]+$/, ""));
+// (only on Windows: elsewhere `a:b` and `x.` are names of their own — codex 2026-11-19)
+export const cleanPath = (p) => process.platform !== "win32" ? String(p) : String(p).split(/([\\/])/).map((part, i) => (i % 2 ? part : cleanPart(part, i))).join("");
+// an NTFS stream named in a path (`a.txt:hidden`) — nothing a project needs
+const hasStream = (p) => process.platform === "win32" && String(p).split(/[\\/]/).some((part, i) => part.includes(":") && !(i === 0 && DRIVE.test(part)));
+
 // one command of a chain: what follows up to ; | & or a new line
 const ARGS = "[^;|&\\n]*";
 const COMMANDS = [
@@ -61,14 +71,14 @@ const COMMANDS = [
 const SECRET_NAME = /^(\.env(\.(?!example$|sample$|template$|dist$)[\w.-]+)?|id_(rsa|dsa|ecdsa|ed25519)|\.git-credentials|\.netrc|_netrc|\.npmrc|\.pypirc|credentials(\.json)?)$|\.(pem|key|pfx|p12|keystore|jks)$/i;
 const SECRET_DIR = /(^|[\\/])\.(ssh|gnupg|aws|azure|docker|kube)([\\/]|$)/i;
 // the same named in a command (`type .env`, `cat ~/.ssh/id_rsa`, `Get-Content x.pem`)
-const SECRET_WORD = /(^|[\s'"\\/=(])(\.env(\.(?!example\b|sample\b|template\b)[\w-]+)?|id_(rsa|dsa|ecdsa|ed25519)|\.git-credentials|\.npmrc|[\w-]+\.(pem|pfx|p12))(?=$|[\s'")\\/;|])|(^|[\s'"=(])[^\s'"]*[\\/]\.ssh[\\/]/i;
+const SECRET_WORD = /(^|[\s'"\\/=(])(\.env(\.(?!example\b|sample\b|template\b)[\w-]+)?|id_(rsa|dsa|ecdsa|ed25519)|\.git-credentials|\.npmrc|[\w-]+\.(pem|pfx|p12))\.*(?=$|[\s'")\\/;|:])|(^|[\s'"=(])[^\s'"]*[\\/]\.ssh[\\/]/i;
 
 // by its name and the folders it is in under the work folder (a work folder
 // that is itself inside .ssh does not make every file a secret)
 export const secretPath = (p, cwd = "") => {
   if (!p) return false;
-  const full = cwd ? toolPath(cwd, p) : String(p);
-  const shownPath = cwd ? relative(folderOf(cwd), full) : full;
+  const full = cleanPath(cwd ? toolPath(cwd, p) : String(p));
+  const shownPath = cwd ? relative(cleanPath(folderOf(cwd)), full) : full;
   return SECRET_NAME.test(basename(full)) || SECRET_DIR.test(shownPath.startsWith("..") || isAbsolute(shownPath) ? full : shownPath);
 };
 
@@ -78,7 +88,7 @@ export function outside(cwd, p) {
   return r === ".." || r.startsWith(`..${sep}`) || r.startsWith("../") || isAbsolute(r);
 }
 // Windows (and a Mac's disk) does not tell .GIT from .git
-const inGit = (cwd, p) => relative(folderOf(cwd), toolPath(cwd, p)).split(/[\\/]/).some((part) => part.toLowerCase() === ".git");
+const inGit = (cwd, p) => relative(cleanPath(folderOf(cwd)), cleanPath(toolPath(cwd, p))).split(/[\\/]/).some((part) => part.toLowerCase() === ".git");
 
 // why this call asks whatever the mode, or null
 export function danger(cwd, name, input) {
@@ -98,6 +108,7 @@ export function danger(cwd, name, input) {
     return null;
   }
   if (!p) return null;
+  if ((name === "read" || name === "edit" || name === "write") && hasStream(toolPath(cwd, p))) return "파일 스트림(:) 다루기";
   if (name === "read") return secretPath(p, cwd) ? "비밀 파일 읽기" : null;
   if (name === "edit" || name === "write") {
     if (outside(cwd, p)) return "폴더 밖 파일 고치기";

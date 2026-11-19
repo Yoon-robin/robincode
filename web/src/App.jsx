@@ -157,7 +157,7 @@ function ContextMeter({ context, busy, onCompact }) {
       <button type="button" className={`ctx ${tone}`} aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)}
         title={context ? `${about}${context.tokens.toLocaleString()} / ${context.limit.toLocaleString()} 토큰` : "아직 대화가 없어요"}>
         <span className="ctx-label">맥락</span>
-        <span className="ctx-track"><span className="ctx-fill" style={{ width: `${p}%` }} /></span>
+        <span className="ctx-track"><span className="ctx-fill" style={{ transform: `scaleX(${p / 100})` }} /></span>
         <span className="ctx-value">{about}{p}%</span>
       </button>
       {open && (
@@ -314,7 +314,7 @@ function NotifyRow({ notify, onToggle }) {
           title={on ? "다른 창을 보고 있을 때 허락이 필요하거나 끝나면 Windows 알림으로 알려요. 누르면 꺼요." : "누르면 다른 창을 보고 있을 때 허락이 필요하거나 끝나면 Windows 알림으로 알려요."}>
           <span className={`lamp ${on ? "on" : "idle"}`} aria-hidden="true" />{on ? "켬" : blocked ? "막힘" : "끔"}
         </button>
-        <span className="notify-note">{blocked ? "창의 사이트 설정에서 알림을 허용해 주세요" : "다른 창일 때 허락·끝남"}</span>
+        <span className="notify-note">{blocked ? (window.robincodeShell ? "Windows 설정 > 알림에서 RobinCode를 켜 주세요" : "창의 사이트 설정에서 알림을 허용해 주세요") : "다른 창을 볼 때 허락·끝을 알려요"}</span>
       </span>
     </div>
   );
@@ -366,7 +366,8 @@ function StatusRow({ state, quiet }) {
     : state.phase === "compact" ? "앞부분을 요약하는 중" : "생각하는 중";
   return (
     <div className="status-row" role="status">
-      <span className="status-mark" aria-hidden="true">▌</span>
+      {/* while the answer is written, its own end blinks: this one stays still */}
+      <span className={`status-mark${state.phase === "write" ? " still" : ""}`} aria-hidden="true">▌</span>
       {what}… <span className="status-time" aria-hidden="true">{seconds(now - state.startedAt)}</span>
     </div>
   );
@@ -387,7 +388,11 @@ function turnEnds(items, busy) {
 
 // memo: what is typed lives in App, and every key drew the whole conversation
 // (and the list on the left) again, which grew slow in a long one
-const Conversation = memo(function Conversation({ state, asking, onDecide, onPick, onRewind, onRetry, onBranch, onGpu, onUnqueue, onPlanGo }) {
+// where robin was reading in each conversation (this window, the 30 last):
+// coming back to one put robin at its bottom (codex B9 / B-438)
+const readAt = new Map();
+const ASK_WHAT = { powershell: "명령 실행", bash: "명령 실행", edit: "파일 고치기", write: "파일 쓰기", read: "파일 읽기", grep: "파일 안 찾기", webfetch: "웹 페이지 읽기" };
+const Conversation = memo(function Conversation({ state, outbox = [], asking, onDecide, onPick, onRewind, onRetry, onBranch, onGpu, onUnqueue, onPlanGo }) {
   const scroller = useRef(null);
   const content = useRef(null);
   const stick = useRef(true);
@@ -409,17 +414,29 @@ const Conversation = memo(function Conversation({ state, asking, onDecide, onPic
     if (resized(el) && stick.current) { el.scrollTop = el.scrollHeight; return; }
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     setAway(!stick.current);
+    const key = fileNow.current || "new";
+    readAt.delete(key);
+    if (!stick.current) { readAt.set(key, el.scrollTop); while (readAt.size > 30) readAt.delete(readAt.keys().next().value); }
   };
+  const fileNow = useRef(state.sessionFile);
   // another conversation, or something robin just sent: back to the bottom
   const last = state.items[state.items.length - 1];
-  useLayoutEffect(() => { stick.current = true; setAway(false); }, [state.sessionFile]);
+  useLayoutEffect(() => {
+    fileNow.current = state.sessionFile;
+    const top = readAt.get(state.sessionFile || "new");
+    const el = scroller.current;
+    if (top != null && el && el.scrollHeight - el.clientHeight > top) { stick.current = false; setAway(true); el.scrollTop = top; return; }
+    stick.current = true;
+    setAway(false);
+  }, [state.sessionFile]);
   useLayoutEffect(() => {
     const el = scroller.current;
     if (last?.kind === "user") stick.current = true;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [state.items, state.busy, last, state.queued.length]);
   // while it runs, keep following what grows (a fold opening, a code block)
-  const empty = state.items.length === 0;
+  // (a first message being sent is not an empty conversation: its bubble shows)
+  const empty = state.items.length === 0 && outbox.length === 0;
   useEffect(() => {
     if (empty || !content.current) return undefined;
     const watch = new ResizeObserver(() => {
@@ -437,6 +454,24 @@ const Conversation = memo(function Conversation({ state, asking, onDecide, onPic
     setAway(false);
     scroller.current.scrollTo({ top: scroller.current.scrollHeight, behavior: glide() });
   };
+  // a question came while robin reads above: robin goes to it when ready
+  const toAsk = () => {
+    // answered cards stay (hidden, inert): the one still asking is the last live one
+    const card = [...(scroller.current?.querySelectorAll(".ask") || [])].findLast((el) => !el.closest("[inert]"));
+    if (!card) { toBottom(); return; }
+    card.scrollIntoView({ block: "center", behavior: glide() });
+    // the card, not its yes: a screen reader reads the question first, and a
+    // stray Enter does not say yes
+    card.focus({ preventScroll: true });
+  };
+  // a turn that ended, told once (cleared when the next starts)
+  const [ended, setEnded] = useState(false);
+  const wasBusy = useRef(state.busy);
+  useEffect(() => {
+    if (state.busy) setEnded(false);
+    else if (wasBusy.current) setEnded(true);
+    wasBusy.current = state.busy;
+  }, [state.busy]);
   // another branch: stay where the message is, not at the bottom
   const goBranch = (id) => { stick.current = false; onBranch(id); };
   const ends = turnEnds(state.items, state.busy);
@@ -500,11 +535,21 @@ const Conversation = memo(function Conversation({ state, asking, onDecide, onPic
           {state.busy && !asking && <StatusRow state={state} quiet={!!state.think} />}
           {/* sent while it runs: told after the step it is on, or sent when
               it ends; each can be taken back (to the box, to change) */}
+          {/* sent, not yet taken: the model is checked first (it can take a
+              few seconds; the box was empty with nothing in the thread) */}
+          {outbox.map((o) => (
+            <div key={o.id} className="msg msg-user sending" aria-live="polite">
+              <div className="bubble-col">
+                <div className="bubble"><span className="bubble-text">{o.text}</span></div>
+                <span className="sending-note">보내는 중…</span>
+              </div>
+            </div>
+          ))}
           {state.queued.length > 0 && (
             <div className="queued" role="group" aria-label="기다리는 말">
               {state.queued.map((q, k) => (
                 <div key={q.id || k} className={`queued-bubble ${q.held ? "held" : q.kind}`}>
-                  <span className="queued-when">{q.held ? "요약이 끝나면" : q.kind === "steer" ? "다음 단계 전에" : "끝나면"}</span>
+                  <span className="queued-when">{q.held ? "요약이 끝나면" : q.kind === "steer" ? "다음 단계 전에" : "다 끝나면"}</span>
                   <div className="queued-text">{q.text}{q.pictures ? <span className="queued-pics"> · 그림 {q.pictures}장</span> : null}</div>
                   <button type="button" className="icon-btn queued-x" aria-label="이 말은 보내지 않고 입력 칸으로" title="보내지 않고 입력 칸으로 (고쳐서 다시 보내요)"
                     onClick={() => onUnqueue(q.id)}><Icon name="close" /></button>
@@ -519,7 +564,12 @@ const Conversation = memo(function Conversation({ state, asking, onDecide, onPic
           )}
         </div>
       )}
-      {away && <button type="button" className="to-bottom" onClick={toBottom}><Icon name="down" />아래로</button>}
+      {/* for a screen reader: a question waiting, and a turn that ended (the
+          region is always there, so a change is read out) */}
+      <p className="sr" role="status">{asking ? `허락을 기다려요: ${ASK_WHAT[asking.name] || asking.name} ${describe(asking.name, asking.args)}${asking.risk ? ` (${asking.risk})` : ""}. 1은 허락, 3은 안 돼요.` : ended ? "답이 끝났어요." : ""}</p>
+      {away && (asking
+        ? <button type="button" className="to-bottom" onClick={toAsk}><Icon name="down" />허락 요청으로</button>
+        : <button type="button" className="to-bottom" onClick={toBottom}><Icon name="down" />아래로</button>)}
     </div>
   );
 });
@@ -547,11 +597,12 @@ function Mark({ text, q }) {
 
 // a conversation going on: "도는 중" (or waiting for a yes) where its time was;
 // one that ended while robin was in another: "끝났어요" until it is opened
-function RunMark({ run }) {
+// (the one on screen has its own blinking status line: no second cursor here)
+function RunMark({ run, here }) {
   if (run.done) return <span className="conv-time conv-run conv-done">끝났어요 · 아직 안 봤어요</span>;
   return run.asking
     ? <span className="conv-time conv-run conv-ask">[ ?? ] 허락을 기다려요</span>
-    : <span className="conv-time conv-run">[ .. ] 도는 중<span className="cursor" aria-hidden="true" /></span>;
+    : <span className="conv-time conv-run">[ .. ] 도는 중{!here && <span className="cursor" aria-hidden="true" />}</span>;
 }
 
 function Conv({ s, q, current, run, now, folder, pinned, onPin, onOpen, onDelete, onRename }) {
@@ -582,7 +633,7 @@ function Conv({ s, q, current, run, now, folder, pinned, onPin, onOpen, onDelete
           <button type="button" className="conv-open" title={folder ? `${s.title}\n${folder}` : s.title} onClick={() => onOpen(s.path)}>
             <span className="conv-title"><Mark text={s.title} q={q} /></span>
             {folder && <span className="conv-time conv-folder mono">{shortPath(folder)}</span>}
-            {run ? <RunMark run={run} />
+            {run ? <RunMark run={run} here={!!current} />
               : s.snippet ? <span className="conv-snip"><Mark text={s.snippet.text} q={q} /></span>
                 : !folder && <span className="conv-time">{ago(s.modified, now)}</span>}
           </button>
@@ -694,7 +745,7 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
         )}
         {words && found ? (
           <section className="conv-day" aria-label="찾은 대화">
-            <p className="side-label" aria-live="polite">{found.list.length ? `찾은 대화 ${found.list.length}개` : `"${found.q}"가 든 대화가 없어요.`}</p>
+            <p className="side-label" aria-live="polite">{found.list.length ? `찾은 대화 ${found.list.length}개` : `찾은 대화가 없어요: "${found.q}"`}</p>
             <ul className="conv-list">{found.list.map((s) => conv(s, found.q))}</ul>
           </section>
         ) : state.sessions === null ? null : state.sessions.length === 0 ? (
@@ -780,9 +831,42 @@ function UpdateRow() {
   );
 }
 
-function Toast({ toast, onDone }) {
+// a sheet or the GPU window over the conversation: the focus goes in, Tab
+// goes round inside it (it went on to the hidden page behind), Esc closes it
+// (it must not stop the agent), and the focus comes back to where it was
+// (2026-11-19 codex, web-design-guidelines, impeccable: B-433)
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+function useModal(panel, onClose) {
+  useEffect(() => {
+    const before = document.activeElement;
+    panel.current?.focus();
+    const key = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); return; }
+      if (e.key !== "Tab" || !panel.current) return;
+      const all = [...panel.current.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+      if (!all.length) { e.preventDefault(); return; }
+      const first = all[0];
+      const last = all[all.length - 1];
+      const at = document.activeElement;
+      if (!panel.current.contains(at)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+      else if (e.shiftKey && (at === first || at === panel.current)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", key, true);
+    return () => {
+      document.removeEventListener("keydown", key, true);
+      if (before && before.isConnected && typeof before.focus === "function") before.focus();
+    };
+  }, [panel, onClose]);
+}
+
+function Toast({ toast, onDone, onHold }) {
+  // the mouse over it or the focus in it: it goes only when neither is (codex 2026-11-19)
+  const held = useRef({ pointer: false, focus: false });
+  const hold = (why, on) => { held.current[why] = on; onHold(held.current.pointer || held.current.focus); };
   return (
-    <div className="toast" role="status">
+    <div className="toast" role="status" onPointerEnter={() => hold("pointer", true)} onPointerLeave={() => hold("pointer", false)}
+      onFocus={() => hold("focus", true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) hold("focus", false); }}>
       <span>{toast.text}</span>
       {toast.actions.map((a) => (
         <button key={a.label} type="button" className="toast-btn" onClick={() => { onDone(); a.run(); }}>{a.label}</button>
@@ -798,7 +882,7 @@ function Toast({ toast, onDone }) {
 const JOB_WORDS = {
   rent: ["빌리는 중…", "빌렸어요", "빌리지 못했어요"],
   start: ["켜는 중…", "켰어요", "켜지 못했어요"],
-  destroy: ["끄는 중…", "껐어요(지웠어요). 이제 요금이 안 나가요.", "끄지 못했어요"],
+  destroy: ["끄는 중…", "껐어요. GPU를 지워서 이제 요금이 안 나가요.", "끄지 못했어요"],
 };
 function JobLog({ job, prog, rented }) {
   const words = JOB_WORDS[job.action];
@@ -813,7 +897,7 @@ function JobLog({ job, prog, rented }) {
       {prog && <GpuProgress action={prog.action} p={prog.p} />}
       {lines.length > 0 && <ul className="gpu-job-lines">{lines.map((l, k) => <li key={k}>{l}</li>)}</ul>}
       {job.running && <p className="gpu-note">이 창을 닫아도 서버에서 계속돼요.</p>}
-      {stuck && <p className="gpu-note">아래 끄기(지우기)로 지우면 요금이 멈춰요.</p>}
+      {stuck && <p className="gpu-note">아래 "끄고 지우기"를 누르면 요금이 멈춰요.</p>}
     </div>
   );
 }
@@ -841,13 +925,7 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
       .finally(() => setLoading(false));
   }, []);
   useEffect(() => { if (state === "off" && !running && offers === null && !loading && !failed) load(); }, [state, running, offers, loading, failed, load]);
-  useEffect(() => {
-    panel.current?.focus();
-    // Esc closes this (it must not stop the agent)
-    const esc = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); } };
-    document.addEventListener("keydown", esc, true);
-    return () => document.removeEventListener("keydown", esc, true);
-  }, [onClose]);
+  useModal(panel, onClose);
   const run = (action, offer) => {
     setSure(null);
     setErr("");
@@ -888,7 +966,7 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
           <div className="gpu-job">
             <p className="gpu-job-head"><span>켜는 중…</span><span className="cursor" aria-hidden="true" /></p>
             <GpuProgress action={prog.action} p={prog.p} />
-            <p className="gpu-note">서버에서 계속되는 중이에요.</p>
+            <p className="gpu-note">서버에서 계속하고 있어요.</p>
           </div>
         )}
         {canCancel && (sure === "cancel" ? (
@@ -911,7 +989,7 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
               <p className="side-label">빌릴 수 있는 자리 <span className="gpu-faint">한국 먼저, 싼 순</span></p>
               <button type="button" className="mini-btn" onClick={load} disabled={loading}>{loading ? "받는 중…" : "다시 받기"}</button>
             </div>
-            {offers === null && loading && <p className="gpu-note">자리 목록을 받는 중이에요<span className="cursor" aria-hidden="true" /></p>}
+            {offers === null && loading && <p className="gpu-note">자리 목록을 받는 중<span className="cursor" aria-hidden="true" /></p>}
             {offers && (
               <div className="gpu-offers" role="radiogroup" aria-label="빌릴 자리">
                 {offers.map((o) => (
@@ -952,7 +1030,7 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
               <p>끄면 GPU 인스턴스를 지워요. 요금이 0이 되고 받아 둔 모델도 지워져요. RobinAI 채팅과 다른 RobinCode 창도 같이 멈춰요. 다음에 켜면 새로 빌려서 6~10분 걸려요.</p>
               <div className="gpu-actions">
                 <button type="button" className="btn" autoFocus onClick={() => setSure(null)}>취소</button>
-                <button type="button" className="btn btn-danger" onClick={() => run("destroy")}>끄기(지우기)</button>
+                <button type="button" className="btn btn-danger" onClick={() => run("destroy")}>끄고 지우기</button>
               </div>
             </div>
           ) : sure === "start" ? (
@@ -966,7 +1044,7 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
           ) : (
             <div className="gpu-actions">
               {state === "stopped" && <button type="button" className="btn" onClick={() => setSure("start")}>다시 켜기…</button>}
-              <button type="button" className="btn" onClick={() => setSure("destroy")}>끄기(지우기)…</button>
+              <button type="button" className="btn" onClick={() => setSure("destroy")}>끄고 지우기…</button>
             </div>
           )
         )}
@@ -1176,13 +1254,7 @@ function FindBar({ items, onClose }) {
 // ---- /memory and /help: a sheet over the conversation
 function Sheet({ label, wide, onClose, children }) {
   const panel = useRef(null);
-  useEffect(() => {
-    panel.current?.focus();
-    // Esc closes this (it must not stop the agent)
-    const esc = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); } };
-    document.addEventListener("keydown", esc, true);
-    return () => document.removeEventListener("keydown", esc, true);
-  }, [onClose]);
+  useModal(panel, onClose);
   return (
     <div className="modal-back" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <section className={`sheet${wide ? " sheet-wide" : ""}`} role="dialog" aria-modal="true" aria-label={label} ref={panel} tabIndex={-1}>
@@ -1245,9 +1317,11 @@ function ChangeFile({ f, busy, open, onToggle, onRevert, onPut }) {
 }
 function ChangesPanel({ busy, conv, onClose, onError }) {
   const [files, setFiles] = useState(null);
+  const [others, setOthers] = useState(null);
   const [open, setOpen] = useState(() => new Set());
   useEffect(() => {
     api("/api/changes").then((r) => {
+      setOthers(r.others || null);
       setFiles(r.files);
       // a few: all open; many: the first only
       setOpen(new Set((r.files.length <= 3 ? r.files : r.files.slice(0, 1)).map((f) => f.path)));
@@ -1259,7 +1333,7 @@ function ChangesPanel({ busy, conv, onClose, onError }) {
     .catch((e) => onError(`되돌리지 못했어요: ${e.message}`));
   const put = (f) => api("/api/changes", { put: f.path, hash: f.undo, conv })
     .then((r) => swap(f.path, { ...r.file, reverted: false }))
-    .catch((e) => onError(`되살리지 못했어요: ${e.message}`));
+    .catch((e) => onError(`다시 살리지 못했어요: ${e.message}`));
   const total = useMemo(() => (files || []).reduce((t, f) => {
     if (f.state === "big" || f.reverted) return t;
     const d = fileHunks(f.before, f.now);
@@ -1269,12 +1343,12 @@ function ChangesPanel({ busy, conv, onClose, onError }) {
   return (
     <Sheet label="이 대화가 바꾼 파일" wide onClose={onClose}>
       {files === null ? <p className="chg-note">읽는 중…</p> : files.length === 0 ? (
-        <p className="chg-note">이 대화는 아직 파일을 바꾸지 않았어요. (명령으로 바뀐 것은 여기 없어요.)</p>
+        <p className="chg-note">이 대화는 아직 edit·write로 파일을 바꾸지 않았어요.</p>
       ) : (
         <>
           <p className="chg-note">
             파일 {files.length}개 · <span className="chg-add">+{total.add}</span>{total.del > 0 && <> <span className="chg-del">−{total.del}</span></>}
-            <span className="chg-hint"> — 이 대화가 고치기 전과 지금 파일을 견줘요. 되돌리기는 그 파일만 고치기 전으로.</span>
+            <span className="chg-hint"> — 이 대화가 고치기 전과 지금 파일을 견줘요. 되돌리기는 그 파일 하나만 고치기 전으로 돌려요.</span>
           </p>
           <ul className="chg-files">
             {files.map((f) => (
@@ -1283,6 +1357,12 @@ function ChangesPanel({ busy, conv, onClose, onError }) {
             ))}
           </ul>
         </>
+      )}
+      {others?.length > 0 && (
+        <div className="chg-others">
+          <p className="chg-note">그 밖에 git이 바뀌었다고 보는 파일 {others.length}개 <span className="chg-hint">— 명령이나 다른 프로그램이 바꾼 것일 수 있어요. 여기서는 되돌리지 않아요(git으로).</span></p>
+          <ul>{others.map((o) => <li key={o.name}><span className="chg-how">{o.how}</span> <span className="mono">{o.name}</span></li>)}</ul>
+        </div>
       )}
     </Sheet>
   );
@@ -1338,7 +1418,7 @@ function RulesPanel({ onClose, onError }) {
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Sheet label="늘 허용한 것" onClose={onClose}>
-      <p className="gpu-note">물을 때 "늘 허용"(4)을 누른 것은 이 폴더에서 다시 묻지 않아요. 명령은 그 시작이 같을 때만(… 붙은 것) 또는 똑같을 때만, 이어 붙이거나(<span className="mono">; && |</span>) 넘기거나(<span className="mono">&gt;</span>) 괄호·<span className="mono">$</span>·줄 바꿈이 있으면 다시 물어요. node·python·powershell처럼 아무거나 돌리는 것은 늘 허용이 없어요.</p>
+      <p className="gpu-note">물을 때 "늘 허용"(4)을 누른 것은 이 폴더에서 다시 묻지 않아요. 명령은 시작이 같거나(… 붙은 것) 똑같을 때만 그래요. 이어 붙이거나(<span className="mono">; && |</span>) 넘기거나(<span className="mono">&gt;</span>) 괄호·<span className="mono">$</span>·줄 바꿈이 들어가면 다시 물어요. node·python·powershell처럼 무엇이든 돌릴 수 있는 명령은 늘 허용할 수 없어요.</p>
       {rules === null ? <p className="gpu-note">읽는 중<span className="cursor" aria-hidden="true" /></p>
         : rules.length === 0 ? <p className="gpu-note">아직 없어요.</p> : (
           <ul className="rule-list">
@@ -1355,15 +1435,15 @@ function RulesPanel({ onClose, onError }) {
   );
 }
 const KEYS = [
-  ["Enter", "보내기 (도는 중이면 지금 단계 다음에 전해요)"],
-  ["Ctrl+Enter", "도는 중에: 다 끝난 뒤에 보내요"],
+  ["Enter", "보내기 (도는 중이면 다음 단계 전에 전해요)"],
+  ["Ctrl+Enter", "도는 중에: 다 끝나면 보내요"],
   ["Shift+Enter", "줄 바꿈"],
-  ["↑ (빈 칸)", "기다리는 말을 꺼내 고쳐요. 없으면 보낸 말을 차례로"],
+  ["↑ (빈 칸)", "기다리는 말을 꺼내 고쳐요. 없으면 보낸 말을 차례로 불러와요"],
   ["Esc", "멈추기"],
   ["Shift+Tab", "모드 바꾸기: 묻고 실행 → 수정은 바로 → 바로 실행 → 계획만"],
   ["Ctrl+F", "대화에서 찾기"],
   ["Ctrl+K", "지난 대화 찾기"],
-  ["1 2 3 4", "물을 때: 실행 · 늘 묻지 않기 · 거절 · 이 명령은 늘 허용"],
+  ["1 2 3 4", "물을 때: 하기 · 이번 대화는 모두 허용 · 안 돼요 · 늘 허용"],
   ["@", "이 폴더의 파일 넣기"],
   ["!명령", "PowerShell로 바로 실행 (결과는 대화에 남아요)"],
 ];
@@ -1480,8 +1560,17 @@ export default function App() {
   const say = useCallback((text, action) => {
     const actions = [].concat(action || []).filter(Boolean);
     clearTimeout(toastTimer.current);
+    const ms = actions.length > 1 ? 9000 : actions.length ? 6000 : 2600;
+    toastLife.current = ms;
     setToast({ id: Date.now(), text, actions });
-    toastTimer.current = setTimeout(() => setToast(null), actions.length > 1 ? 9000 : actions.length ? 6000 : 2600);
+    toastTimer.current = setTimeout(() => setToast(null), ms);
+  }, []);
+  // pointed at or focused, a note stays (robin reading it, or reaching for
+  // its button with Tab); let go, it goes after its time again
+  const toastLife = useRef(0);
+  const holdToast = useCallback((on) => {
+    clearTimeout(toastTimer.current);
+    if (!on) toastTimer.current = setTimeout(() => setToast(null), Math.max(2600, toastLife.current));
   }, []);
   const fail = useCallback((e) => say(e.message === "busy" ? "도는 중이라 지금은 못 해요. 끝나거나 멈춘 뒤에 해 주세요." : `하지 못했어요: ${e.message}`,
     e.gpuOff ? { label: "GPU 켜기…", run: () => setGpuOpen(true) } : undefined), [say]);
@@ -1523,6 +1612,14 @@ export default function App() {
   // its way goes after it, in order); the same words twice at once (a double
   // click) go once
   const inFlight = useRef(null); // { text, done }
+  const busyNow = useRef(false);
+  busyNow.current = state.busy;
+  // what is on its way, shown in its conversation until the server takes it
+  const [outbox, setOutbox] = useState([]);
+  const outboxHere = useMemo(() => outbox.filter((o) => o.key === convKey), [outbox, convKey]);
+  // the server took it (its line is in the thread): not shown twice
+  const lastUser = state.items.findLast((x) => x.kind === "user")?.text;
+  useEffect(() => { if (lastUser) setOutbox((list) => (list.some((o) => o.text === lastUser) ? list.filter((o) => o.text !== lastUser) : list)); }, [lastUser]);
   const send = useCallback((text, pictures = [], when = "now") => {
     const t = text.trim();
     if ((!t && !pictures.length) || (inFlight.current && inFlight.current.text === t && !pictures.length)) return Promise.resolve(false);
@@ -1533,6 +1630,9 @@ export default function App() {
     // another is open by the time it goes (a second message waits for the first)
     const from = here.current;
     const stopsThen = stops.current;
+    const mine = { id: `o${Date.now()}${Math.random()}`, key: from.key, text: t || "(그림)" };
+    // while a turn runs it goes into the queue (shown there), not here
+    if (!busyNow.current) setOutbox((list) => [...list, mine]);
     const done = (async () => {
       if (before) await before;
       if (before && stops.current !== stopsThen) {
@@ -1557,7 +1657,11 @@ export default function App() {
     })();
     const me = { text: t, done };
     inFlight.current = me;
-    done.finally(() => { if (inFlight.current === me) inFlight.current = null; });
+    done.finally(() => {
+      if (inFlight.current === me) inFlight.current = null;
+      // the server's "user" line comes with the answer to this request
+      setTimeout(() => setOutbox((list) => list.filter((o) => o !== mine)), 120);
+    });
     return done;
   }, []);
   // a stop also holds back what is still on its way in the window (it waits
@@ -1625,7 +1729,7 @@ export default function App() {
         run: () => back().then(() => api("/api/files-sync")).then((u) => say(syncWords(u, "원래대로 돌렸어요"))).catch(fail),
       };
       const putBack = () => api("/api/files-sync").then((s) => say(`${syncWords(s, "되돌렸어요")}${commands}`, s.done.length ? undoBoth : undo)).catch(fail);
-      say(`이 말 앞으로 돌아왔어요. 그 뒤에 고친 ${filesWord(r.files)}는 그대로예요.`, [{ label: "파일도 되돌리기", run: putBack }, undo]);
+      say(`이 말 앞으로 돌아왔어요. 그 뒤에 바꾼 ${filesWord(r.files)}는 그대로예요.`, [{ label: "파일도 되돌리기", run: putBack }, undo]);
     } catch (e) { fail(e); }
   };
   // another of the messages sent at one place (‹ 2/3 ›), where robin last was
@@ -1769,9 +1873,18 @@ export default function App() {
         `${where}\n${last?.kind === "line" ? last.text : firstWords(answer?.text)}`.trim());
     }
   }, [waiting, state.busy]); // eslint-disable-line react-hooks/exhaustive-deps
+  // when robin last typed in the message box (a digit right after is not an answer)
+  const typedAt = useRef(0);
+  useEffect(() => {
+    const onInput = (e) => { if (e.target === box.current) typedAt.current = Date.now(); };
+    document.addEventListener("input", onInput, true);
+    return () => document.removeEventListener("input", onInput, true);
+  }, []);
   useEffect(() => {
     const onKey = (e) => {
       if (e.isComposing) return;
+      // a sheet or the GPU window is open: its keys are its own
+      if (document.querySelector("[aria-modal='true']")) return;
       // Ctrl+K: find a past conversation (the drawer opens on a narrow window)
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -1809,6 +1922,9 @@ export default function App() {
       if (document.querySelector("[aria-modal='true']")) return;
       const field = e.target.closest?.("textarea, input");
       if (field && (field !== box.current || field.value)) return;
+      // robin was typing a moment ago (the box just emptied by a send or a
+      // cut): the digit is part of that, not an answer
+      if (field === box.current && Date.now() - typedAt.current < 1000) return;
       e.preventDefault();
       decide(asking.id, answer);
     };
@@ -1878,15 +1994,15 @@ export default function App() {
         <header className="main-head">
           <button ref={menuRef} type="button" className="icon-btn menu-btn" aria-label="대화 목록 열기" aria-controls="side"
             aria-expanded={side} onClick={openSide}><Icon name="menu" /></button>
-          <h1 className="main-title" key={state.title}>{state.title || "새 대화"}</h1>
+          <h1 className="main-title">{state.title || "새 대화"}</h1>
           {changed > 0 && (
-            <button type="button" className="head-changes" onClick={() => setPanel("changes")} title="이 대화가 바꾼 파일 보기·되돌리기 (/changes)" aria-label={`이 대화가 고친 파일 ${changed}개 보기`}>
-              <Icon name="file" /><span><span className="hc-word">고친 파일 </span>{changed}</span>
+            <button type="button" className="head-changes" onClick={() => setPanel("changes")} title="이 대화가 바꾼 파일 보기·되돌리기 (/changes)" aria-label={`이 대화가 바꾼 파일 ${changed}개 보기`}>
+              <Icon name="file" /><span><span className="hc-word">바꾼 파일 </span>{changed}</span>
             </button>
           )}
           <div className="head-narrow"><Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} compact onOpen={() => setGpuOpen(true)} /></div>
         </header>
-        {offline && <div className="lost" role="alert">{lostLong ? "RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요." : "RobinCode 서버와 다시 연결하는 중이에요…"}</div>}
+        {offline && <div className="lost" role="alert">{lostLong ? "RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요." : "RobinCode 서버와 다시 연결하는 중이에요."}</div>}
         {soon != null && (
           <div className="gpu-soon" role="status">
             <span>GPU를 {state.gpu.idle}분째 안 써서 {soon ? `약 ${soon}분 뒤` : "곧"} 서버가 꺼요. 다시 켜려면 6~10분 걸려요.</span>
@@ -1894,13 +2010,13 @@ export default function App() {
           </div>
         )}
         {finding && <FindBar items={state.items} onClose={on.closeFind} />}
-        <Conversation state={state} asking={asking} onDecide={decide} onPick={on.pick} onRewind={on.rewind} onRetry={on.retry} onBranch={on.branch} onGpu={on.gpu}
+        <Conversation state={state} outbox={outboxHere} asking={asking} onDecide={decide} onPick={on.pick} onRewind={on.rewind} onRetry={on.retry} onBranch={on.branch} onGpu={on.gpu}
           onUnqueue={on.unqueue} onPlanGo={on.planGo} />
         <TodoPanel todo={todo} busy={state.busy} />
         <Composer state={state} convKey={convKey} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}
           setDraft={setDraft} pastRef={pastRef} attachRef={attachRef} picturesRef={picturesRef} addPicturesRef={addPicturesRef} commands={commands}
           onSend={send} onStop={stop} onError={say} onCommand={on.command} onShell={on.shell} onMode={cycleMode} onUnqueueLast={on.unqueueLast}
-          notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} />} />
+          notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} onHold={holdToast} />} />
         {panel === "memory" && <MemoryPanel onClose={on.closePanel} onError={on.say} />}
         {panel === "help" && <HelpPanel commands={commands} onClose={on.closePanel} />}
         {panel === "rules" && <RulesPanel onClose={on.closePanel} onError={on.say} />}

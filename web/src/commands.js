@@ -7,7 +7,7 @@ export const BUILTIN = [
   { name: "compact", hint: "앞부분을 요약해서 줄여요. 뒤에 남길 것을 적어도 돼요", arg: "남길 것" },
   { name: "init", hint: "이 폴더를 살펴보고 AGENTS.md(모델이 읽는 지시 파일)를 만들어요" },
   { name: "memory", hint: "모델이 읽는 지시 파일을 봐요. 뒤에 한 줄을 적으면 AGENTS.md에 더해요", arg: "더할 한 줄" },
-  { name: "mode", hint: "모드: ask(묻고) · edits(수정은 바로) · auto(바로) · plan(계획만)", arg: "모드" },
+  { name: "mode", hint: "모드: ask(묻고 실행) · edits(수정은 바로) · auto(바로 실행) · plan(계획만)", arg: "모드" },
   { name: "plan", hint: "계획 모드: 읽고 찾아보기만 하고 계획을 써요" },
   { name: "permissions", hint: "이 폴더에서 \"늘 허용\"한 명령과 사이트를 보고 지워요" },
   { name: "think", hint: "모델이 답하기 전에 생각하기를 켜고 꺼요" },

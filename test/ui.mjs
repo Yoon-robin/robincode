@@ -172,7 +172,7 @@ ok(readFileSync(join(work, "README.md"), "utf8").includes("계획대로 고쳤�
 
 // ---- the review sheet: header button, the diff, put back with two presses, back again
 const headBtn = page.locator(".head-changes");
-ok(/고친 파일 1/.test(await headBtn.innerText().catch(() => "")), `머리줄 '고친 파일 1' (${await headBtn.innerText().catch(() => "없음")})`);
+ok(/바꾼 파일 1/.test(await headBtn.innerText().catch(() => "")), `머리줄 '바꾼 파일 1' (${await headBtn.innerText().catch(() => "없음")})`);
 await headBtn.click();
 await page.waitForSelector(".chg-file", { timeout: 5000 }).catch(() => {});
 const sheet = page.locator(".chg-file", { hasText: "README.md" });
@@ -212,7 +212,7 @@ ok((await box.inputValue()) === "끝나고 이것도" && (await page.locator(".q
 await box.fill("");
 await idle(40000);
 const users = await page.locator(".msg-user").allInnerTexts();
-ok(users.some((t) => t.includes("목록도 봐 줘")), "지금 단계 다음에 전한 말이 대화에");
+ok(users.some((t) => t.includes("목록도 봐 줘")), "다음 단계 전에 전한 말이 대화에");
 ok(!users.some((t) => t.includes("끝나고 이것도")), "꺼낸 말은 안 보냄");
 
 // ---- webfetch: asks, 4 = always for this site
@@ -221,6 +221,8 @@ await asks();
 await page.waitForTimeout(300);
 ok(await page.locator(".ask", { hasText: "이 웹 페이지를 읽을까요?" }).count() >= 1, "webfetch 묻기");
 ok(await page.locator(".ask button", { hasText: "늘 허용" }).count() >= 1, "늘 허용 버튼");
+// a digit within a second of typing in the box is typing, not an answer
+await page.waitForTimeout(1100);
 await box.click();
 await page.keyboard.press("4");
 await idle();

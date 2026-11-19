@@ -104,14 +104,18 @@ function Approval({ tool, onDecide }) {
   const [note, setNote] = useState("");
   const rule = tool.rule;
   // the card stays (hidden) once answered: its diff is made once, not at every drawing
-  const rows = useMemo(() => (name === "edit" ? editRows(args) : name === "write" ? writeRows(args) : null), [name, args]);
+  const [whole, setWhole] = useState(false);
+  const rows = useMemo(() => (name === "edit" ? editRows(args) : name === "write" ? writeRows(args, whole ? 0 : 120, tool.was) : null), [name, args, whole, tool.was]);
+  const cut = name === "write" && !whole && rows?.length > 120;
   // once the fold has opened, bring the buttons into view if they are not
   useEffect(() => {
-    const id = setTimeout(() => yes.current?.scrollIntoView({ block: "nearest", behavior: glide() }), 230);
+    // only when robin was following the bottom: reading something above, a
+    // question does not pull robin away from it (the button "허락 요청으로" does)
+    const id = setTimeout(() => { if (!document.querySelector(".to-bottom")) yes.current?.scrollIntoView({ block: "nearest", behavior: glide() }); }, 150);
     return () => clearTimeout(id);
   }, []);
   return (
-    <div className={`ask${risk ? " risky" : ""}`} role="group" aria-label={title}>
+    <div className={`ask${risk ? " risky" : ""}`} role="group" aria-label={title} tabIndex={-1}>
       <p className="ask-title"><span className="prompt">&gt;</span> {title}</p>
       {/* asked in every mode: what cannot be put back (guard.mjs) */}
       {risk && <p className="ask-risk"><Icon name="alert" /> {risk} — 되돌릴 수 없어서 어느 모드에서나 물어요.</p>}
@@ -121,8 +125,9 @@ function Approval({ tool, onDecide }) {
         <pre className="ask-cmd">{`${String(args.pattern ?? "")}  ·  ${String(args.path ?? ".")}${args.glob ? `  ·  ${args.glob}` : ""}`}</pre>
       ) : isFile ? (
         <div className="ask-file">
-          <div className="ask-path">{args.path}</div>
+          <div className="ask-path">{args.path}{name === "write" && (tool.was === null ? " · 새 파일" : typeof tool.was === "string" ? " · 덮어쓰기" : "")}</div>
           <DiffLines rows={rows} />
+          {cut && <button type="button" className="mini-btn ask-whole" onClick={() => setWhole(true)}>모두 보기</button>}
         </div>
       ) : web ? (
         <pre className="ask-cmd">{String(args.url ?? "")}</pre>
@@ -130,7 +135,7 @@ function Approval({ tool, onDecide }) {
         <pre className="ask-cmd"><span className="ps">PS&gt;</span> {String(args.command ?? JSON.stringify(args))}</pre>
       )}
       <div className="ask-buttons">
-        <button ref={yes} type="button" className="btn btn-primary" onClick={() => onDecide(tool.id, "yes")}>
+        <button ref={yes} type="button" className={`btn ${risk ? "btn-danger" : "btn-primary"}`} onClick={() => onDecide(tool.id, "yes")}>
           <kbd className="key">1</kbd>{yesLabel}
         </button>
         {!risk && (
@@ -145,13 +150,13 @@ function Approval({ tool, onDecide }) {
         {rule && (
           <button type="button" className="btn" onClick={() => onDecide(tool.id, "rule")}
             title={web ? "이 사이트의 페이지는 이 폴더에서 묻지 않고 읽어요." : rule.key.startsWith("exact:") ? "똑같은 이 명령은 이 폴더에서 묻지 않고 실행해요." : `"${rule.label}"로 시작하는 명령은 이 폴더에서 묻지 않고 실행해요. ; | > 같은 것으로 이어 붙인 명령은 그래도 물어요.`}>
-            <kbd className="key">4</kbd>{web ? <><span className="mono">{rule.label}</span>은 늘 허용</> : <><span className="mono">{rule.label}</span> 늘 허용</>}
+            <kbd className="key">4</kbd>{web ? <><span className="mono">{rule.label}</span> 늘 허용</> : <><span className="mono">{rule.label}</span> 늘 허용</>}
           </button>
         )}
       </div>
       {/* a no with words: why, or what to do instead — the model gets them */}
       <input className="ask-note" value={note} spellCheck={false} maxLength={500}
-        placeholder="안 되면 이유나 대신 할 것 (Enter로 안 돼요)" aria-label="안 되는 이유나 대신 할 것"
+        placeholder="안 되는 이유나 대신 할 일 (Enter: 안 돼요)" aria-label="안 되는 이유나 대신 할 일"
         onChange={(e) => setNote(e.target.value)}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return;
@@ -190,7 +195,7 @@ const Step = memo(function Step({ tool, onDecide }) {
     setOpen((v) => !v);
     clearTimeout(reveal.current);
     // opened near the bottom: once it has unfolded, scroll it into view
-    if (!open) reveal.current = setTimeout(() => body.current?.scrollIntoView({ block: "nearest", behavior: glide() }), 210);
+    if (!open) reveal.current = setTimeout(() => body.current?.scrollIntoView({ block: "nearest", behavior: glide() }), 130);
   };
   const status = tool.ask ? "asking" : tool.status;
   const running = tool.status === "run";
@@ -312,7 +317,7 @@ export const ShellRun = memo(function ShellRun({ item }) {
         <span className="step-tag">{tag}</span>
         <span className="shell-cmd"><span className="ps">!</span> {item.command}</span>
         {running && item.startedAt ? <Elapsed from={item.startedAt} />
-          : item.exitCode != null && item.exitCode !== 0 ? <span className="step-ms">끝 코드 {item.exitCode}</span> : null}
+          : item.exitCode != null && item.exitCode !== 0 ? <span className="step-ms">종료 코드 {item.exitCode}</span> : null}
       </div>
       {item.output ? (
         <div className="out">

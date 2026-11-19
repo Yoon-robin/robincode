@@ -25,7 +25,7 @@ import { execFile, spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 // no fs.rmSync: on Node 24.13 for Windows it kills the process on any path with
 // Korean in it (2026-11-09); fs.promises.rm and unlinkSync are fine
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { connect } from "node:net";
@@ -616,7 +616,7 @@ const LOOP_ERRORS = "도구가 계속 실패해서 멈췄어요. 다시 보내�
 const LOOP_LONG = `한 번에 도구를 ${TOO_LONG}번 써서 멈췄어요. 이어 가려면 "계속"이라고 보내 주세요.`;
 const NOTE_CYCLE = "같은 도구 호출을 되풀이해서 모델에게 다른 방법을 쓰라고 알렸어요.";
 const NOTE_ERRORS = "도구가 계속 실패해서 모델에게 원인부터 보라고 알렸어요.";
-const NOTE_THINK = "같은 생각을 되풀이해서 생각을 닫고 답으로 넘어가요.";
+const NOTE_THINK = "같은 생각을 되풀이해서 생각을 끝내고 답으로 넘어가요.";
 const NOTE_CHECK = (n) => `도구를 ${n}번 써서 모델에게 지금까지 한 일을 정리하라고 알렸어요.`;
 const CHECK = (n) => `(RobinCode 알림) 이번 차례에 도구를 ${n}번 썼어요. 지금까지 한 일과 남은 일을 두세 줄로 정리하고, 다 했으면 답하세요. 이미 본 것을 다시 찾고 있다면 멈추고 robin에게 짧게 물어보세요.`;
 // the last few calls go round: 1 to CYCLE_MAX calls repeated CYCLE_TIMES
@@ -966,8 +966,11 @@ const approvalsFor = (conv) => ({
       const risk = danger(conv.cwd, event.toolName, event.input);
       if (!risk && !needsYes(conv, event.toolName, event.input)) return going();
       const rule = risk ? null : ruleOf(event.toolName, event.input);
-      asking.set(event.toolCallId, { id: event.toolCallId, name: event.toolName, args: event.input, conv, rule, risk });
-      if (conv === cur) broadcast({ t: "approve", id: event.toolCallId, name: event.toolName, args: event.input, rule, risk });
+      // a write over a file: what is there now, so the card shows what goes
+      // (it showed only the new text, all as added; codex B1 / B-431)
+      const was = event.toolName === "write" ? fileNow(absPath(event.input?.path, conv.cwd)) : undefined;
+      asking.set(event.toolCallId, { id: event.toolCallId, name: event.toolName, args: event.input, conv, rule, risk, was });
+      if (conv === cur) broadcast({ t: "approve", id: event.toolCallId, name: event.toolName, args: event.input, rule, risk, was });
       sayRunning();
       const answer = await new Promise((r) => pending.set(event.toolCallId, r));
       pending.delete(event.toolCallId);
@@ -1038,6 +1041,24 @@ function take(path, keep = true) {
   return hash;
 }
 const keepable = (h) => h !== "big" && h !== "unread";
+// a file's text as it is now, for the write card: null when there is none,
+// undefined when it is too big or not text (the card then shows only the new)
+// (asked before the yes: a big file is not read whole for it — the size first,
+// then at most what is shown; codex 2026-11-19)
+const SHOWN_MAX = 400000;
+function fileNow(path) {
+  let fd;
+  try {
+    const st = statSync(path);
+    if (!st.isFile() || st.size > SHOWN_MAX) return undefined;
+    fd = openSync(path, "r");
+    const buf = Buffer.alloc(SHOWN_MAX + 1);
+    const n = readSync(fd, buf, 0, SHOWN_MAX + 1, 0);
+    if (n > SHOWN_MAX || buf.subarray(0, n).includes(0)) return undefined;
+    return buf.toString("utf8", 0, n);
+  } catch (e) { return e.code === "ENOENT" ? null : undefined; }
+  finally { if (fd !== undefined) try { closeSync(fd); } catch { /* gone */ } }
+}
 function beforeChange(conv, id, p) {
   if (!p || !theShelf(conv)) return;
   const path = absPath(p, conv.cwd);
@@ -1127,7 +1148,7 @@ function syncFiles() {
   const left = [];
   for (const c of filePlan()) {
     const name = shown(c.path);
-    if (!keepable(c.want) || !keepable(c.known)) { left.push({ name, why: "커서 담아 두지 않았어요" }); continue; }
+    if (!keepable(c.want) || !keepable(c.known)) { left.push({ name, why: "너무 커서 담아 두지 않았어요" }); continue; }
     const now = take(c.path, false);
     if (now !== c.known) { left.push({ name, why: "그 뒤에 다른 데서 바뀌었어요" }); continue; }
     try {
@@ -1275,6 +1296,29 @@ function refreshGit(dir) {
     gitNow.set(keyOf(dir), info);
     if (was !== JSON.stringify(info) && keyOf(dir) === keyOf(cwd || "")) sendAll({ t: "git", git: info });
   });
+}
+
+const GIT_HOW = { M: "고침", A: "새로", D: "지움", R: "이름 바꿈", C: "복사", "?": "새 파일", U: "충돌" };
+async function gitOthers(dir, mine) {
+  const g = ["--no-optional-locks", "-c", "core.fsmonitor=", "-c", "core.quotepath=false", "-C", dir];
+  const top = await run("git", [...g, "rev-parse", "--show-toplevel"], 10000);
+  if (!top.ok) return null;
+  const root = top.out.trim();
+  const st = await run("git", [...g, "status", "--porcelain=v1", "--untracked-files=normal"], 10000);
+  if (!st.ok) return null;
+  const out = [];
+  for (const line of st.out.split(/\r?\n/)) {
+    if (line.length < 4) continue;
+    const xy = line.slice(0, 2);
+    let path = line.slice(3).replace(/^.* -> /, "").replace(/^"(.*)"$/, "$1");
+    const full = resolve(root, path);
+    if (mine.has(keyOf(full))) continue;
+    const r = relative(dir, full);
+    if (r.startsWith("..") || isAbsolute(r)) continue;
+    out.push({ name: r.replace(/\\/g, "/"), how: GIT_HOW[(xy.trim() || "M")[0]] || "바뀜" });
+    if (out.length >= 200) break;
+  }
+  return out;
 }
 
 function letGo(conv) {
@@ -1576,7 +1620,7 @@ const STATS = "robincode-stats";
 // Pi's reasons for not compacting, said plainly
 function compactionError(message = "") {
   if (/too small/i.test(message)) return { small: true, message: "아직 줄일 만큼 길지 않아요." };
-  if (/Already compacted/i.test(message)) return { small: true, message: "방금 줄여서 더 줄일 게 없어요." };
+  if (/Already compacted/i.test(message)) return { small: true, message: "방금 요약해서 더 줄일 게 없어요." };
   if (/token cap/i.test(message)) return { message: "요약하지 못했어요: 요약이 한 번에 쓸 수 있는 길이(16384토큰)를 넘어서 잘렸어요. 다시 해 보거나 새 대화로 이어 가 주세요." };
   return { message: `요약하지 못했어요: ${message.replace(/^Compaction failed:\s*/, "")}` };
 }
@@ -1702,7 +1746,7 @@ const state = () => {
     cwd, folder: cwd ? basename(cwd) || cwd : "", model: "Qwen3.8-27B", fake: FAKE, gpuFake: !!FAKE_GPU, gpu, gpuJob: job, mode: cur?.mode || "ask", thinking: !!settings.thinking,
     busy: busyNow(), compacting: !!session?.isCompacting, context: contextUsage(), history: history(),
     sessionFile: session?.sessionFile || null,
-    asking: [...asking.values()].filter((a) => a.conv === cur).map(({ id, name, args, rule, risk }) => ({ id, name, args, rule, risk })),
+    asking: [...asking.values()].filter((a) => a.conv === cur).map(({ id, name, args, rule, risk, was }) => ({ id, name, args, rule, risk, was })),
     git: gitNow.get(keyOf(cwd || "")) ?? null,
     // ended in plan mode: "이 계획대로 하기" goes back to this mode
     planFrom: cur?.planFrom || "ask",
@@ -1978,7 +2022,7 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (url.pathname.startsWith("/picker/api/")) {
-    if ((req.headers["x-robincode"] || url.searchParams.get("t")) !== token) { send(res, 401, { error: "토큰이 달라요." }); return; }
+    if ((req.headers["x-robincode"] || url.searchParams.get("t")) !== token) { send(res, 401, { error: "토큰이 맞지 않아요." }); return; }
     try { await pickerCall(req, res, url); } catch (e) { send(res, 500, { error: e.message }); }
     return;
   }
@@ -2274,7 +2318,7 @@ const server = createServer(async (req, res) => {
         if (body.revert != null || body.put != null) {
           // the files the window showed are another conversation's
           if (body.conv !== undefined && (body.conv || null) !== (session?.sessionFile || null)) { send(res, 409, { error: "다른 대화가 열렸어요. 바뀐 파일을 다시 열어 주세요." }); return; }
-          if (busyNow()) { send(res, 409, { error: "도는 동안에는 되돌리지 않아요. 끝난 뒤에 하세요." }); return; }
+          if (busyNow()) { send(res, 409, { error: "도는 동안에는 되돌리지 않아요. 끝난 뒤에 해 주세요." }); return; }
           const f = which(body.revert ?? body.put);
           if (!f) { send(res, 404, { error: "이 대화가 바꾼 파일이 아니에요." }); return; }
           try {
@@ -2288,14 +2332,17 @@ const server = createServer(async (req, res) => {
               const hash = String(body.hash || "");
               if (hash === "none") { try { unlinkSync(f.path); } catch { /* gone */ } }
               else if (/^[0-9a-f]{16,128}$/.test(hash) && existsSync(join(shelf.dir, hash))) writeFileSync(f.path, readFileSync(join(shelf.dir, hash)));
-              else { send(res, 404, { error: "되살릴 내용이 없어요." }); return; }
+              else { send(res, 404, { error: "다시 살릴 내용이 없어요." }); return; }
               log(`되살림: ${shown(f.path)}`);
               send(res, 200, { ok: true, file: reviewOne(f) });
             }
           } catch (e) { send(res, e.status || 500, { error: e.status ? e.message : `파일을 쓰지 못했어요: ${e.message}` }); }
           return;
         }
-        send(res, 200, { files: files.map(reviewOne).filter((f) => f.state !== "same") });
+        // what else git sees changed in the folder (a command, robin's editor):
+        // named, not diffed — the panel said only what edit/write did (codex B4)
+        const mine = new Set(files.map((f) => keyOf(resolve(f.path))));
+        send(res, 200, { files: files.map(reviewOne).filter((f) => f.state !== "same"), others: await gitOthers(cwd, mine) });
         return;
       }
       case "/api/export":
@@ -2376,7 +2423,7 @@ const server = createServer(async (req, res) => {
         if (FAKE && !FAKE_GPU) { send(res, 400, { error: "가짜 모델로 시험 중이에요." }); return; }
         const r = await gpuRun("keep", 100000); // it waits up to 90 s for an automatic off running now
         await refreshGpu();
-        if (!r.ok) { send(res, 502, { error: r.out.trim() || "서버에 닿지 않아요(ssh contabo)." }); return; }
+        if (!r.ok) { send(res, 502, { error: r.out.trim() || "서버(ssh contabo)에 닿지 않아요." }); return; }
         send(res, 200, { ok: true, said: r.out.trim() });
         return;
       }
@@ -2393,7 +2440,7 @@ const server = createServer(async (req, res) => {
           send(res, 409, { error: job.action === "rent" && action === "destroy" ? "아직 빌리는 중이에요. 몇 초 뒤 다시 눌러 주세요." : "GPU 일이 이미 도는 중이에요." });
           return;
         }
-        if (!["rent", "start", "destroy"].includes(action)) { send(res, 400, { error: "모르는 일이에요." }); return; }
+        if (!["rent", "start", "destroy"].includes(action)) { send(res, 400, { error: "그런 GPU 일은 없어요." }); return; }
         const offer = String(body.offer || "");
         if (action === "rent" && !offers.some((o) => o.offer === offer)) { send(res, 400, { error: "자리 목록을 다시 받아 주세요." }); return; }
         startGpuJob(action, action === "rent" ? offer : null);

@@ -124,7 +124,7 @@ export function reducer(state, action) {
       const items = state.items.slice();
       updateTool(items, action.id, { ask: false, decision: action.decision });
       if (action.decision === "always" && state.mode === "plan") items.push(line("[ OK ]", "이번만 허용했어요. 계획 모드는 그대로예요."));
-      else if (action.decision === "always") items.push(line("[ OK ]", "이번 대화는 묻지 않고 실행해요. 아래 모드 단추(Shift+Tab)로 다시 묻게 할 수 있어요."));
+      else if (action.decision === "always") items.push(line("[ OK ]", "이번 대화는 묻지 않고 실행해요. 아래 모드 버튼(Shift+Tab)으로 다시 묻게 할 수 있어요."));
       if (action.decision === "rule" && action.rule) items.push(line("[ OK ]", `${action.rule.key.startsWith("web:") ? `${action.rule.label} 페이지는` : `"${action.rule.label}" 명령은`} 이 폴더에서 이제 묻지 않아요.`));
       return { ...state, items };
     }
@@ -147,7 +147,7 @@ export function reducer(state, action) {
 function withAsking(items, asking) {
   if (!asking?.length) return items;
   const out = items.slice();
-  for (const a of asking) if (!updateTool(out, a.id, { ask: true, status: "run", args: a.args || {}, rule: a.rule || null, risk: a.risk || null })) addTool(out, { id: a.id, name: a.name, args: a.args || {}, status: "run", ask: true, rule: a.rule || null, risk: a.risk || null });
+  for (const a of asking) if (!updateTool(out, a.id, { ask: true, status: "run", args: a.args || {}, rule: a.rule || null, risk: a.risk || null, was: a.was })) addTool(out, { id: a.id, name: a.name, args: a.args || {}, status: "run", ask: true, rule: a.rule || null, risk: a.risk || null, was: a.was });
   return out;
 }
 
@@ -174,7 +174,7 @@ function onEvent(state, e) {
   switch (e.t) {
     case "reset": {
       const s = e.state;
-      const now = withLive(withAsking(fromHistory(s.history, !!e.quiet), s.asking), s.live);
+      const now = withLive(withAsking(fromHistory(s.history, true), s.asking), s.live);
       // a `!명령` still running there: it shows (and Esc stops it) again
       if (s.shell) now.items = [...now.items, { kind: "shell", id: `sh-${s.shell.id}`, command: s.shell.command, output: s.shell.output || "", status: "run", startedAt: s.shell.startedAt || Date.now() }];
       return {
@@ -240,7 +240,7 @@ function onEvent(state, e) {
     case "approve": {
       state = endThink(state);
       const items = state.items.slice();
-      if (!updateTool(items, e.id, { ask: true, args: e.args || {}, rule: e.rule || null, risk: e.risk || null })) addTool(items, { id: e.id, name: e.name, args: e.args || {}, status: "run", ask: true, rule: e.rule || null, risk: e.risk || null });
+      if (!updateTool(items, e.id, { ask: true, args: e.args || {}, rule: e.rule || null, risk: e.risk || null, was: e.was })) addTool(items, { id: e.id, name: e.name, args: e.args || {}, status: "run", ask: true, rule: e.rule || null, risk: e.risk || null, was: e.was });
       return { ...state, items };
     }
     case "tool_update": {

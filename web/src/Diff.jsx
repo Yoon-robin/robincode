@@ -3,8 +3,20 @@
 // as context; very large ones fall back to all-removed / all-added.
 
 export function lineDiff(before, after) {
-  const a = before.split("\n");
-  const b = after.split("\n");
+  const all = { a: before.split("\n"), b: after.split("\n") };
+  // the same lines at the start and the end are not compared (a write over a
+  // big file that changes a few lines in the middle was all - then all +)
+  let head = 0;
+  while (head < all.a.length && head < all.b.length && all.a[head] === all.b[head]) head++;
+  let tail = 0;
+  while (tail < all.a.length - head && tail < all.b.length - head && all.a[all.a.length - 1 - tail] === all.b[all.b.length - 1 - tail]) tail++;
+  const same = (lines) => lines.map((l) => [" ", l]);
+  if (head || tail) return [...same(all.a.slice(0, head)), ...lineDiff1(all.a.slice(head, all.a.length - tail), all.b.slice(head, all.b.length - tail)), ...same(all.a.slice(all.a.length - tail))];
+  return lineDiff1(all.a, all.b);
+}
+function lineDiff1(a, b) {
+  if (!a.length) return b.map((l) => ["+", l]);
+  if (!b.length) return a.map((l) => ["-", l]);
   if (a.length * b.length > 200000) return [...a.map((l) => ["-", l]), ...b.map((l) => ["+", l])];
   const n = a.length;
   const m = b.length;
@@ -27,17 +39,36 @@ export function lineDiff(before, after) {
 
 const KIND = { "-": "del", "+": "add", " ": "same" };
 
+// a screen reader hears what each line is (the sign and colour were all it
+// had; codex B2 / B-432)
+const SAID = { "-": "지움: ", "+": "더함: ", " ": "" };
 export function DiffLines({ rows }) {
   return (
-    <div className="diff" role="table">
+    <div className="diff" aria-label="바뀐 줄">
       {rows.map(([sign, text], k) => (
-        <div key={k} className={`diff-row ${KIND[sign]}`} role="row">
+        <div key={k} className={`diff-row ${KIND[sign]}`}>
           <span className="diff-sign" aria-hidden="true">{sign}</span>
-          <span className="diff-text">{text || " "}</span>
+          <span className="diff-text">{SAID[sign] && <span className="sr">{SAID[sign]}</span>}{text || " "}</span>
         </div>
       ))}
     </div>
   );
+}
+
+// long runs of unchanged lines fold to a few on each side of a change
+export function foldSame(rows, keep = 3) {
+  const out = [];
+  let run = [];
+  const flush = (atEnd) => {
+    const head = out.length ? keep : 0;
+    const tail = atEnd ? 0 : keep;
+    if (run.length > head + tail + 1) out.push(...run.slice(0, head), [" ", `⋯ 그대로인 ${run.length - head - tail}줄`], ...run.slice(run.length - tail));
+    else out.push(...run);
+    run = [];
+  };
+  for (const r of rows) { if (r[0] === " ") run.push(r); else { flush(false); out.push(r); } }
+  flush(true);
+  return out;
 }
 
 export function editRows(args) {
@@ -50,9 +81,11 @@ export function editRows(args) {
   return rows;
 }
 
-export function writeRows(args, limit = 120) {
-  const lines = String(args?.content ?? "").split("\n");
-  const rows = lines.slice(0, limit).map((l) => ["+", l]);
-  if (lines.length > limit) rows.push([" ", `… ${lines.length - limit}줄 더`]);
-  return rows;
+// what a write does: against the file there now (`was`, from the server) when
+// there is one, else all new; past `limit` rows the rest waits for "모두 보기"
+export function writeRows(args, limit = 120, was) {
+  const content = String(args?.content ?? "").replace(/\r\n/g, "\n");
+  const rows = typeof was === "string" ? foldSame(lineDiff(was.replace(/\r\n/g, "\n"), content)) : content.split("\n").map((l) => ["+", l]);
+  if (!limit || rows.length <= limit) return rows;
+  return [...rows.slice(0, limit), [" ", `… ${rows.length - limit}줄 더`]];
 }
