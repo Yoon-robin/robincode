@@ -20,7 +20,7 @@ export async function api(path, body = {}) {
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error || `${path} ${res.status}`), { gpuOff: !!data.gpuOff });
+  if (!res.ok) throw Object.assign(new Error(data.error || `${path} ${res.status}`), { gpuOff: !!data.gpuOff, moved: !!data.moved, stopped: !!data.stopped, status: res.status });
   return data;
 }
 
@@ -33,3 +33,6 @@ export function connect(onEvent, onLink) {
   source.onerror = () => onLink(source.readyState === EventSource.OPEN);
   return () => source.close();
 }
+
+// "smooth" unless the system asks for less motion (CSS does not reach scrollTo)
+export const glide = () => (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");

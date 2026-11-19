@@ -9,36 +9,50 @@
 //                            (%LOCALAPPDATA%\RobinCode\versions\<version>), for this
 //                            Electron; each has a version.json { version, build, electron }
 const { app, dialog } = require("electron");
-const { existsSync, readdirSync, readFileSync } = require("node:fs");
+const { existsSync, readdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { dirname, join, resolve } = require("node:path");
 
 const runs = (dir) => existsSync(join(dir, "desktop", "main.cjs"));
 const versionOf = (dir) => { try { return JSON.parse(readFileSync(join(dir, "version.json"), "utf8")); } catch { return null; } };
 
+// where to start from, the best first
 function find() {
-  if (process.env.ROBINCODE_DIR) return process.env.ROBINCODE_DIR;
+  if (process.env.ROBINCODE_DIR) return [process.env.ROBINCODE_DIR];
   const repo = resolve(dirname(process.execPath), "..", "..", "..");
-  if (runs(repo) && !versionOf(repo)) return repo;
+  if (runs(repo) && !versionOf(repo)) return [repo];
   const home = process.env.ROBINCODE_HOME || join(process.env.LOCALAPPDATA || app.getPath("appData"), "RobinCode");
   const found = [join(process.resourcesPath, "robincode")];
-  try { for (const v of readdirSync(join(home, "versions"))) found.push(join(home, "versions", v)); } catch { /* none downloaded yet */ }
-  let best = null;
+  // a download still being unpacked (<version>.tmp) is not a version yet
+  try { for (const v of readdirSync(join(home, "versions"))) if (!/\.tmp$|^\./i.test(v)) found.push(join(home, "versions", v)); } catch { /* none downloaded yet */ }
+  const ok = [];
   for (const dir of found) {
     const v = versionOf(dir);
     // "bad": main.cjs saw that version fail to start (it goes back to the one before)
     if (!v || !runs(dir) || existsSync(join(dir, "bad")) || (v.electron && v.electron !== process.versions.electron)) continue;
-    if (!best || Number(v.build) > Number(best.v.build)) best = { dir, v };
+    ok.push({ dir, v });
   }
-  return best?.dir || repo;
+  ok.sort((a, b) => Number(b.v.build) - Number(a.v.build));
+  return [...ok.map((x) => x.dir), repo];
 }
 
-const dir = find();
-const main = join(dir, "desktop", "main.cjs");
-if (runs(dir)) {
-  require(main)(dir);
-} else {
+// a version whose main.cjs throws while loading is marked bad and the next
+// one runs (2026-11-19 codex: it ended the app with nothing on screen)
+let started = false;
+let last = null;
+for (const dir of find()) {
+  if (!runs(dir)) continue;
+  try { require(join(dir, "desktop", "main.cjs"))(dir); started = true; break; } catch (e) {
+    last = e;
+    if (versionOf(dir)) { try { writeFileSync(join(dir, "bad"), String(e?.stack || e)); } catch { /* read-only: skipped this time only */ } }
+  }
+}
+if (!started) {
   app.whenReady().then(() => {
-    dialog.showErrorBox("RobinCode", `RobinCode 파일을 찾지 못했어요.\n\n${main}\n\nai.yoonrobin.xyz에서 RobinCode를 다시 받아 주세요.`);
+    dialog.showErrorBox("RobinCode", `RobinCode 파일을 찾지 못했어요.${last ? `
+
+${last.message}` : ""}
+
+ai.yoonrobin.xyz에서 RobinCode를 다시 받아 주세요.`);
     app.quit();
   });
 }

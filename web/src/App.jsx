@@ -2,7 +2,7 @@
 // the GPU on the left, the conversation and the composer on the right. On a
 // narrow window the left side becomes a drawer behind the menu button.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
-import { api, connect, pickerUrl } from "./api.js";
+import { api, connect, pickerUrl, glide } from "./api.js";
 import { askingTool, initial, reducer } from "./store.js";
 import { fileHunks } from "./hunks.js";
 import { Composer, PICTURE_TYPES } from "./Composer.jsx";
@@ -190,7 +190,7 @@ function Typed({ text, delay = 0, step = 34 }) {
 
 function Logo() {
   return (
-    <pre className="logo" aria-label="RobinCode">
+    <pre className="logo" role="img" aria-label="RobinCode">
       {LOGO.map((line, k) => <span key={k}>{line}</span>)}
     </pre>
   );
@@ -230,22 +230,28 @@ function Line({ item, onGpu }) {
 
 // a long paste stays a few lines tall until it is opened; pictures sit above
 // the words, small until one is pressed
-function UserBubble({ text, images = [], foot }) {
+// a sent message's pictures: a data URL of a few MB was made again (and
+// compared) every token while an answer came
+const BubblePics = memo(function BubblePics({ images, big, onBig }) {
+  return (
+    <div className="bubble-pics">
+      {images.map((im, k) => (
+        <button key={k} type="button" className={`bubble-pic${big === k ? " big" : ""}`} aria-pressed={big === k}
+          title={big === k ? "작게" : "크게"} onClick={() => onBig((v) => (v === k ? -1 : k))}>
+          <img src={`data:${im.mimeType};base64,${im.data}`} alt={`보낸 그림 ${k + 1}`} decoding="async" />
+        </button>
+      ))}
+    </div>
+  );
+});
+const NO_IMAGES = [];
+function UserBubble({ text, images = NO_IMAGES, foot }) {
   const long = text.split("\n").length > 12 || text.length > 900;
   const [open, setOpen] = useState(false);
   const [big, setBig] = useState(-1);
   return (
     <div className="bubble-col">
-      {images.length > 0 && (
-        <div className="bubble-pics">
-          {images.map((im, k) => (
-            <button key={k} type="button" className={`bubble-pic${big === k ? " big" : ""}`} aria-pressed={big === k}
-              title={big === k ? "작게" : "크게"} onClick={() => setBig((v) => (v === k ? -1 : k))}>
-              <img src={`data:${im.mimeType};base64,${im.data}`} alt={`보낸 그림 ${k + 1}`} />
-            </button>
-          ))}
-        </div>
-      )}
+      {images.length > 0 && <BubblePics images={images} big={big} onBig={setBig} />}
       {text && (
         <div className={`bubble${long && !open ? " clamped" : ""}`}>
           <span className="bubble-text">{text}</span>
@@ -351,7 +357,8 @@ function StatusRow({ state, quiet }) {
     return (
       <div className="status-row warn" role="status">
         <span className="status-mark" aria-hidden="true">▌</span>
-        {wait > 0 ? `모델 연결이 끊겨서 ${wait}초 뒤 다시 해 봐요` : "다시 해 보는 중"}… <span className="status-time">{r.attempt}/{r.max}</span>
+        <span className="sr">모델 연결이 끊겨서 다시 해 봐요. {r.attempt}/{r.max}번째</span>
+        <span aria-hidden="true">{wait > 0 ? `모델 연결이 끊겨서 ${wait}초 뒤 다시 해 봐요` : "다시 해 보는 중"}… <span className="status-time">{r.attempt}/{r.max}</span></span>
       </div>
     );
   }
@@ -360,7 +367,7 @@ function StatusRow({ state, quiet }) {
   return (
     <div className="status-row" role="status">
       <span className="status-mark" aria-hidden="true">▌</span>
-      {what}… <span className="status-time">{seconds(now - state.startedAt)}</span>
+      {what}… <span className="status-time" aria-hidden="true">{seconds(now - state.startedAt)}</span>
     </div>
   );
 }
@@ -387,8 +394,19 @@ const Conversation = memo(function Conversation({ state, asking, onDecide, onPic
   const busy = useRef(state.busy);
   busy.current = state.busy;
   const [away, setAway] = useState(false);
+  // the window made narrower or wider (or maximized): the text wraps again and
+  // the browser keeps the old scrollTop, so what was at the bottom is not —
+  // that scroll is the layout's, not robin's, and the view stays at the bottom
+  const size = useRef("");
+  const resized = (el) => {
+    const now = `${el.clientWidth}x${el.clientHeight}`;
+    if (now === size.current) return false;
+    size.current = now;
+    return true;
+  };
   const onScroll = () => {
     const el = scroller.current;
+    if (resized(el) && stick.current) { el.scrollTop = el.scrollHeight; return; }
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     setAway(!stick.current);
   };
@@ -406,15 +424,18 @@ const Conversation = memo(function Conversation({ state, asking, onDecide, onPic
     if (empty || !content.current) return undefined;
     const watch = new ResizeObserver(() => {
       const el = scroller.current;
-      if (el && stick.current && busy.current) el.scrollTop = el.scrollHeight;
+      if (!el) return;
+      const reflowed = resized(el);
+      if (stick.current && (busy.current || reflowed)) el.scrollTop = el.scrollHeight;
     });
     watch.observe(content.current);
+    if (scroller.current) watch.observe(scroller.current);
     return () => watch.disconnect();
   }, [empty]);
   const toBottom = () => {
     stick.current = true;
     setAway(false);
-    scroller.current.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
+    scroller.current.scrollTo({ top: scroller.current.scrollHeight, behavior: glide() });
   };
   // another branch: stay where the message is, not at the bottom
   const goBranch = (id) => { stick.current = false; onBranch(id); };
@@ -912,8 +933,8 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
               <div className="gpu-confirm">
                 <p>빌리면 시간당 <b>${chosen.hour}</b>가 크레딧에서 계속 나가요. 이미지와 모델을 받는 데 약 {chosen.mins + 3}분 걸려요. 다 쓰면 끄세요{gpu.idleLimit ? <>. 깜빡해도 {gpu.idleLimit}분 동안 아무도 안 쓰면 서버가 알아서 지워요.</> : "."}</p>
                 <div className="gpu-actions">
-                  <button type="button" className="btn" onClick={() => setSure(null)}>취소</button>
-                  <button type="button" className="btn btn-primary" autoFocus onClick={() => run("rent", chosen.offer)}>빌리기 · 시간당 ${chosen.hour}</button>
+                  <button type="button" className="btn" autoFocus onClick={() => setSure(null)}>취소</button>
+                  <button type="button" className="btn btn-primary" onClick={() => run("rent", chosen.offer)}>빌리기 · 시간당 ${chosen.hour}</button>
                 </div>
               </div>
             ) : (
@@ -930,13 +951,21 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
             <div className="gpu-confirm">
               <p>끄면 GPU 인스턴스를 지워요. 요금이 0이 되고 받아 둔 모델도 지워져요. RobinAI 채팅과 다른 RobinCode 창도 같이 멈춰요. 다음에 켜면 새로 빌려서 6~10분 걸려요.</p>
               <div className="gpu-actions">
-                <button type="button" className="btn" onClick={() => setSure(null)}>취소</button>
-                <button type="button" className="btn btn-danger" autoFocus onClick={() => run("destroy")}>끄기(지우기)</button>
+                <button type="button" className="btn" autoFocus onClick={() => setSure(null)}>취소</button>
+                <button type="button" className="btn btn-danger" onClick={() => run("destroy")}>끄기(지우기)</button>
+              </div>
+            </div>
+          ) : sure === "start" ? (
+            <div className="gpu-confirm">
+              <p>다시 켜면 그 GPU의 시간당 요금이 크레딧에서 다시 나가요. 받아 둔 모델이 있어서 몇 분이면 돼요. 다 쓰면 끄세요.</p>
+              <div className="gpu-actions">
+                <button type="button" className="btn" autoFocus onClick={() => setSure(null)}>취소</button>
+                <button type="button" className="btn btn-primary" onClick={() => run("start")}>다시 켜기</button>
               </div>
             </div>
           ) : (
             <div className="gpu-actions">
-              {state === "stopped" && <button type="button" className="btn" onClick={() => run("start")}>다시 켜기</button>}
+              {state === "stopped" && <button type="button" className="btn" onClick={() => setSure("start")}>다시 켜기…</button>}
               <button type="button" className="btn" onClick={() => setSure("destroy")}>끄기(지우기)…</button>
             </div>
           )
@@ -1214,7 +1243,7 @@ function ChangeFile({ f, busy, open, onToggle, onRevert, onPut }) {
     </li>
   );
 }
-function ChangesPanel({ busy, onClose, onError }) {
+function ChangesPanel({ busy, conv, onClose, onError }) {
   const [files, setFiles] = useState(null);
   const [open, setOpen] = useState(() => new Set());
   useEffect(() => {
@@ -1225,10 +1254,10 @@ function ChangesPanel({ busy, onClose, onError }) {
     }).catch((e) => { onError(`읽지 못했어요: ${e.message}`); setFiles([]); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const swap = (path, change) => setFiles((all) => all.map((f) => (f.path === path ? { ...f, ...change } : f)));
-  const revert = (f) => api("/api/changes", { revert: f.path })
+  const revert = (f) => api("/api/changes", { revert: f.path, conv })
     .then((r) => swap(f.path, { reverted: true, undo: r.undo }))
     .catch((e) => onError(`되돌리지 못했어요: ${e.message}`));
-  const put = (f) => api("/api/changes", { put: f.path, hash: f.undo })
+  const put = (f) => api("/api/changes", { put: f.path, hash: f.undo, conv })
     .then((r) => swap(f.path, { ...r.file, reverted: false }))
     .catch((e) => onError(`되살리지 못했어요: ${e.message}`));
   const total = useMemo(() => (files || []).reduce((t, f) => {
@@ -1392,6 +1421,16 @@ export default function App() {
     const t = setTimeout(() => keepDraft(drafts.current, key, draft), 300);
     return () => clearTimeout(t);
   }, [draft]);
+  // words that did not go out, back in the box of the conversation they were
+  // typed in — not the one on screen by then (2026-11-19 codex)
+  const here = useRef({ key: "new", file: null });
+  here.current = { key: convKey, file: state.sessionFile || null };
+  const giveBackTo = useCallback((key, t) => {
+    if (!t) return;
+    if (draftKey.current === key) { setDraft((d) => (d.trim() ? `${t}\n${d}` : t)); return; }
+    const had = drafts.current[key]?.text || "";
+    keepDraft(drafts.current, key, had.trim() ? `${t}\n${had}` : t);
+  }, []);
   useEffect(() => {
     const save = () => { if (draftKey.current !== null) keepDraft(drafts.current, draftKey.current, draftNow.current); };
     window.addEventListener("pagehide", save);
@@ -1406,6 +1445,9 @@ export default function App() {
   const addPicturesRef = useRef(null); // the composer's "these too" (taken back from the queue)
   const askingRef = useRef(null); // the question on screen (its "늘 허용" rule)
   const [panel, setPanel] = useState(null); // "memory" | "help" | "rules" | "changes" | null
+  // another conversation opened (Ctrl+K works over a panel): its files are not
+  // the ones on the changes panel, so a revert there was the other's file
+  useEffect(() => { setPanel((p) => (p === "changes" ? null : p)); }, [state.sessionFile]);
   // files this conversation's edits and writes changed (the review sheet has the truth)
   const changed = useMemo(() => {
     const paths = new Set();
@@ -1487,15 +1529,27 @@ export default function App() {
     setDraft("");
     if (t) keepSent(t);
     const before = inFlight.current?.done;
+    // the conversation it was typed in: the server puts it there even if
+    // another is open by the time it goes (a second message waits for the first)
+    const from = here.current;
+    const stopsThen = stops.current;
     const done = (async () => {
       if (before) await before;
+      if (before && stops.current !== stopsThen) {
+        // the words here, the pictures by the box (a false answer)
+        giveBackTo(from.key, t);
+        say("멈춰서 보내지 않았어요. 쓴 말은 입력 칸에 다시 넣어 뒀어요.");
+        return false;
+      }
       sending.current = true;
       try {
-        await api("/api/prompt", { text: t, when, images: pictures.map(({ mimeType, data }) => ({ mimeType, data })) });
+        await api("/api/prompt", { text: t, when, conv: from.file, images: pictures.map(({ mimeType, data }) => ({ mimeType, data })) });
         return true;
       } catch (e) {
-        dispatch({ type: "local-error", message: `보내지 못했어요: ${e.message}`, gpu: e.gpuOff });
-        setDraft((d) => (d.trim() ? `${t}\n${d}` : t));
+        if (e.moved) say("그 대화가 닫혀서 보내지 않았어요. 쓴 말은 그 대화의 입력 칸에 남겨 뒀어요.");
+        else if (e.stopped) say("멈춰서 보내지 않았어요. 쓴 말은 입력 칸에 다시 넣어 뒀어요.");
+        else dispatch({ type: "local-error", message: `보내지 못했어요: ${e.message}`, gpu: e.gpuOff });
+        giveBackTo(from.key, t);
         return false;
       } finally {
         sending.current = false;
@@ -1506,7 +1560,10 @@ export default function App() {
     done.finally(() => { if (inFlight.current === me) inFlight.current = null; });
     return done;
   }, []);
-  const stop = useCallback(() => { api("/api/abort").catch(() => {}); }, []);
+  // a stop also holds back what is still on its way in the window (it waits
+  // for the message before it): it comes back to its box
+  const stops = useRef(0);
+  const stop = useCallback(() => { stops.current += 1; api("/api/abort").catch(() => {}); }, []);
   // messages that waited, back in the box (above what is being typed), their pictures too
   const giveBack = useCallback((items) => {
     const list = items.map((x) => (typeof x === "string" ? { text: x, images: [] } : x));
@@ -1526,7 +1583,7 @@ export default function App() {
     // a risky one has no "모두 허용" (the key 2 does nothing there)
     if (decision === "always" && tool?.id === id && tool.risk) return;
     dispatch({ type: "decided", id, decision, rule: tool?.id === id ? tool.rule : null });
-    api("/api/approve", { id, decision, ...(note?.trim() ? { note: note.trim() } : {}) }).catch((e) => dispatch({ type: "local-error", message: e.message }));
+    api("/api/approve", { id, decision, ...(note?.trim() ? { note: note.trim() } : {}) }).catch((e) => dispatch({ type: "undecided", id, message: e.message }));
     focusBox();
   }, []);
   const once = (call) => {
@@ -1639,7 +1696,12 @@ export default function App() {
   const shell = (command, raw) => {
     keepSent(raw);
     setDraft("");
-    return api("/api/shell", { command }).then(() => true).catch((e) => { setDraft(raw); fail(e); return false; });
+    const from = here.current;
+    return api("/api/shell", { command, conv: from.file }).then(() => true).catch((e) => {
+      giveBackTo(from.key, raw);
+      if (e.moved) say("그 대화가 닫혀서 실행하지 않았어요. 명령은 그 대화의 입력 칸에 남겨 뒀어요."); else fail(e);
+      return false;
+    });
   };
   // a plan written in plan mode: back to the mode before it, and go
   const planGo = () => api("/api/mode", { mode: state.planFrom && state.planFrom !== "plan" ? state.planFrom : "ask" })
@@ -1652,6 +1714,12 @@ export default function App() {
   const pastRef = useRef(loadSent);
   const todo = useMemo(() => latestTodo(state.items), [state.items]);
   const shellRunning = state.items.some((x) => x.kind === "shell" && x.status === "run");
+  // the parts the list uses: a new state every token drew the whole list (all
+  // its rows) again while an answer came (2026-11-19 web-design-guidelines)
+  const sideState = useMemo(() => ({
+    fake: state.fake, git: state.git, gpu: state.gpu, gpuFake: state.gpuFake, gpuJob: state.gpuJob,
+    info: state.info, running: state.running, sessionFile: state.sessionFile, sessions: state.sessions,
+  }), [state.fake, state.git, state.gpu, state.gpuFake, state.gpuJob, state.info, state.running, state.sessionFile, state.sessions]);
 
   const asking = askingTool(state);
   askingRef.current = asking;
@@ -1734,6 +1802,11 @@ export default function App() {
       // typed (anything in the message box, or any other field at all)
       const answer = ANSWER_KEYS[e.key];
       if (!asking || !answer || e.ctrlKey || e.altKey || e.metaKey) return;
+      // a key held down repeats: its repeats do not answer the next question
+      // that comes up before robin has read it
+      if (e.repeat) { e.preventDefault(); return; }
+      // a sheet over the conversation (its buttons have the focus) is not the card
+      if (document.querySelector("[aria-modal='true']")) return;
       const field = e.target.closest?.("textarea, input");
       if (field && (field !== box.current || field.value)) return;
       e.preventDefault();
@@ -1798,7 +1871,7 @@ export default function App() {
   };
   return (
     <div className="app" data-side={side ? "open" : undefined}>
-      <Sidebar state={state} notify={notify} onNotify={on.notify} closeRef={closeRef} searchRef={searchRef} onClose={on.close} onNew={on.new} onOpen={on.open}
+      <Sidebar state={sideState} notify={notify} onNotify={on.notify} closeRef={closeRef} searchRef={searchRef} onClose={on.close} onNew={on.new} onOpen={on.open}
         onDelete={on.remove} onRename={on.rename} onLeaveSearch={on.leaveSearch} onGpu={on.sideGpu} />
       <div className="scrim" onClick={() => closeSide(true)} aria-hidden="true" />
       <main className="main" {...dropProps}>
@@ -1831,7 +1904,7 @@ export default function App() {
         {panel === "memory" && <MemoryPanel onClose={on.closePanel} onError={on.say} />}
         {panel === "help" && <HelpPanel commands={commands} onClose={on.closePanel} />}
         {panel === "rules" && <RulesPanel onClose={on.closePanel} onError={on.say} />}
-        {panel === "changes" && <ChangesPanel busy={state.busy} onClose={on.closePanel} onError={on.say} />}
+        {panel === "changes" && <ChangesPanel busy={state.busy} conv={state.sessionFile || null} onClose={on.closePanel} onError={on.say} />}
         {gpuOpen &&<GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); focusBox(); }} />}
         {drag && (
           <div className="drop" aria-hidden="true">

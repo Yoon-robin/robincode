@@ -128,6 +128,13 @@ export function reducer(state, action) {
       if (action.decision === "rule" && action.rule) items.push(line("[ OK ]", `${action.rule.key.startsWith("web:") ? `${action.rule.label} 페이지는` : `"${action.rule.label}" 명령은`} 이 폴더에서 이제 묻지 않아요.`));
       return { ...state, items };
     }
+    // the answer did not reach the server (it still waits): the buttons come back
+    case "undecided": {
+      const items = state.items.slice();
+      // only a call still waiting: one that ran (its end came) stays as it is
+      updateTool(items, action.id, (t) => (t.status === "run" ? { ask: true, decision: undefined } : {}));
+      return { ...state, items: [...items, { ...line("[FAIL]", `답을 보내지 못했어요: ${action.message} 다시 골라 주세요.`, "fail") }] };
+    }
     case "local-error":
       return { ...state, items: [...state.items, { ...line("[FAIL]", action.message, "fail"), gpu: !!action.gpu }] };
     case "event": return onEvent(state, action.e);
@@ -157,7 +164,8 @@ function withLive(items, live) {
   }
   if (live.text) {
     current = nid();
-    out.push({ kind: "assistant", id: current, text: live.text, streaming: true });
+    // a plan being written keeps its "이 계획대로 하기" (a window that connected again)
+    out.push({ kind: "assistant", id: current, text: live.text, streaming: true, planned: !!live.planned });
   }
   return { items: out, think, current };
 }
@@ -167,6 +175,8 @@ function onEvent(state, e) {
     case "reset": {
       const s = e.state;
       const now = withLive(withAsking(fromHistory(s.history, !!e.quiet), s.asking), s.live);
+      // a `!명령` still running there: it shows (and Esc stops it) again
+      if (s.shell) now.items = [...now.items, { kind: "shell", id: `sh-${s.shell.id}`, command: s.shell.command, output: s.shell.output || "", status: "run", startedAt: s.shell.startedAt || Date.now() }];
       return {
         ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, model: s.model }, fake: s.fake, gpu: s.gpu, gpuFake: !!s.gpuFake, gpuJob: s.gpuJob || null,
         mode: s.mode, thinking: !!s.thinking, think: now.think, context: s.context, busy: s.busy, startedAt: s.busy ? s.startedAt || Date.now() : 0,
@@ -182,6 +192,10 @@ function onEvent(state, e) {
     case "shell_end": {
       const items = state.items.map((x) => (x.id === `sh-${e.id}`
         ? { ...x, output: e.output, ...(e.t === "shell_end" && { status: "done", exitCode: e.exitCode, cancelled: e.cancelled, ms: Date.now() - (x.startedAt || Date.now()) }) } : x));
+      // its end, for a command this window did not see start
+      if (e.t === "shell_end" && !state.items.some((x) => x.id === `sh-${e.id}`) && e.command) {
+        items.push({ kind: "shell", id: `sh-${e.id}`, command: e.command, output: e.output, exitCode: e.exitCode, cancelled: e.cancelled, status: "done" });
+      }
       return { ...state, items };
     }
     case "git": return { ...state, git: e.git ?? null };

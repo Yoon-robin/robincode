@@ -12,7 +12,7 @@
   --text: #e8e8e8;
   --head: #f2f2f2;
   --soft: #9e9e9e;
-  --faint: #6f6f6f;
+  --faint: #828282; /* 4.5:1 on the window (#6f6f6f was 3.9:1) */
   --line: rgb(255 255 255 / 14%);
   --line-win: rgb(255 255 255 / 16%);
   --line-weak: rgb(255 255 255 / 8%);
@@ -277,12 +277,12 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   text-decoration-color: rgb(255 255 255 / 25%);
 }
 .bubble-more:hover { color: var(--head); }
-.msg-foot { display: flex; align-items: center; gap: 4px 10px; margin-top: 8px; }
+.msg-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 8px; }
 /* the turn's time and speed */
 .msg-meta { font: 400 11.5px var(--mono); color: var(--faint); animation: fade-in 0.2s var(--ease); }
 .msg-tools { margin-bottom: 18px; }
 
-.line { display: flex; gap: 0.7em; margin: -6px 0 20px; font: 400 13px/1.6 var(--mono); color: var(--soft); animation: rise 0.18s var(--ease) both; }
+.line { display: flex; gap: 0.7em; overflow-wrap: anywhere; margin: -6px 0 20px; font: 400 13px/1.6 var(--mono); color: var(--soft); animation: rise 0.18s var(--ease) both; }
 .line-tag { flex: none; color: var(--head); font-weight: 700; white-space: pre; }
 .line .line-btn { flex: none; align-self: center; margin-left: 4px; font-family: var(--sans); }
 .line.fail, .line.fail .line-tag { color: var(--red); }
@@ -564,6 +564,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .ask-note { display: block; width: 100%; margin-top: 10px; padding: 7px 10px; border: 1px solid var(--line-win); border-radius: var(--radius-sm); background: transparent; color: var(--head); font: inherit; font-size: 13px; outline: 0; }
 .ask-note::placeholder { color: var(--faint); }
 .ask-note:focus { border-color: rgb(255 255 255 / 34%); }
+.ask-note:focus-visible { border-color: rgb(255 255 255 / 60%); box-shadow: 0 0 0 1px rgb(255 255 255 / 30%); }
 .ask-title .prompt { color: var(--amber); }
 .ask-cmd {
   margin: 0 0 12px;
@@ -580,7 +581,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 }
 .ask-cmd .ps { color: var(--soft); user-select: none; }
 .ask-file { margin: 0 0 12px; }
-.ask-path { margin: 0 0 6px; font: 400 12.5px var(--mono); color: var(--soft); }
+.ask-path { margin: 0 0 6px; overflow-wrap: anywhere; font: 400 12.5px var(--mono); color: var(--soft); }
 .ask-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .ask-buttons .key {
   display: inline-grid;
@@ -1007,7 +1008,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   transform: translateX(-50%);
   animation: toast-in 0.18s var(--ease) both;
 }
-.toast > span { flex: 1 1 16em; max-width: 34em; }
+.toast > span { flex: 1 1 16em; max-width: 34em; overflow-wrap: anywhere; }
 .toast-btn { flex: none; white-space: nowrap; border: 0; background: none; padding: 4px 6px; color: var(--win); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; border-radius: 4px; }
 .toast-btn:focus-visible { outline-color: var(--win); }
 
@@ -1188,3 +1189,12 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .update-new.warn { color: var(--amber); }
 .update-new a { color: inherit; }
 .update-faint { font-size: 12px; color: var(--faint); }
+
+/* a long path in an error line does not run out of the window */
+.line > span:last-child { min-width: 0; }
+.find-bar:focus-within { border-color: rgb(255 255 255 / 34%); }
+
+/* "동작 줄이기": nothing blinks, rises or slides (the GPU bars had it alone) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

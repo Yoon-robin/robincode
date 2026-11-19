@@ -9,6 +9,7 @@ import { DiffLines, editRows, writeRows } from "./Diff.jsx";
 import { CopyButton } from "./Markdown.jsx";
 import { Icon } from "./icons.jsx";
 import { useNow, seconds } from "./time.js";
+import { glide } from "./api.js";
 
 const TAG = { run: "[ .. ]", ok: "[ OK ]", fail: "[FAIL]", skip: "[SKIP]" };
 const ASKS = new Set(["powershell", "bash", "edit", "write", "webfetch"]);
@@ -97,8 +98,8 @@ function Approval({ tool, onDecide }) {
   const { name, args } = tool;
   const isFile = name === "edit" || name === "write";
   const web = name === "webfetch";
-  const title = name === "edit" ? "이 파일을 고칠까요?" : name === "write" ? "이 파일을 쓸까요?" : web ? "이 웹 페이지를 읽을까요?" : name === "read" ? "이 파일을 읽을까요?" : "이 명령을 실행할까요?";
-  const yesLabel = name === "edit" ? "고치기" : name === "write" ? "쓰기" : web ? "읽기" : name === "read" ? "읽기" : "실행";
+  const title = name === "edit" ? "이 파일을 고칠까요?" : name === "write" ? "이 파일을 쓸까요?" : web ? "이 웹 페이지를 읽을까요?" : name === "read" ? "이 파일을 읽을까요?" : name === "grep" ? "이 파일 안을 찾아볼까요?" : "이 명령을 실행할까요?";
+  const yesLabel = name === "edit" ? "고치기" : name === "write" ? "쓰기" : web ? "읽기" : name === "read" || name === "grep" ? "읽기" : "실행";
   const risk = tool.risk;
   const [note, setNote] = useState("");
   const rule = tool.rule;
@@ -106,7 +107,7 @@ function Approval({ tool, onDecide }) {
   const rows = useMemo(() => (name === "edit" ? editRows(args) : name === "write" ? writeRows(args) : null), [name, args]);
   // once the fold has opened, bring the buttons into view if they are not
   useEffect(() => {
-    const id = setTimeout(() => yes.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 230);
+    const id = setTimeout(() => yes.current?.scrollIntoView({ block: "nearest", behavior: glide() }), 230);
     return () => clearTimeout(id);
   }, []);
   return (
@@ -116,6 +117,8 @@ function Approval({ tool, onDecide }) {
       {risk && <p className="ask-risk"><Icon name="alert" /> {risk} — 되돌릴 수 없어서 어느 모드에서나 물어요.</p>}
       {name === "read" ? (
         <pre className="ask-cmd">{String(args.path ?? "")}</pre>
+      ) : name === "grep" ? (
+        <pre className="ask-cmd">{`${String(args.pattern ?? "")}  ·  ${String(args.path ?? ".")}${args.glob ? `  ·  ${args.glob}` : ""}`}</pre>
       ) : isFile ? (
         <div className="ask-file">
           <div className="ask-path">{args.path}</div>
@@ -187,7 +190,7 @@ const Step = memo(function Step({ tool, onDecide }) {
     setOpen((v) => !v);
     clearTimeout(reveal.current);
     // opened near the bottom: once it has unfolded, scroll it into view
-    if (!open) reveal.current = setTimeout(() => body.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 210);
+    if (!open) reveal.current = setTimeout(() => body.current?.scrollIntoView({ block: "nearest", behavior: glide() }), 210);
   };
   const status = tool.ask ? "asking" : tool.status;
   const running = tool.status === "run";
@@ -240,7 +243,9 @@ const Step = memo(function Step({ tool, onDecide }) {
           )}
         </Fold>
       )}
-      {ASKS.has(tool.name) && <Fold open={!!tool.ask} grow>{asked.current && <Approval tool={tool} onDecide={onDecide} />}</Fold>}
+      {/* any call the server asks about (a secret file's read too, guard.mjs),
+          not only the kinds that usually ask */}
+      {(ASKS.has(tool.name) || asked.current) && <Fold open={!!tool.ask} grow>{asked.current && <Approval tool={tool} onDecide={onDecide} />}</Fold>}
     </li>
   );
 });

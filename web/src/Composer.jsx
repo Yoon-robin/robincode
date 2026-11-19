@@ -107,6 +107,9 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
   const [pictures, setPictures] = useState([]);
   const [mention, setMention] = useState(null);
   const [files, setFiles] = useState(null);
+  // the words those files were found for: Enter right after typing more does
+  // not put in a file found for the words before (2026-11-19 codex)
+  const [filesQ, setFilesQ] = useState(null);
   const [pick, setPick] = useState(0);
   const dismissed = useRef(-1); // the @ robin closed with Esc stays closed
   const fileInput = useRef(null);
@@ -144,12 +147,13 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
     const room = MAX_PICTURES - pictures.length;
     if (room <= 0) { onError(`그림은 ${MAX_PICTURES}장까지 붙여요.`); return; }
     if (wanted.length > room) onError(`그림은 ${MAX_PICTURES}장까지라 ${room}장만 붙였어요.`);
+    // read in the conversation it was put in, even if another is open by now
+    const key = keyNow.current;
     const read = [];
     for (const f of wanted.slice(0, room)) {
       try { read.push(await readPicture(f)); } catch (e) { onError(e.message); }
     }
-    setPictures((now) => [...now, ...read].slice(0, MAX_PICTURES));
-    box.current?.focus();
+    if (giveTo(key, read)) box.current?.focus();
   }, [pictures.length, onError, box]);
   useEffect(() => { attachRef.current = addFiles; }, [attachRef, addFiles]);
   // pictures put back in the box (a message taken back to change)
@@ -164,6 +168,15 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
   // window is open (the 10 most recent conversations).
   const kept = useRef(new Map());
   const keyNow = useRef(convKey);
+  // pictures into a conversation's box: this one's, or kept for that one
+  // (true when it is the one on screen); `first`: in front of what is there
+  const giveTo = (key, list, first = false) => {
+    if (!list.length) return keyNow.current === key;
+    const join = (now) => (first ? [...list, ...now] : [...now, ...list]).slice(0, MAX_PICTURES);
+    if (keyNow.current === key) { setPictures(join); return true; }
+    kept.current.set(key, join(kept.current.get(key) || []));
+    return false;
+  };
   const picturesNow = useRef(pictures);
   picturesNow.current = pictures;
   useEffect(() => {
@@ -192,6 +205,7 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
       api("/api/files", { q }).then((r) => {
         if (!live) return;
         setFiles(r.files.filter((f) => f !== q));
+        setFilesQ(q);
         setPick(0);
       }).catch(() => live && setFiles([]));
     }, 60);
@@ -269,8 +283,11 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
   const mode = state.mode || "ask";
   const think = state.thinking;
   // when: "now" (after the step it is on) or "end" (when the turn is over), while it runs
+  // a double click on 보내기: the second lands on 멈추기 if the turn began
+  // in between, and stopped what was just sent (2026-11-19 codex)
+  const sentAt = useRef(0);
   const submit = (when = "now") => {
-    if (stop) { onStop(); return; }
+    if (stop) { if (Date.now() - sentAt.current > 700) onStop(); return; }
     if (empty) return;
     const text = draft.trim();
     const own = !pictures.length && ownCommand(text);
@@ -279,14 +296,17 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
       const command = text.slice(1).trim();
       if (!command) return;
       browse.current = null;
-      onShell(command, draft).then((ok) => { if (ok) setDraft(""); });
+      sentAt.current = Date.now();
+      onShell(command, draft);
       return;
     }
     const sent = pictures;
+    const key = keyNow.current;
     setPictures([]);
     setMention(null);
     browse.current = null;
-    onSend(draft, sent, when).then((ok) => { if (!ok) setPictures(sent); });
+    sentAt.current = Date.now();
+    onSend(draft, sent, when).then((ok) => { if (!ok) giveTo(key, sent, true); });
   };
   return (
     <footer className="composer">
@@ -334,7 +354,7 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
               const n = files.length;
               if (e.key === "ArrowDown" && n) { e.preventDefault(); setPick((k) => (k + 1) % n); return; }
               if (e.key === "ArrowUp" && n) { e.preventDefault(); setPick((k) => (k - 1 + n) % n); return; }
-              if ((e.key === "Enter" || e.key === "Tab") && n && !e.shiftKey) { e.preventDefault(); insert(files[pick]); return; }
+              if ((e.key === "Enter" || e.key === "Tab") && n && !e.shiftKey) { e.preventDefault(); if (filesQ === mention.q) insert(files[pick]); return; }
               // Esc here only closes the list (it must not stop the agent)
               if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); dismissed.current = mention.start; setMention(null); return; }
             }

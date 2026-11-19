@@ -319,6 +319,16 @@ await idle(40000);
 const last = await page.locator(".msg-user").last().innerText();
 ok(last.includes("요약 중 보낸 말"), `요약 중 보낸 말 (기다림 표시 ${held}) → 요약 뒤에 보냄`);
 
+// ---- the window made narrower and wider again: the view stays at the bottom
+// (the text wraps again; 2026-11-19 it was left above, "아래로" showing)
+const atEnd = () => page.evaluate(() => { const el = document.querySelector(".thread"); return el ? el.scrollHeight - el.scrollTop - el.clientHeight : -1; });
+for (const [w, h] of [[700, 800], [420, 760], [1280, 900]]) {
+  await page.setViewportSize({ width: w, height: h });
+  await page.waitForTimeout(450);
+  const gap = await atEnd();
+  ok(gap >= 0 && gap < 60 && (await page.locator(".to-bottom").count()) === 0, `${w}px로 바꿔도 맨 아래 (남은 ${Math.round(gap)}px)`);
+}
+
 // ---- /new
 const before = await page.locator(".msg-user").count();
 await say("/new");

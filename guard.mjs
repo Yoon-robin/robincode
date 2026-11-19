@@ -7,7 +7,31 @@
 // paths, Crush's dangerous commands (yolo too), Codex's execpolicy.
 // A guard against a model's mistake, not a sandbox: a command written to get
 // round it (a script file, an alias) still can.
-import { basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// where a tool's path really goes — Pi's resolveToCwd (pi-coding-agent
+// dist/utils/paths.js normalizePath), so the guard and RobinCode's backups
+// look at the file Pi changes: odd spaces, a leading @, `/c/x` (Git Bash) on
+// Windows, `~`, file:// (2026-11-19 codex: `@.env`, `~/x`, `file:///C:/…` got
+// past the checks)
+const ODD_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
+// the folder goes through the same (Pi's resolvePath: no @ or odd spaces there)
+function normal(p, tool) {
+  let s = String(p ?? "");
+  if (tool) { s = s.replace(ODD_SPACES, " "); if (s.startsWith("@")) s = s.slice(1); }
+  if (process.platform === "win32" && s.startsWith("/") && !s.startsWith("//") && !s.includes("\\")) {
+    const m = s.match(/^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i);
+    if (m) s = `${m[1].toUpperCase()}:\\${m[2]?.replaceAll("/", "\\") ?? ""}`;
+  }
+  if (s === "~") s = homedir();
+  else if (s.startsWith("~/") || (process.platform === "win32" && s.startsWith("~\\"))) s = join(homedir(), s.slice(2));
+  else if (/^file:\/\//.test(s)) { try { s = fileURLToPath(s); } catch { /* left as it is */ } }
+  return s;
+}
+const folderOf = (cwd) => resolve(normal(cwd, false));
+export const toolPath = (cwd, p) => resolve(folderOf(cwd), normal(p, true));
 
 // one command of a chain: what follows up to ; | & or a new line
 const ARGS = "[^;|&\\n]*";
@@ -39,15 +63,22 @@ const SECRET_DIR = /(^|[\\/])\.(ssh|gnupg|aws|azure|docker|kube)([\\/]|$)/i;
 // the same named in a command (`type .env`, `cat ~/.ssh/id_rsa`, `Get-Content x.pem`)
 const SECRET_WORD = /(^|[\s'"\\/=(])(\.env(\.(?!example\b|sample\b|template\b)[\w-]+)?|id_(rsa|dsa|ecdsa|ed25519)|\.git-credentials|\.npmrc|[\w-]+\.(pem|pfx|p12))(?=$|[\s'")\\/;|])|(^|[\s'"=(])[^\s'"]*[\\/]\.ssh[\\/]/i;
 
-export const secretPath = (p) => !!p && (SECRET_NAME.test(basename(String(p))) || SECRET_DIR.test(String(p)));
+// by its name and the folders it is in under the work folder (a work folder
+// that is itself inside .ssh does not make every file a secret)
+export const secretPath = (p, cwd = "") => {
+  if (!p) return false;
+  const full = cwd ? toolPath(cwd, p) : String(p);
+  const shownPath = cwd ? relative(folderOf(cwd), full) : full;
+  return SECRET_NAME.test(basename(full)) || SECRET_DIR.test(shownPath.startsWith("..") || isAbsolute(shownPath) ? full : shownPath);
+};
 
 // outside the folder (another drive is an absolute relative path on Windows)
 export function outside(cwd, p) {
-  const r = relative(resolve(cwd), resolve(cwd, String(p)));
+  const r = relative(folderOf(cwd), toolPath(cwd, p));
   return r === ".." || r.startsWith(`..${sep}`) || r.startsWith("../") || isAbsolute(r);
 }
 // Windows (and a Mac's disk) does not tell .GIT from .git
-const inGit = (cwd, p) => relative(resolve(cwd), resolve(cwd, String(p))).split(/[\\/]/).some((part) => part.toLowerCase() === ".git");
+const inGit = (cwd, p) => relative(folderOf(cwd), toolPath(cwd, p)).split(/[\\/]/).some((part) => part.toLowerCase() === ".git");
 
 // why this call asks whatever the mode, or null
 export function danger(cwd, name, input) {
@@ -58,12 +89,35 @@ export function danger(cwd, name, input) {
     return null;
   }
   const p = input?.path;
+  // grep gives the lines it matched back: a secret file (or a glob for one)
+  // searched is a secret read (Pi's grep searches hidden files too)
+  if (name === "grep") {
+    if (p && secretPath(p, cwd)) return "비밀 파일 읽기(grep)";
+    const g = String(input?.glob || "").replace(/^\*\*\//, "");
+    if (g && (secretPath(g) || /(^|\/)\.env\b|\.(pem|key|pfx|p12)\b|id_(rsa|ed25519)/i.test(g)) && !/^!/.test(g)) return "비밀 파일 읽기(grep)";
+    return null;
+  }
   if (!p) return null;
-  if (name === "read") return secretPath(p) ? "비밀 파일 읽기" : null;
+  if (name === "read") return secretPath(p, cwd) ? "비밀 파일 읽기" : null;
   if (name === "edit" || name === "write") {
     if (outside(cwd, p)) return "폴더 밖 파일 고치기";
     if (inGit(cwd, p)) return ".git 안 고치기";
-    if (secretPath(p)) return "비밀 파일 고치기";
+    if (secretPath(p, cwd)) return "비밀 파일 고치기";
   }
   return null;
+}
+
+// a grep over a folder (Pi's searches hidden files too): the lines it found in
+// secret files are taken out of what the model sees, unless robin said yes to
+// that search (danger asked). Pi's lines: `path:12: text`, context `path-12- text`
+// (2026-11-19 codex: `grep TOKEN .` handed .env's lines over)
+const GREP_LINE = /^(.+?)(?::\d+:|-\d+-) /;
+export function dropSecretLines(text) {
+  let dropped = 0;
+  const kept = String(text).split("\n").filter((line) => {
+    const m = line.match(GREP_LINE);
+    if (m && secretPath(m[1])) { dropped++; return false; }
+    return true;
+  });
+  return { text: kept.join("\n"), dropped };
 }

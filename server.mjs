@@ -33,7 +33,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { addRecent, allFolders, cleanPath, folderExists, hideRecent, rows as folderRows, unhideRecent } from "./folders.mjs";
-import { danger } from "./guard.mjs";
+import { danger, dropSecretLines, toolPath } from "./guard.mjs";
 import { hint as nearHint, nearest } from "./near.mjs";
 
 // Pi, loaded once its packages are there (getReady)
@@ -928,9 +928,20 @@ const approvalsFor = (conv) => ({
       }
       if (event.isError && /Command timed out after \d+ seconds/.test(textOf(event.content))) notes.push(TIMED_OUT);
       if (event.isError && event.toolName === "edit") { const h = editMiss(conv, event); if (h) notes.push(h); }
-      const trimmed = event.toolName === "webfetch" ? null : trimResult(event.toolName, event.toolCallId, event.content);
-      if (!notes.length && !trimmed) return undefined;
-      return { content: [...(trimmed || (Array.isArray(event.content) ? event.content : [])), ...notes.map((text) => ({ type: "text", text: `\n\n${text}` }))] };
+      let content = Array.isArray(event.content) ? event.content : [];
+      let cleaned = false;
+      if (event.toolName === "grep" && !event.isError && !danger(conv.cwd, "grep", event.input)) {
+        let dropped = 0;
+        content = content.map((c) => { if (c.type !== "text") return c; const r = dropSecretLines(c.text); dropped += r.dropped; return r.dropped ? { ...c, text: r.text } : c; });
+        if (dropped) {
+          cleaned = true;
+          log(`grep 결과에서 비밀 파일 줄 ${dropped}개를 뺌`);
+          notes.push(`(RobinCode) 비밀 파일(.env, 키 같은)에서 찾은 ${dropped}줄은 뺐어요. 꼭 봐야 하면 그 파일을 path로 정해 grep하세요(robin이 허락해야 해요).`);
+        }
+      }
+      const trimmed = event.toolName === "webfetch" ? null : trimResult(event.toolName, event.toolCallId, content);
+      if (!notes.length && !trimmed && !cleaned) return undefined;
+      return { content: [...(trimmed || content), ...notes.map((text) => ({ type: "text", text: `\n\n${text}` }))] };
     });
     pi.on("tool_call", async (event) => {
       // going round (the same call, or a few in turn): the first time it is
@@ -963,6 +974,8 @@ const approvalsFor = (conv) => ({
       asking.delete(event.toolCallId);
       sayRunning();
       const { decision, note } = typeof answer === "string" ? { decision: answer } : answer;
+      // robin went to plan mode while the card waited: a yes now does not write or run
+      if (conv.mode === "plan" && !LOOK_TOOLS.includes(event.toolName) && decision !== "no") return refused(event, "계획 모드로 바뀌어서 고치거나 실행하지 않아요. 계획만 쓰세요.");
       // "모두 허용" for a risky one is this once: the next one asks again
       if (decision === "always" && risk) return going();
       // in plan mode "늘 묻지 않기" is this once only: plan mode stays (no other tools open mid-turn)
@@ -990,11 +1003,9 @@ let shelf = null; // the conversation's (theShelf sets it): { file, dir, index: 
 const sha = (buf) => createHash("sha256").update(buf).digest("hex");
 // Windows paths do not care about case
 const keyOf = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
-const absPath = (p, base = cwd) => {
-  let s = String(p || "").trim().replace(/^@/, "");
-  if (s === "~" || /^~[\\/]/.test(s)) s = join(homedir(), s.slice(1));
-  return resolve(base, s);
-};
+// the file a tool's path really is: the same reading as Pi's (guard.mjs
+// toolPath), so the backup is of the file Pi changes (`file:///C:/…`, `/c/…`)
+const absPath = (p, base = cwd) => toolPath(base, String(p || ""));
 const shown = (p) => { const r = relative(cwd, p); return r && !r.startsWith("..") && !isAbsolute(r) ? r.replace(/\\/g, "/") : p; };
 function theShelf(conv = cur) {
   const file = conv?.session?.sessionFile;
@@ -1102,6 +1113,9 @@ function reviewOne(f) {
 // there is kept on the shelf so it can be put back again (`undo`)
 function revertOne(f) {
   const was = take(f.path);
+  // what is there now cannot be kept (too big, not readable): writing over it
+  // could not be undone, so nothing is written (2026-11-19 codex)
+  if (!keepable(was ?? "")) { const e = new Error("지금 파일이 너무 크거나 읽을 수 없어서, 되돌리면 다시 살릴 수 없어요. 되돌리지 않았어요."); e.status = 409; throw e; }
   if (f.before === null) { try { unlinkSync(f.path); } catch (e) { if (e.code !== "ENOENT") throw e; } }
   else { mkdirSync(dirname(f.path), { recursive: true }); writeFileSync(f.path, readFileSync(join(shelf.dir, f.before))); }
   return was;
@@ -1140,12 +1154,28 @@ const othersRunning = () => [...convs].filter((c) => c !== cur && running(c)).le
 // (message_start) or the check said no
 async function starting(conv, check) {
   conv.starting = true;
+  conv.stopStart = false;
   sayRunning();
   let problem;
   try { problem = await check(); } catch (e) { problem = { message: e.message }; }
-  // what was sent during the check is not left waiting for a turn that never
-  // came: it goes now, or comes back to the box ("unsent")
-  if (problem) { conv.starting = false; sayRunning(); if (conv.held.length) setTimeout(() => flushHeld(conv), 0); }
+  // robin pressed stop while the model was checked: nothing begins (Pi had
+  // nothing to abort yet, so the turn went on; 2026-11-19 codex)
+  if (conv.stopStart) problem = { message: "멈춰서 보내지 않았어요.", stopped: true };
+  conv.stopStart = false;
+  if (problem) {
+    conv.starting = false;
+    sayRunning();
+    // what was sent during the check is not left waiting for a turn that
+    // never came: it goes now, or comes back to the box ("unsent"); after a
+    // stop it all comes back
+    if (problem.stopped && conv.held.length) {
+      const items = conv.held.map((x) => ({ text: x.text, images: x.images || [] }));
+      conv.held = [];
+      sayQueued(conv);
+      if (conv === cur) sendAll({ t: "unsent", items, why: problem.message });
+      else conv.unsent = [...(conv.unsent || []), ...items];
+    } else if (conv.held.length) setTimeout(() => flushHeld(conv), 0);
+  }
   return problem;
 }
 // a turn of robin's begins (the model checked first): { ok } or why not
@@ -1153,7 +1183,7 @@ async function begin(conv, said, images = [], text = said) {
   const { session } = conv;
   if (othersRunning() >= MAX_RUNNING) return { status: 409, error: TOO_MANY };
   const p = await starting(conv, modelProblem);
-  if (p) return { status: 503, error: p.message, gpuOff: p.gpuOff };
+  if (p) return { status: p.stopped ? 409 : 503, error: p.message, gpuOff: p.gpuOff, stopped: p.stopped };
   // gone back to before the first message and saying something else: Pi's
   // list names a conversation after the file's first message (the old one),
   // so the new first message becomes its name
@@ -1248,7 +1278,8 @@ function refreshGit(dir) {
 }
 
 function letGo(conv) {
-  if (!conv || conv === cur || running(conv) || !convs.has(conv)) return;
+  // a `!command` still running is not cut off by opening another conversation
+  if (!conv || conv === cur || running(conv) || conv.session?.isBashRunning || !convs.has(conv)) return;
   refuse(conv);
   convs.delete(conv);
   try { conv.session.dispose(); } catch { /* gone already */ }
@@ -1268,11 +1299,16 @@ function runningList() {
 }
 const sayRunning = () => broadcast({ t: "running", running: runningList() });
 function show(conv) {
+  // an open still loading that ends after this does not take the screen
+  // (robin clicked a new conversation, then an open one; 2026-11-19 codex)
+  opening++;
   const old = cur;
   cur = conv;
   session = conv.session;
   if (conv.cwd !== cwd) { cwd = conv.cwd; fileCache = { at: 0, list: [] }; }
   broadcast({ t: "reset", state: state() });
+  // what was given back while robin was in another conversation
+  if (conv.unsent?.length) { sendAll({ t: "unsent", items: conv.unsent, why: "멈춰서 보내지 않았어요." }); conv.unsent = null; }
   refreshGit(conv.cwd);
   letGo(old);
 }
@@ -1282,8 +1318,8 @@ const convOf = (file) => [...convs].find((c) => c.session.sessionFile === file);
 // later open, new or folder wins, an earlier one that ends after it is let go
 // instead of taking the screen (robin clicking two in the list quickly)
 let opening = 0;
-async function startSession(sessionManager, base = cwd) {
-  const my = ++opening;
+async function startSession(sessionManager, base = cwd, ticket = null) {
+  const my = ticket ?? ++opening;
   if (!runtime) {
     // models.json for our one provider; the key is set at runtime, never written
     const modelsPath = join(agentDir, "models.json");
@@ -1391,7 +1427,7 @@ function onEvent(conv, e) {
       if (e.message.role === "custom" || e.message.role === "assistant") conv.resuming = false;
       // robin stopped while a cut loop was about to go on: the part that came is stopped too
       if (e.message.role !== "user" && conv.manualStop) setTimeout(() => { conv.session.abort().catch(() => {}); }, 0);
-      if (e.message.role === "assistant") { conv.gen = { first: 0 }; conv.live = { thinking: "", text: "" }; broadcast({ t: "assistant_start" }); }
+      if (e.message.role === "assistant") { conv.gen = { first: 0 }; conv.live = { thinking: "", text: "", planned: conv.mode === "plan" }; broadcast({ t: "assistant_start" }); }
       break;
     case "message_update": {
       const a = e.assistantMessageEvent;
@@ -1671,7 +1707,7 @@ const state = () => {
     // ended in plan mode: "이 계획대로 하기" goes back to this mode
     planFrom: cur?.planFrom || "ask",
     // what is being written now, and since when (robin came back to a running one)
-    live: busyNow() ? cur.live : null, startedAt: busyNow() ? cur.turn?.start || null : null,
+    live: busyNow() ? cur.live : null, shell: cur.shellNow || null, startedAt: busyNow() ? cur.turn?.start || null : null,
     // anything ever sent in it (else it is in no list, and cannot be opened again)
     saved: (() => { try { return session.sessionManager.getEntries().some(isUser); } catch { return false; } })(),
     // sent while the turn runs: waiting for the next step, the end, or a summary
@@ -1842,9 +1878,13 @@ async function pickerCall(req, res, url) {
   }
 }
 // pictures come inside the JSON (base64), so a prompt can be a few MB
+// bytes first, made into text once: a Korean letter split between two chunks
+// stayed whole (each chunk made into text alone turned it into U+FFFD)
 async function readJson(req) {
-  let body = "";
-  for await (const part of req) { body += part; if (body.length > 40e6) throw new Error("too large"); }
+  const parts = [];
+  let size = 0;
+  for await (const part of req) { size += part.length; if (size > 40e6) throw new Error("too large"); parts.push(part); }
+  const body = Buffer.concat(parts).toString("utf8");
   return body ? JSON.parse(body) : {};
 }
 // up to 4 pictures, each a PNG / JPEG / WebP / GIF under 8 MB of base64
@@ -1923,7 +1963,10 @@ const server = createServer(async (req, res) => {
   // only this machine, only our own page: a web page elsewhere could otherwise
   // reach 127.0.0.1 and drive an agent that runs commands
   if (req.headers.host !== `127.0.0.1:${port}` && req.headers.host !== `localhost:${port}`) { res.writeHead(403); res.end(); return; }
-  const url = new URL(req.url, `http://127.0.0.1:${port}`);
+  // an address URL() cannot read (`//[`) is that request's 400, not the
+  // server's end (it threw outside any try, before the token was checked)
+  let url;
+  try { url = new URL(req.url, `http://127.0.0.1:${port}`); } catch { res.writeHead(400); res.end(); return; }
   const file = req.method === "GET" && !url.pathname.startsWith("/api/") ? staticFile(url.pathname) : null;
   if (file) {
     try {
@@ -1959,12 +2002,18 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (req.method !== "POST") { send(res, 405, {}); return; }
+    // the conversation on screen when the request came, before its body (a
+    // few MB with pictures) is read: robin may open another meanwhile
+    const here = cur;
     const body = await readJson(req);
     switch (url.pathname) {
       case "/api/prompt": {
-        // the conversation on screen when robin pressed send, even if robin
-        // opens another while the model is checked (it goes on there unseen)
-        const conv = cur;
+        // the conversation it was typed in (the window says which), even if
+        // robin opened another by now (it goes on there unseen); one that is
+        // no longer open gives the words back
+        const named = body.conv ? convOf(String(body.conv)) : null;
+        if (body.conv && !named) { send(res, 409, { error: "그 대화는 이제 열려 있지 않아요.", moved: true }); return; }
+        const conv = named || here;
         const { session } = conv;
         const text = String(body.text || "").trim();
         const images = picturesOf(body.images);
@@ -1983,7 +2032,7 @@ const server = createServer(async (req, res) => {
           return;
         }
         const r = await begin(conv, said, images, text);
-        send(res, r.ok ? 200 : r.status, r.ok ? { ok: true } : { error: r.error, gpuOff: r.gpuOff });
+        send(res, r.ok ? 200 : r.status, r.ok ? { ok: true } : { error: r.error, gpuOff: r.gpuOff, stopped: r.stopped });
         return;
       }
       case "/api/unqueue": {
@@ -2011,32 +2060,40 @@ const server = createServer(async (req, res) => {
       }
       case "/api/shell": {
         // robin's own `!명령`: PowerShell in the conversation's folder, its
-        // output kept in the conversation (the model sees it next time)
-        const conv = cur;
+        // output kept in the conversation (the model sees it next time); the
+        // conversation it was typed in, like a message
+        const named = body.conv ? convOf(String(body.conv)) : null;
+        if (body.conv && !named) { send(res, 409, { error: "그 대화는 이제 열려 있지 않아요.", moved: true }); return; }
+        const conv = named || here;
         const command = String(body.command || "").trim();
         if (!command) { send(res, 400, { error: "empty" }); return; }
         if (running(conv) || conv.session.isBashRunning) { send(res, 409, { error: "busy" }); return; }
         const id = randomBytes(6).toString("hex");
         const to = (event) => { if (conv === cur) sendAll(event); };
         to({ t: "shell_start", id, command });
+        // what runs now, for a window that connects again or comes back to
+        // this conversation (it lost the command and its Esc; 2026-11-19 codex)
+        conv.shellNow = { id, command, output: "", startedAt: Date.now() };
         let out = "";
         let last = 0;
         conv.session.executeBash(command, (chunk) => {
           // only the end is shown while it runs: a chatty command does not grow this without end
           out += chunk;
           if (out.length > 400000) out = out.slice(-200000);
-          if (Date.now() - last > 150) { last = Date.now(); to({ t: "shell_update", id, output: tail(plain(out)) }); }
+          if (Date.now() - last > 150) { last = Date.now(); conv.shellNow.output = tail(plain(out)); to({ t: "shell_update", id, output: conv.shellNow.output }); }
         }, { operations: psOps, id })
-          .then((r) => to({ t: "shell_end", id, output: clip(plain(r.output || "")), exitCode: r.exitCode ?? null, cancelled: !!r.cancelled }))
-          .catch((e) => to({ t: "shell_end", id, output: e.message, exitCode: -1, cancelled: false }))
-          .finally(() => { refreshGit(conv.cwd); });
+          .then((r) => to({ t: "shell_end", id, command, output: clip(plain(r.output || "")), exitCode: r.exitCode ?? null, cancelled: !!r.cancelled }))
+          .catch((e) => to({ t: "shell_end", id, command, output: e.message, exitCode: -1, cancelled: false }))
+          .finally(() => { conv.shellNow = null; refreshGit(conv.cwd); setTimeout(() => letGo(conv), 0); });
         send(res, 200, { ok: true, id });
         return;
       }
       case "/api/abort": {
         // robin's stop wins over RobinCode's own (a loop cut does not go on)
         const conv = cur;
-        if (running(conv)) conv.manualStop = true;
+        // still checking the model: what was about to begin does not
+        if (conv.starting && !conv.session.isStreaming && !conv.resuming && !conv.session.isCompacting) conv.stopStart = true;
+        else if (running(conv)) conv.manualStop = true;
         refuse(conv);
         if (conv.session.isBashRunning) conv.session.abortBash();
         if (conv.session.isCompacting) conv.session.abortCompaction();
@@ -2099,6 +2156,7 @@ const server = createServer(async (req, res) => {
         if (!last) { send(res, 400, { error: "nothing to retry" }); return; }
         if (othersRunning() >= MAX_RUNNING) { send(res, 409, { error: TOO_MANY }); return; }
         const p = await starting(conv, modelProblem);
+        if (p?.stopped) { send(res, 200, { ok: true, stopped: true }); return; }
         if (p) { send(res, 503, { error: p.message, gpuOff: p.gpuOff }); return; }
         const text = wordsOf(last.message.content);
         const images = imagesOf(last.message.content);
@@ -2117,6 +2175,7 @@ const server = createServer(async (req, res) => {
         if (running(conv)) { send(res, 409, { error: "busy" }); return; }
         if (othersRunning() >= MAX_RUNNING) { send(res, 409, { error: TOO_MANY }); return; }
         const p = await starting(conv, modelProblem);
+        if (p?.stopped) { send(res, 200, { ok: true, stopped: true }); return; }
         if (p) { send(res, 503, { error: p.message, gpuOff: p.gpuOff }); return; }
         // isCompacting comes after Pi's own abort (compaction_start ends starting)
         conv.lastCompactFail = null;
@@ -2213,6 +2272,8 @@ const server = createServer(async (req, res) => {
         const files = reviewFiles();
         const which = (p) => files.find((f) => shown(f.path) === String(p || ""));
         if (body.revert != null || body.put != null) {
+          // the files the window showed are another conversation's
+          if (body.conv !== undefined && (body.conv || null) !== (session?.sessionFile || null)) { send(res, 409, { error: "다른 대화가 열렸어요. 바뀐 파일을 다시 열어 주세요." }); return; }
           if (busyNow()) { send(res, 409, { error: "도는 동안에는 되돌리지 않아요. 끝난 뒤에 하세요." }); return; }
           const f = which(body.revert ?? body.put);
           if (!f) { send(res, 404, { error: "이 대화가 바꾼 파일이 아니에요." }); return; }
@@ -2221,7 +2282,8 @@ const server = createServer(async (req, res) => {
               if (!keepable(f.before ?? "") && f.before !== null) { send(res, 409, { error: "너무 커서 담아 두지 못한 파일이라 되돌릴 수 없어요." }); return; }
               const was = revertOne(f);
               log(`되돌림: ${shown(f.path)}`);
-              send(res, 200, { ok: true, undo: keepable(was ?? "") ? was : was === null ? "none" : null, file: reviewOne(f) });
+              // no file before the revert: undoing it takes the file away again
+              send(res, 200, { ok: true, undo: was === null ? "none" : was, file: reviewOne(f) });
             } else {
               const hash = String(body.hash || "");
               if (hash === "none") { try { unlinkSync(f.path); } catch { /* gone */ } }
@@ -2230,7 +2292,7 @@ const server = createServer(async (req, res) => {
               log(`되살림: ${shown(f.path)}`);
               send(res, 200, { ok: true, file: reviewOne(f) });
             }
-          } catch (e) { send(res, 500, { error: `파일을 쓰지 못했어요: ${e.message}` }); }
+          } catch (e) { send(res, e.status || 500, { error: e.status ? e.message : `파일을 쓰지 못했어요: ${e.message}` }); }
           return;
         }
         send(res, 200, { files: files.map(reviewOne).filter((f) => f.state !== "same") });
@@ -2248,12 +2310,16 @@ const server = createServer(async (req, res) => {
         return;
       case "/api/open": {
         // the one on screen goes on if it runs; one still open is shown as it is
+        // the number from the click: a later click (the one on screen too)
+        // wins over an open still looking for its file
+        const ticket = ++opening;
         const open = convOf(String(body.path || ""));
         if (open) { if (open !== cur) show(open); send(res, 200, { ok: true }); return; }
         // only a conversation from our own list, never a path the page made up
         const found = await findSession(body.path);
         if (!found) { send(res, 404, { error: "no such conversation" }); return; }
-        await startSession(SessionManager.open(found.path, sessionDir));
+        if (ticket !== opening) { send(res, 200, { ok: true, late: true }); return; }
+        await startSession(SessionManager.open(found.path, sessionDir), cwd, ticket);
         send(res, 200, { ok: true });
         return;
       }
