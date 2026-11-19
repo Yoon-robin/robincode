@@ -1,37 +1,40 @@
 /* RobinCode window. RobinX brand V3 (docs/brand.md, 2026-11-19: robin
    "Neverlose V3 스타일로 재디자인해"), then matched to the official
    2026-11-14 Neverlose footage (docs/design/neverlose-reference/, robin's
-   pixel-fidelity brief): the sidebar lighter than the content, the content a
-   darker panel with rounded left corners laid over it, cards the content's
-   own colour told apart by a hairline, switches 32x20, one blue. V3.1
-   (2026-11-19 "네버루즈랑 완전히 똑같게"): the original's frame sizes
-   (docs/brand.md 뼈대, 컨트롤). The frame stays RobinAI's: a sidebar on the left, the conversation
+   pixel-fidelity brief): the content a panel with rounded left corners laid
+   over the sidebar, switches 32x20, one blue. V3.1 (2026-11-19 "네버루즈랑
+   완전히 똑같게"): the original's frame sizes (docs/brand.md 뼈대, 컨트롤).
+   V3.2 (robin chose ① on the redrawn reference menu): the sidebar nearly the
+   panel's black, the panel told apart by a 1px --line edge, cards a step
+   lighter than the panel. The frame stays RobinAI's: a sidebar on the left, the conversation
    right. */
 @font-face { font-family: "Robin Term"; src: url("/fonts/robin-term.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
 @font-face { font-family: "Pretendard"; src: url("/fonts/pretendard-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 :root {
-  /* RobinX V3.1 (docs/brand.md, docs/brand/robinx-v3-tokens.css; robin
-     2026-11-19 "네버루즈랑 완전히 똑같게"): surfaces as the official menu
-     looks in the footage, lines, blue, corners and sizes off the 1x picture */
-  --side: #222533;   /* sidebar, lighter than the content */
-  --page: #15161f;   /* the content panel, the top bar */
-  --card: #15161f;   /* cards are the content's colour, told apart by --line */
-  --raise: #1d1d2b;  /* a control: input, select, value box, chip */
-  --hover: #2a2d3e;  /* a row pointed at, on the sidebar */
-  --press: #33374a;  /* the chosen row, pressed */
+  /* RobinX V3.2 (docs/brand.md, docs/brand/robinx-v3-tokens.css; robin
+     2026-11-19 chose ① on the redrawn reference menu,
+     docs/design/neverlose-reference/replica/menu.html?solid=dark): the
+     official menu's glass layers set over a dark scene; lines, blue, corners
+     and sizes off the 1x picture */
+  --side: #070a11;   /* sidebar, nearly the panel's black */
+  --page: #0b0d13;   /* the content panel, the top bar */
+  --card: #111219;   /* cards: a step lighter than the panel, with a faint --line */
+  --raise: #191925;  /* a control: input, select, value box, chip */
+  --hover: #17181f;  /* a row pointed at, on the sidebar */
+  --press: #272830;  /* the chosen row, pressed */
   --sunk: #05080f;   /* an off switch's track */
-  --track: #20212c;  /* a slider's or a meter's groove */
+  --track: #1b1c25;  /* a slider's or a meter's groove */
   --head: #ffffff;
   --chosen: #f2f2f2; /* the chosen sidebar row, the account name */
-  --text: #d9dbe2;
+  --text: #d6d6db;
   --soft: #a3a3a8;
-  --faint: #8b8fa5;  /* 5.6:1 on the content, 4.8:1 on the sidebar */
+  --faint: #8b8fa5;  /* 5.9:1 on the content, 5.5:1 on a card */
   --off-text: #6b6e7c; /* a control that can't be used now (not for reading) */
   /* lines: faint, the surfaces do most of the telling apart */
-  --line: #1c1e28;        /* card edges, the top bar's and the sidebar's rules */
-  --line-strong: #23242f; /* around controls */
-  --line-weak: #1b1c25;   /* between rows inside a card */
+  --line: #1a1b21;        /* card and panel edges, the top bar's and the sidebar's rules */
+  --line-strong: #21212a; /* around controls */
+  --line-weak: #1a1b23;   /* between rows inside a card */
   --accent: #4f7dff;      /* on, chosen, focus, links; 4.9:1 on the content */
   --accent-fill: #3566e8; /* white text on it: 5.0:1 */
   --accent-hover: #2f5cd6;
@@ -41,7 +44,7 @@
   --green: #5fd08a; /* a diff's added lines only */
   /* the inset dark of code and command output, below the content panel
      (not --side: on the glass window that one is see-through) */
-  --inset: #101119;
+  --inset: #090a0f;
   --win: var(--inset);
   --radius-sm: 6px;   /* controls: chips, small buttons, selects, value boxes, top bar buttons */
   --radius: 6px;      /* buttons, inputs */
@@ -285,19 +288,20 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
    sidebar lets the blurred desktop through as the footage's does, the
    conversation stays a nearly solid dark panel laid over it */
 html.glass, html.glass body { background: transparent; }
-/* the sidebar lighter than the content as V3.1's --side, the rows' steps as
-   white over the glass (hover 7%, chosen 11%) */
-html.glass { --side: rgb(34 37 51 / 62%); --hover: rgb(255 255 255 / 7%); }
+/* the sidebar the official window glass (V3.2: nearly black, the desktop
+   faintly through), the rows' steps as white over it (hover 7%, chosen 11%) */
+html.glass { --side: rgb(5 8 15 / 87.5%); --hover: rgb(255 255 255 / 7%); }
 html.glass .app { background: var(--side); }
 html.glass .side { background: none; }
 /* on the glass the sidebar's search is see-through too: a darker tint */
 html.glass .conv-search { border-color: rgb(255 255 255 / 8%); background: rgb(8 9 14 / 28%); }
-html.glass .main { background: rgb(21 22 31 / 96%); }
-html.glass .conv { --conv-bg: #2a2d3e; }
-html.glass .conv:hover, html.glass .conv:focus-within { --conv-bg: #2a2d3e; background: rgb(255 255 255 / 7%); }
+html.glass .main { background: rgb(11 13 19 / 96%); }
+/* the fades under a row's buttons: the glass as it looks, solid */
+html.glass .conv { --conv-bg: #0b0e15; }
+html.glass .conv:hover, html.glass .conv:focus-within { --conv-bg: #1b1e25; background: rgb(255 255 255 / 7%); }
 html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb(255 255 255 / 11%); }
 .app { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); height: 100%; background: var(--side); }
-.main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; border-radius: var(--radius-win) 0 0 var(--radius-win); background: var(--page); box-shadow: -1px 0 0 var(--line), -8px 0 24px rgb(0 0 0 / 22%); }
+.main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; border: 1px solid var(--line); border-right: 0; border-radius: var(--radius-win) 0 0 var(--radius-win); background: var(--page); }
 .lost { margin: 10px 20px 0; padding: 9px 12px; border: 1px solid rgb(242 107 110 / 40%); border-radius: var(--radius); background: rgb(242 107 110 / 7%); color: var(--red); font-size: 14px; }
 
 /* ---- conversation ---- */
@@ -1467,8 +1471,8 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 /* narrow: the sidebar slides over the conversation, so it is solid there, and
    the conversation fills the window without its rounded panel edge */
 @media (max-width: 860px) {
-  .main { border-radius: 0; box-shadow: none; }
-  html.glass .side { background: #222533; } /* --side, solid */
+  .main { border: 0; border-radius: 0; }
+  html.glass .side { background: #070a11; } /* --side, solid */
 }
 
 /* ---- the folder row: the folder screen is a click away ---- */

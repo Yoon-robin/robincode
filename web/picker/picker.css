@@ -1,6 +1,6 @@
 /* The folder window: Tailwind v4 with the RobinX V3 tokens (docs/brand.md,
-   the same values as the RobinCode window's web/src/styles.css, V3.1): navy
-   charcoal, one blue for the chosen row, amber only for "not there", rows
+   the same values as the RobinCode window's web/src/styles.css, V3.2): nearly
+   black navy, one blue for the chosen row, amber only for "not there", rows
    r7, the search box r16, Pretendard (Robin Term for paths). Korean Pretendard comes from the server (/fonts/pretendard/,
    RobinMail's subset files), Latin and Robin Term from the build. */
 @import "tailwindcss" source("./");
@@ -9,21 +9,21 @@
 @font-face { font-family: "Pretendard"; src: url("../../../assets/pretendard-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 @theme {
-  --color-page: #15161f;
-  --color-card: #15161f;
-  --color-hover: #2a2d3e;
-  --color-press: #33374a;
-  --color-text: #d9dbe2;
+  --color-page: #0b0d13;
+  --color-card: #111219;
+  --color-hover: #17181f;
+  --color-press: #272830;
+  --color-text: #d6d6db;
   --color-head: #ffffff;
   --color-soft: #a3a3a8;
   --color-faint: #8b8fa5;
   --color-dim: #8b8fa5;
-  --color-line: #23242f;  /* --line-strong: around controls */
-  --color-line-weak: #1c1e28;  /* --line */
+  --color-line: #21212a;  /* --line-strong: around controls */
+  --color-line-weak: #1a1b21;  /* --line */
   --color-accent: #4f7dff;
   --color-accent-fill: #3566e8;
   --color-accent-hover: #2f5cd6;
-  --color-raise: #1d1d2b;
+  --color-raise: #191925;
   --color-amber: #f5b942;
   --radius-box: 7px;  /* a row (--radius-row) */
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
