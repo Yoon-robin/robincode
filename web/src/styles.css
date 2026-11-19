@@ -41,6 +41,13 @@
   --radius-pop: 13px; /* a settings card */
   --radius-win: 14px; /* the shell, a popover */
   --shadow: 0 10px 30px rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 30%);
+  /* a dropdown (the place menu, the @ and / lists): dark glass, r16, a
+     hairline of light along the top, rows 32px tinted blue when pointed at
+     (values from the fan repro's menu code, colours kept to the footage) */
+  --pop-bg: #14141d; /* solid: what is under a menu must not read through */
+  --pop-line: rgb(57 61 76 / 80%);
+  --pop-shadow: inset 0 1px 0 rgb(255 255 255 / 8%), 0 8px 24px rgb(0 0 0 / 40%);
+  --pop-hover: rgb(78 131 255 / 12%);
   --sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
   --mono: "Robin Term", "Cascadia Code", "Cascadia Mono", Consolas, D2Coding, "Malgun Gothic", monospace;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -93,7 +100,7 @@ a:hover { text-decoration-color: currentColor; }
 /* going: quicker than coming, a little down (it came up) */
 @keyframes toast-out { to { opacity: 0; transform: translate(-50%, 4px); } }
 /* a menu opens from its button: down a little and in */
-@keyframes menu-in { from { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.98); } }
+@keyframes menu-in { from { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.96); } }
 .sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -124,10 +131,11 @@ a:hover { text-decoration-color: currentColor; }
 
 /* ---- a switch (Neverlose's toggles): off grey, on blue ---- */
 .toggle { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: var(--text); }
-.switch { position: relative; flex: none; width: 29px; height: 18px; border-radius: 9px; background: var(--sunk); transition: background-color 0.15s; }
+.switch { position: relative; flex: none; width: 29px; height: 18px; border-radius: 9px; background: var(--sunk); box-shadow: 0 0 0 0 rgb(78 131 255 / 0%); transition: background-color 0.15s, box-shadow 0.15s; }
 .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #76828d; transition: transform 0.15s var(--ease), background-color 0.15s; }
 .toggle.on .switch, .toggle[aria-pressed="true"] .switch { background: var(--accent); }
 .toggle.on .switch::after, .toggle[aria-pressed="true"] .switch::after { background: #fff; transform: translateX(11px); }
+.toggle:hover:not(:disabled) .switch, .toggle:focus-visible .switch { box-shadow: 0 0 0 1px rgb(78 131 255 / 22%); }
 .toggle:disabled { cursor: default; opacity: 0.6; }
 .toggle-word { font-size: 12px; color: var(--amber); }
 
@@ -436,8 +444,7 @@ html.glass .conv[aria-current="true"] { background: rgb(255 255 255 / 11%); }
   font-size: 14px;
   transition: background-color 0.15s, border-color 0.15s, transform 0.12s var(--ease);
 }
-.place-btn:hover, .place-btn[aria-expanded="true"] { background: var(--press); }
-.place-btn[aria-expanded="true"] { border-color: rgb(78 131 255 / 50%); }
+.place-btn:hover, .place-btn[aria-expanded="true"] { border-color: rgb(78 131 255 / 55%); background: #1f2636; }
 .place-btn:disabled { color: var(--soft); }
 .place-btn .ico { flex: none; width: 15px; height: 15px; color: var(--soft); }
 .place-name { flex: none; font-weight: 600; }
@@ -449,13 +456,13 @@ html.glass .conv[aria-current="true"] { background: rgb(255 255 255 / 11%); }
   z-index: 20;
   width: min(420px, calc(100vw - 32px));
   max-height: min(420px, 60vh);
-  padding: 6px;
+  padding: 4px;
   overflow-y: auto;
   transform: translateX(-50%);
-  border: 1px solid var(--line-win);
-  border-radius: var(--radius-pop);
-  background: var(--card);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--pop-line);
+  border-radius: 16px;
+  background: var(--pop-bg);
+  box-shadow: var(--pop-shadow);
   text-align: left;
   scrollbar-width: thin;
   transform-origin: top center;
@@ -466,15 +473,17 @@ html.glass .conv[aria-current="true"] { background: rgb(255 255 255 / 11%); }
   align-items: flex-start;
   gap: 10px;
   width: 100%;
+  min-height: 32px;
   padding: 7px 10px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
   outline: 0;
   background: none;
   color: var(--text);
   text-align: left;
+  transition: background-color 0.12s;
 }
-.place-item:hover, .place-item:focus-visible { background: var(--press); color: var(--head); }
+.place-item:hover, .place-item:focus-visible { background: var(--pop-hover); color: var(--head); }
 .place-item[aria-checked="true"] { color: var(--head); }
 .place-check { flex: none; margin-left: auto; }
 .place-item .place-check .ico { color: var(--accent); }
@@ -838,25 +847,26 @@ html.glass .conv[aria-current="true"] { background: rgb(255 255 255 / 11%); }
   bottom: calc(100% + 6px);
   z-index: 15;
   margin: 0 auto;
-  border: 1px solid var(--line-win);
-  border-radius: var(--radius-pop);
-  background: var(--card);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--pop-line);
+  border-radius: 16px;
+  background: var(--pop-bg);
+  box-shadow: var(--pop-shadow);
   overflow: hidden;
 }
-.mentions ul { max-height: 264px; margin: 0; padding: 6px; overflow-y: auto; list-style: none; scrollbar-width: thin; }
+.mentions ul { max-height: 264px; margin: 0; padding: 4px; overflow-y: auto; list-style: none; scrollbar-width: thin; }
 .mention {
   display: flex;
   align-items: center;
   gap: 9px;
+  min-height: 32px;
   padding: 6px 10px;
-  border-radius: var(--radius);
+  border-radius: 10px;
   font: 400 13px/1.5 var(--mono);
   color: var(--soft);
   cursor: pointer;
 }
 .mention .ico { flex: none; width: 15px; height: 15px; }
-.mention.on { background: var(--press); color: var(--head); }
+.mention.on { background: var(--pop-hover); color: var(--head); }
 .mention.on .ico { color: var(--accent); }
 .mention-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .mention-path b { font-weight: 700; color: var(--accent); }
@@ -878,7 +888,7 @@ html.glass .conv[aria-current="true"] { background: rgb(255 255 255 / 11%); }
   color: var(--text);
   transition: background-color 0.15s, border-color 0.15s;
 }
-.mode:hover { background: var(--press); color: var(--head); }
+.mode:hover { border-color: rgb(78 131 255 / 55%); background: #1f2636; color: var(--head); }
 .mode.on { color: var(--head); }
 .mode:disabled { cursor: default; color: var(--faint); background: transparent; }
 .mode + .mode { margin-left: -8px; }
@@ -897,6 +907,7 @@ html.glass .conv[aria-current="true"] { background: rgb(255 255 255 / 11%); }
 .composer-foot .mode { flex: none; white-space: nowrap; }
 .mode.mode-edits { color: var(--head); }
 .mode.mode-auto { border-color: rgb(245 185 66 / 45%); color: var(--amber); }
+.mode.mode-auto:hover { border-color: rgb(245 185 66 / 70%); }
 /* plan: only reads and writes a plan */
 .mode.mode-plan { border-color: rgb(78 131 255 / 50%); background: var(--accent-soft); color: var(--head); }
 .lamp.plan { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
