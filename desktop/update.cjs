@@ -31,7 +31,7 @@ const safe = (v) => /^[0-9A-Za-z][\w.-]{0,79}$/.test(String(v || "")) && !String
 // folder; log(text); tell(state) for the window. Returns { check, state }.
 function updater({ mine, home, log, tell, host = process.env.ROBINCODE_UPDATE_HOST || "contabo" }) {
   const versions = join(home, "versions");
-  let state = { version: mine.version, ready: null, shell: null, checking: false, error: null };
+  let state = { version: mine.version, ready: null, shell: null, checking: false, downloading: null, checkedAt: 0, error: null };
   const set = (change) => { state = { ...state, ...change }; tell(state); };
   let busy = false;
 
@@ -44,21 +44,22 @@ function updater({ mine, home, log, tell, host = process.env.ROBINCODE_UPDATE_HO
       if (!r.ok) throw new Error("서버에 닿지 않아요(ssh contabo)");
       const latest = JSON.parse(r.out);
       if (!safe(latest.version) || !safe(latest.app?.file) || !/^[0-9a-f]{64}$/.test(latest.app?.sha256 || "")) throw new Error("latest.json이 이상해요");
-      if (!(Number(latest.build) > Number(mine.build))) { set({ checking: false }); return state; }
+      if (!(Number(latest.build) > Number(mine.build))) { set({ checking: false, checkedAt: Date.now() }); return state; }
       // another Electron: this exe cannot run it, the whole zip has to come again
       if (latest.electron && latest.electron !== process.versions.electron) {
-        set({ checking: false, shell: latest.version });
+        set({ checking: false, checkedAt: Date.now(), shell: latest.version });
         log(`새 판 ${latest.version}은 Electron ${latest.electron}이 필요해서 ai.yoonrobin.xyz에서 다시 받아야 해요.\n`);
         return state;
       }
       const to = join(versions, latest.version);
       if (existsSync(join(to, "bad"))) {
         // it was downloaded and did not start: not again (a newer one will come)
-        set({ checking: false, error: `새 판 ${latest.version}이 켜지지 않아서 쓰지 않아요` });
+        set({ checking: false, checkedAt: Date.now(), error: `새 판 ${latest.version}이 켜지지 않아서 쓰지 않아요` });
         return state;
       }
       if (!existsSync(join(to, "version.json"))) {
         mkdirSync(versions, { recursive: true });
+        set({ downloading: latest.version });
         const zip = join(versions, `${latest.version}.zip.part`);
         const tmp = join(versions, `${latest.version}.tmp`);
         rmSync(tmp, { recursive: true, force: true });
@@ -85,11 +86,11 @@ function updater({ mine, home, log, tell, host = process.env.ROBINCODE_UPDATE_HO
         renameSync(tmp, to);
         log(`새 판 ${latest.version}을 받아 뒀어요. 다음에 켤 때 바뀌어요.\n`);
       }
-      set({ checking: false, ready: latest.version });
+      set({ checking: false, downloading: null, checkedAt: Date.now(), ready: latest.version });
       tidy(latest.version);
     } catch (e) {
       log(`새 판 확인: ${e.message}\n`);
-      set({ checking: false, error: e.message });
+      set({ checking: false, downloading: null, checkedAt: Date.now(), error: e.message });
     } finally {
       busy = false;
     }

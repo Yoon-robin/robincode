@@ -1787,6 +1787,7 @@ const state = () => {
   const first = branch().find((x) => x.type === "message" && x.message.role === "user")?.message;
   const firstWords = first ? titleOf(wordsOf(first.content)) : "";
   return {
+    version: versionOut(),
     cwd, chat: !!cur?.chat, folder: cur?.chat ? "" : cwd ? basename(cwd) || cwd : "", model: "Qwen3.8-27B", fake: FAKE, gpuFake: !!FAKE_GPU, gpu, gpuJob: job, mode: cur?.mode || "ask", thinking: !!settings.thinking,
     busy: busyNow(), compacting: !!session?.isCompacting, context: contextUsage(), history: history(),
     sessionFile: session?.sessionFile || null,
@@ -2312,6 +2313,13 @@ const server = createServer(async (req, res) => {
         broadcast({ t: "thinking_mode", on: settings.thinking });
         send(res, 200, { on: settings.thinking });
         return;
+      case "/api/version": {
+        // { seen: true }: robin was told; { check: true }: look on GitHub now
+        if (body.seen) versionSeen();
+        if (body.check) await checkNewer();
+        send(res, 200, versionOut());
+        return;
+      }
       case "/api/mode": {
         // takes effect from the model's next request (plan: its tools now)
         const mode = MODES.has(body.mode) ? body.mode : "ask";
@@ -2583,6 +2591,84 @@ if (PARENT) {
   }, 5000).unref();
 }
 
+// ---- which version this is, what changed, a newer one -------------------------
+// (robin 2026-11-19 "현재 버전이랑 업데이트 됫다는 UX가 부족하잖아"). The notes
+// are the commits that changed RobinCode: from git here, from version.json in
+// an installed copy (release-robincode.mjs writes them). `fresh` are the ones
+// robin has not seen yet (since the version the window last said it showed);
+// `pending` is a newer one on GitHub for this repository (the desktop shortcut
+// takes it on its next start, selfUpdate). An installed copy's own updates are
+// RobinCode.exe's (update.cjs), the window gets those from it.
+const RC_PATHS = ["robincode", "ops/windows/robincode-picker"];
+// 20261119-1442 (KST), as release-robincode.mjs names a version
+const kstStamp = (iso) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+  .format(new Date(iso)).replace(/[-:]/g, "").replace(" ", "-");
+const NOTE_FORMAT = "--format=%h%x09%cI%x09%s";
+// "RobinCode: 바로 실행 모드는 …" -> "바로 실행 모드는 …"
+const notesOf = (out) => out.trim().split("\n").filter(Boolean).map((line) => {
+  const [commit, at, ...s] = line.split("\t");
+  return { commit, at, subject: s.join("\t").replace(/^RobinCode\s*[:：]\s*/i, "").trim() };
+});
+const sameCommit = (a, b) => !!a && !!b && (a.startsWith(b) || b.startsWith(a));
+const ver = { version: "", mode: INSTALLED ? "installed" : "repo", at: "", notes: [], fresh: [], pending: null, checking: false, checkedAt: 0, error: "" };
+const versionOut = () => ({ ...ver, canCheck: CAN_PULL });
+const sayVersion = () => broadcast({ t: "version", version: versionOut() });
+async function readVersion() {
+  if (INSTALLED) {
+    try {
+      const j = JSON.parse(readFileSync(join(here, "version.json"), "utf8"));
+      Object.assign(ver, { version: String(j.version || ""), at: j.at || (j.build ? new Date(j.build * 1000).toISOString() : ""), notes: Array.isArray(j.notes) ? j.notes.slice(0, 20) : [] });
+    } catch { /* no version.json: nothing to say */ }
+  } else if (HOME_REPO) {
+    const r = await run("git", ["-C", HOME_REPO, "log", "-20", NOTE_FORMAT, "--", ...RC_PATHS], 20000);
+    const notes = r.ok ? notesOf(r.out) : [];
+    if (notes[0]) Object.assign(ver, { version: `${kstStamp(notes[0].at)}-${notes[0].commit}`, at: notes[0].at, notes });
+  }
+  if (!ver.version) return;
+  const top = ver.notes[0]?.commit || "";
+  if (!settings.seenVersion) {
+    // the first run: nothing is new yet
+    settings.seenVersion = ver.version; settings.seenCommit = top; saveSettings();
+  } else if (settings.seenVersion !== ver.version) {
+    const i = ver.notes.findIndex((n) => sameCommit(n.commit, settings.seenCommit));
+    ver.fresh = (i >= 0 ? ver.notes.slice(0, i) : ver.notes.slice(0, 5)).map((n) => n.commit);
+  }
+}
+// robin was told (the toast) or looked (the version window): not new next time;
+// the marks stay in this window till it closes
+function versionSeen() {
+  if (!ver.version || settings.seenVersion === ver.version) return;
+  settings.seenVersion = ver.version; settings.seenCommit = ver.notes[0]?.commit || ""; saveSettings();
+}
+// a newer RobinCode on GitHub for this repository (only from the desktop
+// shortcut, where a start takes it; and not in tests unless asked)
+const CAN_PULL = !INSTALLED && !!HOME_REPO && PICK && (!FAKE || !!process.env.ROBINCODE_UPDATE);
+async function checkNewer() {
+  if (!CAN_PULL || ver.checking) return;
+  ver.checking = true;
+  sayVersion();
+  const git = (...a) => run("git", ["-C", HOME_REPO, ...a], 30000);
+  try {
+    if (!(await git("fetch", "--quiet", "origin", "main")).ok) throw new Error("GitHub에 닿지 않아요");
+    const r = await git("log", NOTE_FORMAT, "HEAD..origin/main", "--", ...RC_PATHS);
+    if (!r.ok) throw new Error("새 판을 읽지 못했어요");
+    const notes = notesOf(r.out);
+    let blocked = "";
+    if (notes.length) {
+      // what stops the next start from taking it (selfUpdate's own checks)
+      if ((await git("rev-parse", "--abbrev-ref", "HEAD")).out.trim() !== "main") blocked = "main 브랜치가 아니라서 받지 않아요";
+      else if ((await git("--no-optional-locks", "status", "--porcelain", "--untracked-files=no")).out.trim()) blocked = "고친 파일이 있어서 받지 않아요. 커밋하거나 되돌리면 받아요";
+    }
+    ver.pending = notes.length ? { version: `${kstStamp(notes[0].at)}-${notes[0].commit}`, count: notes.length, notes: notes.slice(0, 12), blocked } : null;
+    ver.error = "";
+  } catch (e) {
+    ver.error = e.message;
+  }
+  ver.checking = false;
+  ver.checkedAt = Date.now();
+  sayVersion();
+}
+
 // ---- the newest RobinCode from GitHub, before anything is loaded ---------------
 // The other PC (Blitz) had to `git pull` by hand to get a new version. From the
 // desktop shortcut (--pick), the repository takes origin/main when it can do
@@ -2618,6 +2704,12 @@ async function selfUpdate() {
 
 try {
   await selfUpdate();
+  await readVersion();
+  // a newer one on GitHub: a little after the start, then every half hour
+  if (CAN_PULL) {
+    setTimeout(checkNewer, 30000).unref?.();
+    setInterval(checkNewer, 30 * 60000).unref?.();
+  }
   if (cwd) {
     await whenReady();
     addRecent(cwd);

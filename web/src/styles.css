@@ -66,6 +66,10 @@ a:hover { text-decoration-color: currentColor; }
 @keyframes line-on { from { visibility: hidden; } }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 6px); } }
+/* going: quicker than coming, a little down (it came up) */
+@keyframes toast-out { to { opacity: 0; transform: translate(-50%, 4px); } }
+/* a menu opens from its button: down a little and in */
+@keyframes menu-in { from { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.98); } }
 .sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -83,9 +87,11 @@ a:hover { text-decoration-color: currentColor; }
   color: var(--text);
   font-weight: 500;
   font-size: 14px;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.12s var(--ease);
 }
 .btn:hover { background: var(--press); }
+/* pressed: a small give, so a click is felt */
+.btn:active:not(:disabled), .mini-btn:active:not(:disabled), .place-btn:active:not(:disabled), .ver-row:active { transform: scale(0.97); }
 .btn:disabled { opacity: 0.4; }
 .btn:disabled:hover { background: transparent; }
 .btn-primary { background: var(--head); border-color: var(--head); color: var(--win); font-weight: 600; }
@@ -116,7 +122,7 @@ a:hover { text-decoration-color: currentColor; }
   background: transparent;
   font: 400 12px var(--mono);
   color: var(--soft);
-  transition: background-color 0.15s, color 0.15s;
+  transition: background-color 0.15s, color 0.15s, transform 0.12s var(--ease);
 }
 .mini-btn:hover { background: var(--press); color: var(--head); }
 .mini-btn .ico { width: 13px; height: 13px; }
@@ -349,7 +355,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   background: var(--card);
   color: var(--head);
   font-size: 14px;
-  transition: background-color 0.15s, border-color 0.15s;
+  transition: background-color 0.15s, border-color 0.15s, transform 0.12s var(--ease);
 }
 .place-btn:hover, .place-btn[aria-expanded="true"] { border-color: rgb(255 255 255 / 30%); background: var(--press); }
 .place-btn:disabled { color: var(--soft); }
@@ -372,6 +378,8 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   box-shadow: 0 12px 32px rgb(0 0 0 / 55%);
   text-align: left;
   scrollbar-width: thin;
+  transform-origin: top center;
+  animation: menu-in 0.14s var(--ease) both;
 }
 .place-item {
   display: flex;
@@ -792,9 +800,9 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .mode:disabled { cursor: default; color: var(--faint); background: transparent; }
 .mode + .mode { margin-left: -8px; }
 /* the notifications switch, at the foot of the sidebar */
-.notify { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.notify { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .notify .mode { flex: none; min-height: 24px; }
-.notify-note { min-width: 0; font-size: 11.5px; line-height: 1.35; color: var(--faint); }
+.notify-note { flex: 1 1 100%; min-width: 0; font-size: 11.5px; line-height: 1.35; color: var(--faint); }
 .keys { margin-left: auto; min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; column-gap: 0; height: 1.5em; line-height: 1.5em; overflow: hidden; font: 400 11.5px var(--mono); color: var(--faint); }
 .keys .key { white-space: nowrap; }
 .keys .key + .key::before { content: "·"; margin: 0 7px; }
@@ -1045,9 +1053,36 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .conv-place.chat { font-family: var(--sans); font-size: 12px; color: var(--soft); }
 .conv-place + ::before { content: "·"; margin: 0 0.4em; color: var(--faint); }
 .conv-wait { color: var(--soft); }
-.side-foot { display: grid; gap: 10px; padding: 12px 8px 2px; border-top: 1px solid var(--line-weak); }
-.side-row { display: grid; gap: 2px; min-width: 0; }
-.side-row .side-label { margin: 0; }
+.side-foot { display: grid; gap: 8px; padding: 12px 8px 4px; border-top: 1px solid var(--line-weak); }
+/* label left, what it is right (2026-11-19: the labels over each value made a
+   tall, loose stack) */
+.side-row { display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 8px; align-items: start; min-width: 0; }
+.side-row > * { min-width: 0; }
+.side-row .side-label { margin: 0; line-height: 22px; }
+.side-row > .mono, .side-row > span:not(.side-label) { line-height: 22px; }
+.gpu-row .gpu-label { display: none; }
+.side .gpu-row .gpu { padding-top: 3px; }
+/* the version: a row that opens its sheet */
+.ver-row {
+  width: calc(100% + 12px);
+  margin: -3px -6px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  transition: background-color 0.15s, transform 0.12s var(--ease);
+}
+.ver-row:hover { background: var(--press); }
+.ver-line { display: flex; align-items: center; gap: 8px; min-width: 0; line-height: 22px; }
+.ver-line .mono { flex: none; font-size: 12.5px; color: var(--text); }
+.ver-line .ico { flex: none; width: 12px; height: 12px; margin-left: auto; color: var(--faint); transition: transform 0.15s var(--ease), color 0.15s; }
+.ver-row:hover .ver-line .ico { color: var(--head); transform: translateX(2px); }
+.ver-tag { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 400 11.5px var(--mono); color: var(--soft); }
+.ver-tag.new, .ver-tag.warn { color: var(--amber); }
+.ver-tag.faint { color: var(--faint); }
 .side-row .mono { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; color: var(--text); }
 .side .gpu { display: grid; gap: 4px; justify-items: start; }
 .main-head { display: flex; align-items: center; min-height: 56px; padding: 10px 24px; border-bottom: 1px solid var(--line-weak); }
@@ -1079,6 +1114,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   transform: translateX(-50%);
   animation: toast-in 0.18s var(--ease) both;
 }
+.toast.leaving { animation: toast-out 0.14s cubic-bezier(0.4, 0, 1, 1) both; pointer-events: none; }
 .toast > span { flex: 1 1 16em; max-width: 34em; overflow-wrap: anywhere; }
 .toast-btn { flex: none; white-space: nowrap; border: 0; background: none; padding: 4px 6px; color: var(--win); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; border-radius: 4px; }
 .toast-btn:focus-visible { outline-color: var(--win); }
@@ -1251,11 +1287,43 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .gpu-autooff.warn { color: var(--amber); }
 
 /* an installed copy's version and the new one it downloaded (UpdateRow) */
-.update-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
-.update-new { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; color: var(--head); }
-.update-new.warn { color: var(--amber); }
-.update-new a { color: inherit; }
-.update-faint { font-size: 12px; color: var(--faint); }
+/* ---- /version: which RobinCode, where the updates stand, what changed ---- */
+.ver-now { display: grid; gap: 6px; padding: 4px 0 2px; }
+/* the one big thing on this sheet: the kit's light, one layer */
+.ver-big { font: 700 34px/1.1 var(--mono); color: var(--head); font-variant-numeric: tabular-nums; filter: drop-shadow(0 0 10px rgb(255 255 255 / 22%)); }
+.ver-sub { display: flex; flex-wrap: wrap; align-items: baseline; font-size: 12.5px; color: var(--soft); }
+.ver-sub > * + *::before { content: "·"; margin: 0 0.5em; color: var(--faint); }
+.ver-sub .mono { font-size: 12px; color: var(--text); }
+.ver-state { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line-weak); border-radius: var(--radius); background: var(--win); }
+.ver-state.new, .ver-state.warn { border-color: rgb(251 191 36 / 32%); }
+.ver-state.bad { border-color: rgb(248 113 113 / 35%); }
+.ver-mark { flex: none; font: 700 12.5px/1.75 var(--mono); color: var(--soft); white-space: pre; }
+.ver-state.new .ver-mark, .ver-state.warn .ver-mark { color: var(--amber); }
+.ver-state.bad .ver-mark { color: var(--red); }
+.ver-state-text { font-size: 14px; font-weight: 600; line-height: 1.6; color: var(--head); }
+.ver-detail { margin-top: 2px !important; font-size: 12.5px; line-height: 1.55; color: var(--soft); overflow-wrap: anywhere; }
+.ver-detail a { color: var(--head); text-underline-offset: 3px; }
+.ver-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.ver-sure { flex: 1 1 100%; font-size: 12.5px; color: var(--amber); text-align: right; }
+.ver-sec { display: grid; gap: 6px; }
+.ver-sec .side-label { margin: 0; }
+.ver-notes { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line-weak); }
+/* the lines come on one after another, as the kit's terminal does (a sheet
+   opened now and then, not a frequent one) */
+.ver-notes li {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--line-weak);
+  font-size: 13.5px;
+  line-height: 1.5;
+  animation: line-on 1ms calc(min(var(--i), 14) * 30ms + 80ms) steps(1) both;
+}
+.ver-date { font: 400 12px/1.7 var(--mono); color: var(--faint); }
+.ver-subj { color: var(--soft); overflow-wrap: anywhere; }
+.ver-notes li:first-child .ver-subj, .ver-notes li.fresh .ver-subj { color: var(--head); }
+.ver-new { margin-right: 8px; font: 700 11.5px var(--mono); color: var(--amber); }
 
 /* a long path in an error line does not run out of the window */
 .line > span:last-child { min-width: 0; }
@@ -1279,6 +1347,10 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   html { scroll-behavior: auto; }
   @keyframes rise { from { opacity: 0; } }
   @keyframes toast-in { from { opacity: 0; } }
+  @keyframes toast-out { to { opacity: 0; } }
+  @keyframes menu-in { from { opacity: 0; } }
+  .btn:active, .mini-btn:active, .place-btn:active, .ver-row:active { transform: none !important; }
+  .ver-notes li { animation: none; }
   .cursor, .status-mark, .md.streaming > :last-child::after, .gpu-seg.now i::after { animation: none; }
   .logo span, .empty-sub { animation: none; }
   .fold, .chev, .ctx-fill, .gpu-seg.now i,

@@ -7,7 +7,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("robincodeShell", {
   // resolves to the chosen folder, or null when robin closed the dialog
   pickFolder: (start) => ipcRenderer.invoke("robincode:pick-folder", typeof start === "string" ? start : ""),
-  // null in the repository; else { version, ready, shell, checking, error }
+  // null in the repository; else { version, ready, shell, checking, downloading, checkedAt, error }
   updateState: () => ipcRenderer.invoke("robincode:update-state"),
   checkUpdate: () => ipcRenderer.invoke("robincode:update-check"),
   onUpdate: (fn) => {

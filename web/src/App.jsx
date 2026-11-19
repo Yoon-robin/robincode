@@ -413,7 +413,8 @@ function NotifyRow({ notify, onToggle }) {
           title={on ? "다른 창을 보고 있을 때 허락이 필요하거나 끝나면 Windows 알림으로 알려요. 누르면 꺼요." : "누르면 다른 창을 보고 있을 때 허락이 필요하거나 끝나면 Windows 알림으로 알려요."}>
           <span className={`lamp ${on ? "on" : "idle"}`} aria-hidden="true" />{on ? "켬" : blocked ? "막힘" : "끔"}
         </button>
-        <span className="notify-note">{blocked ? (window.robincodeShell ? "Windows 설정 > 알림에서 RobinCode를 켜 주세요" : "창의 사이트 설정에서 알림을 허용해 주세요") : "다른 창을 볼 때 허락·끝을 알려요"}</span>
+        {/* what it does is on the button (its title); only a block needs words here */}
+        {blocked && <span className="notify-note">{window.robincodeShell ? "Windows 설정 > 알림에서 RobinCode를 켜 주세요" : "창의 사이트 설정에서 알림을 허용해 주세요"}</span>}
       </span>
     </div>
   );
@@ -773,7 +774,7 @@ function moveInList(e) {
   all[Math.max(0, Math.min(all.length - 1, k + (e.key === "ArrowDown" ? 1 : -1)))]?.focus();
 }
 
-const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch, onGpu }) {
+const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch, onGpu, shellU, onVersion }) {
   const now = useNow(60000);
   const nav = useRef(null);
   // ended while robin was elsewhere: marked until opened (this window's run only)
@@ -890,8 +891,8 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
           </div>
         )}
         <div className="side-row"><span className="side-label">모델</span><span className="mono">{state.info.model}</span></div>
-        <Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} onOpen={onGpu} />
-        <UpdateRow />
+        <div className="side-row gpu-row"><span className="side-label">GPU</span><Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} onOpen={onGpu} /></div>
+        <VersionRow version={state.version} shellU={shellU} onOpen={onVersion} />
       </div>
     </aside>
   );
@@ -905,9 +906,12 @@ function useStable(fn) {
   return useCallback((...args) => now.current(...args), []);
 }
 
-// an installed RobinCode (the zip from ai.yoonrobin.xyz) says its version and
-// a new one it downloaded (RobinCode.exe's update.cjs); the repository's says nothing
-function UpdateRow() {
+// ---- which RobinCode this is, and a newer one (robin 2026-11-19 "현재 버전이랑
+// 업데이트 됫다는 UX가 부족하잖아"). The server says the version and what
+// changed (both kinds: the repository's from git, an installed copy's from its
+// version.json) and, for the repository, a newer one on GitHub; an installed
+// copy's downloads are RobinCode.exe's (update.cjs), told to this window.
+function useShellUpdate() {
   const shell = window.robincodeShell;
   const [u, setU] = useState(null);
   useEffect(() => {
@@ -915,26 +919,131 @@ function UpdateRow() {
     shell.updateState().then(setU).catch(() => {});
     return shell.onUpdate(setU);
   }, [shell]);
-  if (!u?.version) return null;
+  return u?.version ? u : null;
+}
+// "20261119-1442-18c75c4" -> { when: "11.19 14:42", hash: "18c75c4" }
+function verLabel(v) {
+  const m = String(v || "").match(/^\d{4}(\d\d)(\d\d)-(\d\d)(\d\d)-(\w+)/);
+  return m ? { when: `${m[1]}.${m[2]} ${m[3]}:${m[4]}`, hash: m[5] } : { when: String(v || ""), hash: "" };
+}
+const shortDate = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}.${String(d.getDate()).padStart(2, "0")}`; };
+// one word for where the updates stand: { kind, mark, tone, text, detail, relaunch }
+function updateStatus(v, u, now = Date.now()) {
+  const checked = (at) => (at ? ` · ${ago(at, now)} 확인` : "");
+  if (u) {
+    if (u.downloading) return { kind: "downloading", mark: "[ .. ]", text: `새 판 ${verLabel(u.downloading).when}을 받는 중이에요`, detail: "다 받으면 여기서 다시 켤 수 있어요. 받는 동안에도 그대로 써요." };
+    if (u.ready && u.ready !== u.version) return { kind: "ready", mark: "[NEW]", tone: "new", text: `새 판 ${verLabel(u.ready).when}을 받아 뒀어요`, detail: "지금 다시 켜거나, 다음에 켤 때 바뀌어요.", relaunch: true };
+    if (u.shell) return { kind: "shell", mark: "[ !! ]", tone: "warn", text: `새 판 ${verLabel(u.shell).when}은 ai.yoonrobin.xyz에서 다시 받아야 해요`, detail: "앱 껍데기(Electron)가 바뀐 판이라 알아서 받지 못해요." };
+    if (u.checking) return { kind: "checking", mark: "[ .. ]", text: "새 판이 있는지 보는 중이에요" };
+    if (u.error) return { kind: "error", mark: "[FAIL]", tone: "bad", text: "새 판을 확인하지 못했어요", detail: `${u.error}${checked(u.checkedAt)}` };
+    if (u.checkedAt) return { kind: "ok", mark: "[ OK ]", text: `최신 판이에요${checked(u.checkedAt)}` };
+    return { kind: "none", mark: "[ .. ]", text: "켜고 조금 뒤에 새 판을 확인해요" };
+  }
+  const p = v?.pending;
+  if (p && p.blocked) return { kind: "blocked", mark: "[ !! ]", tone: "warn", text: `새 판이 GitHub에 있어요 (바뀐 것 ${p.count}개)`, detail: p.blocked };
+  if (p) return { kind: "pending", mark: "[NEW]", tone: "new", text: `새 판이 GitHub에 있어요 (바뀐 것 ${p.count}개)`, detail: "다시 켜면 받아서 바뀌어요.", relaunch: true };
+  if (v?.checking) return { kind: "checking", mark: "[ .. ]", text: "새 판이 있는지 보는 중이에요" };
+  if (v?.error) return { kind: "error", mark: "[FAIL]", tone: "bad", text: "새 판을 확인하지 못했어요", detail: `${v.error}${checked(v.checkedAt)}` };
+  if (v?.checkedAt) return { kind: "ok", mark: "[ OK ]", text: `최신 판이에요${checked(v.checkedAt)}` };
+  if (v?.canCheck) return { kind: "none", mark: "[ .. ]", text: "켜고 조금 뒤에 새 판을 확인해요" };
+  return { kind: "none", mark: "[ -- ]", text: "저장소에서 켠 판이에요", detail: "바탕화면 바로가기로 켜면 새 판을 알아서 받아요." };
+}
+
+function VersionRow({ version, shellU, onOpen }) {
+  if (!version?.version) return null;
+  const s = updateStatus(version, shellU);
+  const fresh = version.fresh?.length || 0;
+  const tag = s.tone === "new" ? <span className="ver-tag new">[NEW] 새 판</span>
+    : s.kind === "downloading" ? <span className="ver-tag">받는 중<span className="cursor" aria-hidden="true" /></span>
+    : s.tone === "warn" ? <span className="ver-tag warn">새 판 있음</span>
+    : fresh ? <span className="ver-tag">바뀐 것 {fresh}</span>
+    : s.kind === "error" ? <span className="ver-tag faint">확인 못 함</span> : null;
   return (
-    <div className="side-row update-row">
+    <button type="button" className="side-row ver-row" onClick={onOpen} aria-haspopup="dialog" title="판과 바뀐 것 보기 (/version)">
       <span className="side-label">판</span>
-      <span className="update-line">
-        <span className="mono">{u.version}</span>
-        {u.ready && u.ready !== u.version ? (
-          <span className="update-new">
-            새 판 <span className="mono">{u.ready}</span> 받아 둠
-            <button type="button" className="mini-btn" onClick={() => shell.relaunch()} title="지금 다시 켜서 새 판으로 바꿔요. 안 누르면 다음에 켤 때 바뀌어요.">다시 켜기</button>
-          </span>
-        ) : u.shell ? (
-          <span className="update-new warn">새 판 <span className="mono">{u.shell}</span>은 <a href="https://ai.yoonrobin.xyz/" target="_blank" rel="noreferrer">ai.yoonrobin.xyz</a>에서 다시 받아야 해요</span>
-        ) : u.checking ? (
-          <span className="update-faint">새 판 확인 중<span className="cursor" aria-hidden="true" /></span>
-        ) : u.error ? (
-          <span className="update-faint" title={u.error}>새 판을 확인하지 못했어요</span>
-        ) : null}
+      <span className="ver-line">
+        <span className="mono">{verLabel(version.version).when}</span>
+        {tag}
+        <Icon name="right" />
       </span>
-    </div>
+    </button>
+  );
+}
+
+function VersionPanel({ version: v, shellU: u, running, onClose, onError }) {
+  const shell = window.robincodeShell;
+  const [sure, setSure] = useState(false);
+  const now = useNow(30000);
+  // looked at: what is new now is not new the next time (the marks stay here)
+  useEffect(() => { if (v?.fresh?.length) api("/api/version", { seen: true }).catch(() => {}); }, [v?.version]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!v?.version) {
+    return <Sheet label="RobinCode 판" onClose={onClose}><p className="chg-note">판을 아직 몰라요. 잠시 뒤에 다시 열어 주세요.</p></Sheet>;
+  }
+  const s = updateStatus(v, u, now);
+  const l = verLabel(v.version);
+  const busy = s.kind === "checking" || s.kind === "downloading";
+  const canCheck = u ? !!shell?.checkUpdate : !!v.canCheck;
+  const check = () => (u ? shell.checkUpdate() : api("/api/version", { check: true })).catch(onError);
+  // a start again ends what runs: asked once more when something does
+  const going = running.length;
+  const relaunch = () => {
+    if (going && !sure) { setSure(true); return; }
+    shell.relaunch();
+  };
+  const fresh = new Set(v.fresh || []);
+  return (
+    <Sheet label="RobinCode 판" onClose={onClose}>
+      <div className="ver-now">
+        <p className="ver-big">{l.when}</p>
+        <p className="ver-sub">
+          {l.hash && <span className="mono">{l.hash}</span>}
+          <span>{v.mode === "installed" ? "설치판" : "저장소"}</span>
+          {v.at && <span>{ago(new Date(v.at).getTime(), now)} 만든 판</span>}
+        </p>
+      </div>
+      <div className={`ver-state${s.tone ? ` ${s.tone}` : ""}`} role="status">
+        <span className="ver-mark">{s.mark}</span>
+        <div>
+          <p className="ver-state-text">{s.text}{busy && <span className="cursor" aria-hidden="true" />}</p>
+          {s.detail && <p className="ver-detail">{s.detail}</p>}
+          {s.kind === "shell" && <p className="ver-detail"><a href="https://ai.yoonrobin.xyz/" target="_blank" rel="noreferrer">ai.yoonrobin.xyz에서 받기</a></p>}
+        </div>
+      </div>
+      {(canCheck || (s.relaunch && shell?.relaunch)) && (
+        <div className="ver-actions">
+          {sure && <p className="ver-sure">도는 대화 {going}개가 멈춰요. 쓰는 중인 답은 남지 않을 수 있어요.</p>}
+          {canCheck && !sure && <button type="button" className="btn btn-small" disabled={busy} onClick={check}>{busy ? "보는 중…" : "다시 확인"}</button>}
+          {sure && <button type="button" className="btn btn-small" onClick={() => setSure(false)}>그만두기</button>}
+          {s.relaunch && shell?.relaunch && (
+            <button type="button" className={`btn btn-small ${sure ? "btn-danger" : "btn-primary"}`} autoFocus={sure} onClick={relaunch}>{sure ? "멈추고 다시 켜기" : "다시 켜기"}</button>
+          )}
+        </div>
+      )}
+      {s.relaunch && !shell?.relaunch && <p className="ver-detail">RobinCode를 닫았다가 다시 켜면 바뀌어요.</p>}
+      {v.pending?.notes?.length > 0 && (
+        <section className="ver-sec">
+          <p className="side-label">받을 것</p>
+          <ol className="ver-notes">
+            {v.pending.notes.map((n, i) => (
+              <li key={n.commit} style={{ "--i": i }}><span className="ver-date">{shortDate(n.at)}</span><span className="ver-subj">{n.subject}</span></li>
+            ))}
+          </ol>
+        </section>
+      )}
+      {v.notes?.length > 0 && (
+        <section className="ver-sec">
+          <p className="side-label">{fresh.size ? `바뀐 것 · 새로 ${fresh.size}개` : "바뀐 것"}</p>
+          <ol className="ver-notes">
+            {v.notes.map((n, i) => (
+              <li key={n.commit} className={fresh.has(n.commit) ? "fresh" : undefined} style={{ "--i": i }}>
+                <span className="ver-date">{shortDate(n.at)}</span>
+                <span className="ver-subj">{fresh.has(n.commit) && <span className="ver-new">[NEW]</span>}{n.subject}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+    </Sheet>
   );
 }
 
@@ -972,7 +1081,7 @@ function Toast({ toast, onDone, onHold }) {
   const held = useRef({ pointer: false, focus: false });
   const hold = (why, on) => { held.current[why] = on; onHold(held.current.pointer || held.current.focus); };
   return (
-    <div className="toast" role="status" onPointerEnter={() => hold("pointer", true)} onPointerLeave={() => hold("pointer", false)}
+    <div className={`toast${toast.leaving ? " leaving" : ""}`} role="status" onPointerEnter={() => hold("pointer", true)} onPointerLeave={() => hold("pointer", false)}
       onFocus={() => hold("focus", true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) hold("focus", false); }}>
       <span>{toast.text}</span>
       {toast.actions.map((a) => (
@@ -1631,7 +1740,7 @@ export default function App() {
   const picturesRef = useRef(null); // the composer's "these are the pictures"
   const addPicturesRef = useRef(null); // the composer's "these too" (taken back from the queue)
   const askingRef = useRef(null); // the question on screen (its "늘 허용" rule)
-  const [panel, setPanel] = useState(null); // "memory" | "help" | "rules" | "changes" | null
+  const [panel, setPanel] = useState(null); // "memory" | "help" | "rules" | "changes" | "version" | null
   // another conversation opened (Ctrl+K works over a panel): its files are not
   // the ones on the changes panel, so a revert there was the other's file
   useEffect(() => { setPanel((p) => (p === "changes" ? null : p)); }, [state.sessionFile]);
@@ -1663,6 +1772,15 @@ export default function App() {
     return () => clearTimeout(t);
   }, [offline]);
 
+  // a note goes: a short fall and fade first (it vanished at once), unless a
+  // new one came meanwhile
+  const leaveTimer = useRef(0);
+  const dropToast = useCallback(() => {
+    clearTimeout(toastTimer.current);
+    setToast((t) => (t && !t.leaving ? { ...t, leaving: true } : t));
+    clearTimeout(leaveTimer.current);
+    leaveTimer.current = setTimeout(() => setToast((t) => (t?.leaving ? null : t)), 140);
+  }, []);
   // a note above the composer, with up to two buttons (one action, or a list)
   const say = useCallback((text, action) => {
     const actions = [].concat(action || []).filter(Boolean);
@@ -1670,17 +1788,37 @@ export default function App() {
     const ms = actions.length > 1 ? 9000 : actions.length ? 6000 : 2600;
     toastLife.current = ms;
     setToast({ id: Date.now(), text, actions });
-    toastTimer.current = setTimeout(() => setToast(null), ms);
+    toastTimer.current = setTimeout(dropToast, ms);
   }, []);
   // pointed at or focused, a note stays (robin reading it, or reaching for
   // its button with Tab); let go, it goes after its time again
   const toastLife = useRef(0);
   const holdToast = useCallback((on) => {
     clearTimeout(toastTimer.current);
-    if (!on) toastTimer.current = setTimeout(() => setToast(null), Math.max(2600, toastLife.current));
+    if (!on) toastTimer.current = setTimeout(dropToast, Math.max(2600, toastLife.current));
   }, []);
   const fail = useCallback((e) => say(e.message === "busy" ? "도는 중이라 지금은 못 해요. 끝나거나 멈춘 뒤에 해 주세요." : `하지 못했어요: ${e.message}`,
     e.gpuOff ? { label: "GPU 켜기…", run: () => setGpuOpen(true) } : undefined), [say]);
+  // the version: once a window after an update ("새 판으로 바뀌었어요", and it
+  // is not new the next time), and once for each newer one that is ready
+  const shellU = useShellUpdate();
+  const toldFresh = useRef(false);
+  useEffect(() => {
+    const v = state.version;
+    if (toldFresh.current || !v?.fresh?.length) return;
+    toldFresh.current = true;
+    api("/api/version", { seen: true }).catch(() => {});
+    say(`새 판으로 바뀌었어요 · ${verLabel(v.version).when}`, { label: "바뀐 것 보기", run: () => setPanel("version") });
+  }, [state.version, say]);
+  const toldNew = useRef("");
+  useEffect(() => {
+    const s = updateStatus(state.version, shellU);
+    const next = s.kind === "ready" ? shellU.ready : s.kind === "pending" ? state.version.pending.version : "";
+    if (!next || toldNew.current === next) return;
+    toldNew.current = next;
+    say(s.kind === "ready" ? "새 판을 받아 뒀어요. 다시 켜면 바뀌어요." : `새 판이 GitHub에 있어요 (바뀐 것 ${state.version.pending.count}개).`,
+      { label: "판 보기", run: () => setPanel("version") });
+  }, [state.version, shellU, say]);
   const loadSessions = useCallback(() => {
     api("/api/sessions").then((r) => dispatch({ type: "sessions", sessions: r.sessions })).catch(() => {});
   }, []);
@@ -1911,6 +2049,7 @@ export default function App() {
       return;
     }
     if (name === "help") setPanel("help");
+    if (name === "version") setPanel("version");
   };
   // robin's own `!명령` (true once it started)
   const shell = (command, raw) => {
@@ -1938,8 +2077,8 @@ export default function App() {
   // its rows) again while an answer came (2026-11-19 web-design-guidelines)
   const sideState = useMemo(() => ({
     fake: state.fake, git: state.git, gpu: state.gpu, gpuFake: state.gpuFake, gpuJob: state.gpuJob,
-    info: state.info, running: state.running, sessionFile: state.sessionFile, sessions: state.sessions,
-  }), [state.fake, state.git, state.gpu, state.gpuFake, state.gpuJob, state.info, state.running, state.sessionFile, state.sessions]);
+    info: state.info, running: state.running, sessionFile: state.sessionFile, sessions: state.sessions, version: state.version,
+  }), [state.fake, state.git, state.gpu, state.gpuFake, state.gpuJob, state.info, state.running, state.sessionFile, state.sessions, state.version]);
 
   const asking = askingTool(state);
   askingRef.current = asking;
@@ -2079,6 +2218,7 @@ export default function App() {
     shell: useStable(shell),
     say: useStable(say),
     closePanel: useStable(() => { setPanel(null); focusBox(); }),
+    version: useStable(() => { closeSide(false); setPanel("version"); }),
     closeFind: useStable(() => { setFinding(false); focusBox(); }),
     pick: useStable((s) => send(s)),
     rewind: useStable(rewind),
@@ -2111,7 +2251,7 @@ export default function App() {
   return (
     <div className="app" data-side={side ? "open" : undefined}>
       <Sidebar state={sideState} notify={notify} onNotify={on.notify} closeRef={closeRef} searchRef={searchRef} onClose={on.close} onNew={on.new} onOpen={on.open}
-        onDelete={on.remove} onRename={on.rename} onLeaveSearch={on.leaveSearch} onGpu={on.sideGpu} />
+        onDelete={on.remove} onRename={on.rename} onLeaveSearch={on.leaveSearch} onGpu={on.sideGpu} shellU={shellU} onVersion={on.version} />
       <div className="scrim" onClick={() => closeSide(true)} aria-hidden="true" />
       <main className="main" {...dropProps}>
         <header className="main-head">
@@ -2145,10 +2285,11 @@ export default function App() {
         <Composer state={state} convKey={convKey} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}
           setDraft={setDraft} pastRef={pastRef} attachRef={attachRef} picturesRef={picturesRef} addPicturesRef={addPicturesRef} commands={commands}
           onSend={send} onStop={stop} onError={say} onCommand={on.command} onShell={on.shell} onMode={cycleMode} onUnqueueLast={on.unqueueLast}
-          notice={toast && <Toast key={toast.id} toast={toast} onDone={() => setToast(null)} onHold={holdToast} />} />
+          notice={toast && <Toast key={toast.id} toast={toast} onDone={dropToast} onHold={holdToast} />} />
         {panel === "memory" && <MemoryPanel onClose={on.closePanel} onError={on.say} />}
         {panel === "help" && <HelpPanel commands={commands} onClose={on.closePanel} />}
         {panel === "rules" && <RulesPanel onClose={on.closePanel} onError={on.say} />}
+        {panel === "version" && <VersionPanel version={state.version} shellU={shellU} running={state.running} onClose={on.closePanel} onError={on.say} />}
         {panel === "changes" && <ChangesPanel busy={state.busy} conv={state.sessionFile || null} onClose={on.closePanel} onError={on.say} />}
         {gpuOpen &&<GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); focusBox(); }} />}
         {drag && (

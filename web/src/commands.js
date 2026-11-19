@@ -14,6 +14,7 @@ export const BUILTIN = [
   { name: "changes", hint: "이 대화가 바꾼 파일을 한곳에서 보고, 파일마다 되돌려요" },
   { name: "diff", hint: "이 대화가 바꾼 파일을 봐요 (/changes와 같아요)" },
   { name: "export", hint: "이 대화를 Markdown 파일로 저장해요" },
+  { name: "version", hint: "RobinCode 판과 바뀐 것을 봐요. 새 판도 확인해요" },
   { name: "help", hint: "명령과 단축키를 봐요" },
 ];
 const NAMES = new Set(BUILTIN.map((c) => c.name));

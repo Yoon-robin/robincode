@@ -36,6 +36,8 @@ export const initial = {
   saved: false, // something was ever sent in it (a new one is in no list until then)
   git: null, // the folder's { branch, changed, ahead, behind }, or null (not a repository)
   planFrom: "ask", // the mode "이 계획대로 하기" goes back to
+  // which RobinCode this is, what changed, a newer one (server.mjs readVersion)
+  version: null,
 };
 
 let seq = 0;
@@ -182,7 +184,7 @@ function onEvent(state, e) {
         mode: s.mode, thinking: !!s.thinking, think: now.think, context: s.context, busy: s.busy, startedAt: s.busy ? s.startedAt || Date.now() : 0,
         phase: s.compacting ? "compact" : now.current ? "write" : "think", compacting: !!s.compacting, compactOnly: !!s.compacting,
         items: now.items, current: now.current, sessionFile: s.sessionFile, title: s.title, retry: null, running: s.running || [], queued: s.queued || [], saved: !!s.saved,
-        git: s.git ?? null, planFrom: s.planFrom || "ask",
+        git: s.git ?? null, planFrom: s.planFrom || "ask", version: s.version || state.version,
       };
     }
     // robin's own `!명령`, running in the folder
@@ -312,6 +314,7 @@ function onEvent(state, e) {
     case "running": return { ...state, running: e.running || [] };
     case "queued": return { ...state, queued: e.queued || [] };
     case "gpu": return { ...state, gpu: e.gpu, fake: e.fake };
+    case "version": return { ...state, version: e.version };
     case "gpu_job": return { ...state, gpuJob: e.job };
     // to "바로 실행": the server said yes to the question on screen too
     case "mode": {
