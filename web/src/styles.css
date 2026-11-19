@@ -335,6 +335,69 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .starter:hover { border-color: rgb(255 255 255 / 30%); color: var(--head); }
 .starter:disabled { color: var(--soft); border-color: var(--line-weak); }
 .starter .prompt { margin-right: 0.3em; }
+/* where a new conversation works: a plain one or a folder (the menu under it) */
+.place { position: relative; margin: 6px 0 10px; animation: line-on 1ms 300ms steps(1) both; }
+.place-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(560px, calc(100vw - 48px));
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--head);
+  font-size: 14px;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.place-btn:hover, .place-btn[aria-expanded="true"] { border-color: rgb(255 255 255 / 30%); background: var(--press); }
+.place-btn:disabled { color: var(--soft); }
+.place-btn .ico { flex: none; width: 15px; height: 15px; color: var(--soft); }
+.place-name { flex: none; font-weight: 600; }
+.place-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--soft); }
+.place-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  z-index: 20;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(420px, 60vh);
+  padding: 6px;
+  overflow-y: auto;
+  transform: translateX(-50%);
+  border: 1px solid var(--line-win);
+  border-radius: var(--radius-pop);
+  background: var(--card);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 55%);
+  text-align: left;
+  scrollbar-width: thin;
+}
+.place-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  outline: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+.place-item:hover, .place-item:focus-visible { background: var(--press); color: var(--head); }
+.place-item[aria-checked="true"] { color: var(--head); }
+.place-check { flex: none; margin-left: auto; }
+.place-item .place-check .ico { color: var(--head); }
+.place-item .ico { flex: none; width: 15px; height: 15px; margin-top: 3px; color: var(--soft); }
+.place-text { display: grid; min-width: 0; }
+.place-item-name { font-size: 14px; font-weight: 500; }
+.place-branch { font-size: 11.5px; font-weight: 400; color: var(--soft); }
+.place-item-note { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--soft); }
+.place-item-note.mono { font: 400 11.5px var(--mono); }
+.place-label, .place-wait { margin: 8px 10px 4px; font: 400 11.5px var(--mono); color: var(--soft); letter-spacing: 0.04em; }
+.place-more { margin-top: 4px; border-top: 1px solid var(--line-weak); border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
 
 /* ---- answer text (Markdown), as RobinAI ---- */
 .md { overflow-wrap: anywhere; }
@@ -858,6 +921,11 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 /* the header's "바뀐 파일 n" */
 .head-changes { display: inline-flex; flex: none; align-items: center; gap: 6px; margin-left: 12px; padding: 5px 10px; border: 1px solid var(--line-win); border-radius: var(--radius-sm); background: none; color: var(--text); font-size: 12.5px; }
 .head-changes:hover { background: var(--press); color: var(--head); }
+/* the header says where the conversation works */
+.head-place { display: inline-flex; flex: none; align-items: center; gap: 6px; max-width: 34%; margin-left: 12px; font: 400 12px var(--mono); color: var(--soft); }
+.head-place span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.head-place.chat { font-family: var(--sans); }
+.head-place .ico { flex: none; width: 13px; height: 13px; }
 .head-changes .ico { width: 13px; height: 13px; color: var(--soft); }
 .mem-files { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .mem-file { border: 1px solid var(--line-weak); border-radius: var(--radius); overflow: hidden; }
@@ -890,6 +958,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .side .brand { filter: drop-shadow(0 0 10px rgb(255 255 255 / 22%)) drop-shadow(0 0 28px rgb(255 255 255 / 10%)); }
 .new-chat { width: 100%; justify-content: flex-start; padding: 0 12px; }
 .new-chat .ico { width: 16px; height: 16px; color: var(--soft); }
+.new-chat .search-key { margin: 0 0 0 auto; }
 .conv-nav { flex: 1; min-height: 0; margin: 16px -4px 0; padding: 0 4px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 14%) transparent; }
 .side-label { display: block; margin: 0 8px 6px; font: 400 11.5px var(--mono); color: var(--soft); letter-spacing: 0.04em; }
 .conv-list { list-style: none; margin: 0; padding: 0; }
@@ -969,7 +1038,13 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .conv-done { color: var(--soft); }
 .conv-done::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--head); vertical-align: 1px; }
 .conv-act.on { color: var(--head); }
-.conv-folder { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11.5px; }
+/* where each one works (every folder's are in one list): the folder's name
+   before the time, a plain conversation said in words */
+.conv-time { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.conv-place { font: 400 11.5px var(--mono); color: var(--text); }
+.conv-place.chat { font-family: var(--sans); font-size: 12px; color: var(--soft); }
+.conv-place + ::before { content: "·"; margin: 0 0.4em; color: var(--faint); }
+.conv-wait { color: var(--soft); }
 .side-foot { display: grid; gap: 10px; padding: 12px 8px 2px; border-top: 1px solid var(--line-weak); }
 .side-row { display: grid; gap: 2px; min-width: 0; }
 .side-row .side-label { margin: 0; }

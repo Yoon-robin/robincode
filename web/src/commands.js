@@ -17,6 +17,9 @@ export const BUILTIN = [
   { name: "help", hint: "명령과 단축키를 봐요" },
 ];
 const NAMES = new Set(BUILTIN.map((c) => c.name));
+// what needs a folder: not in a plain conversation's list (it has no files,
+// commands or modes)
+export const FOLDER_ONLY = new Set(["init", "memory", "mode", "plan", "changes", "diff"]);
 // "/compact 무엇을" -> { name: "compact", arg: "무엇을" } for the window's own; null otherwise
 export function ownCommand(text) {
   const m = text.match(/^\/([a-z]+)(?:\s+([^]*))?$/i);

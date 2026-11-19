@@ -11,7 +11,7 @@ import { ANSWER_KEYS, REVEAL, ShellRun, TodoPanel, ToolGroup, describe, latestTo
 import { Icon } from "./icons.jsx";
 import { ago, seconds, useNow } from "./time.js";
 import { MODE_NAMES, nextMode } from "./modes.js";
-import { BUILTIN, INIT_PROMPT } from "./commands.js";
+import { BUILTIN, FOLDER_ONLY, INIT_PROMPT } from "./commands.js";
 
 const LOGO = [
   "█▀█ █▀█ █▀▄ ▀█▀ █▄ █ █▀▀ █▀█ █▀▄ █▀▀",
@@ -19,6 +19,8 @@ const LOGO = [
   "▀ ▀ ▀▀▀ ▀▀  ▀▀▀ ▀  ▀ ▀▀▀ ▀▀▀ ▀▀  ▀▀▀",
 ];
 const SUGGESTIONS = ["이 폴더 구조 설명해 줘", "package.json 읽어 줘", "README 고쳐 줘"];
+// a plain conversation's (no folder: talking, writing, thinking together)
+const CHAT_SUGGESTIONS = ["RobinCode로 뭘 할 수 있어?", "오늘 할 일 정리하는 거 도와줘", "아이디어 같이 생각해 줘"];
 const GPU_NAMES = { on: "켜짐", starting: "켜는 중", stopped: "멈춤", off: "꺼짐", unreachable: "확인 못 함", unknown: "확인 중" };
 const NARROW = "(max-width: 860px)";
 const isNarrow = () => window.matchMedia(NARROW).matches;
@@ -196,16 +198,113 @@ function Logo() {
   );
 }
 
+// Where a new conversation works, chosen on its empty screen (robin
+// 2026-11-19 "왜 시작부터 폴더를골라야해", "왜 일반채팅은 없어"; Claude Code's
+// folder picker under a new session): no folder (a plain conversation) or a
+// folder robin opened lately, or another one from Explorer. Once something is
+// sent the place stays (the header and the list say it).
+function PlacePicker({ info, ready, onPlace }) {
+  const [open, setOpen] = useState(false);
+  const [folders, setFolders] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const button = useRef(null);
+  const menu = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    let live = true;
+    api("/api/places").then((r) => { if (live) setFolders(r.folders || []); }).catch(() => { if (live) setFolders([]); });
+    const away = (e) => { if (!menu.current?.contains(e.target) && !button.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("pointerdown", away);
+    return () => { live = false; document.removeEventListener("pointerdown", away); };
+  }, [open]);
+  // the menu opens on the one in use (keyboard: arrows, Enter, Esc)
+  const items = () => [...(menu.current?.querySelectorAll("[role=menuitemradio], [role=menuitem]") || [])];
+  useEffect(() => {
+    // (not again when the folders arrive after robin moved in the menu)
+    if (!open || menu.current?.contains(document.activeElement)) return;
+    const all = items();
+    (all.find((x) => x.getAttribute("aria-checked") === "true") || all[0])?.focus();
+  }, [open, folders]);
+  const go = (place) => {
+    setOpen(false);
+    button.current?.focus();
+    if (place.toLowerCase() === (info.chat ? "chat" : (info.cwd || "").toLowerCase())) return;
+    setBusy(true);
+    Promise.resolve(onPlace(place)).finally(() => setBusy(false));
+  };
+  const browse = async () => {
+    setOpen(false);
+    // RobinCode.exe: the Windows folder dialog; a browser window: the folder screen
+    if (!window.robincodeShell?.pickFolder) { location.href = pickerUrl(); return; }
+    const path = await window.robincodeShell.pickFolder(info.chat ? "" : info.cwd).catch(() => null);
+    button.current?.focus();
+    if (path) go(path);
+  };
+  const keys = (e) => {
+    const all = items();
+    const k = all.indexOf(document.activeElement);
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setOpen(false); button.current?.focus(); }
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      all[(k + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length]?.focus();
+    } else if (e.key === "Home" || e.key === "End") { e.preventDefault(); all[e.key === "Home" ? 0 : all.length - 1]?.focus(); }
+    else if (e.key === "Tab") setOpen(false);
+  };
+  const here = (p) => !info.chat && p.toLowerCase() === (info.cwd || "").toLowerCase();
+  return (
+    <div className="place">
+      <button ref={button} type="button" className="place-btn" aria-haspopup="menu" aria-expanded={open} disabled={!ready || busy}
+        aria-label={`새 대화를 열 곳: ${info.chat ? "일반 대화, 폴더 없음" : info.cwd}. 눌러서 바꿔요`}
+        title={info.chat ? "폴더 없이 이야기만 해요. 눌러서 폴더를 골라요." : `${info.cwd}\n눌러서 다른 곳을 골라요.`}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => { if (e.key === "ArrowDown" && !open) { e.preventDefault(); setOpen(true); } }}>
+        <Icon name={info.chat ? "chat" : "folder"} />
+        <span className="place-name">{info.chat ? "일반 대화" : info.folder || "…"}</span>
+        {!info.chat && info.cwd && <span className="place-path mono">{shortPath(info.cwd)}</span>}
+        <Icon name="chevdown" />
+      </button>
+      {open && (
+        <div ref={menu} className="place-menu" role="menu" aria-label="새 대화를 열 곳" onKeyDown={keys}>
+          <button type="button" role="menuitemradio" aria-checked={!!info.chat} className="place-item" onClick={() => go("chat")}>
+            <Icon name="chat" />
+            <span className="place-text"><span className="place-item-name">일반 대화</span><span className="place-item-note">폴더 없이 이야기만 해요. 웹 페이지는 물어보고 읽어요.</span></span>
+            {info.chat && <span className="place-check"><Icon name="check" /></span>}
+          </button>
+          <p className="place-label" role="presentation">최근 폴더</p>
+          {folders === null ? <p className="place-wait" role="presentation">불러오는 중…</p>
+            : folders.map((f) => (
+              <button key={f.path} type="button" role="menuitemradio" aria-checked={here(f.path)} className="place-item" onClick={() => go(f.path)} title={f.path}>
+                <Icon name="folder" />
+                <span className="place-text">
+                  <span className="place-item-name">{f.name}{f.branch && <span className="place-branch mono"> {f.branch}</span>}</span>
+                  <span className="place-item-note mono">{f.short}</span>
+                </span>
+                {here(f.path) && <span className="place-check"><Icon name="check" /></span>}
+              </button>
+            ))}
+          <button type="button" role="menuitem" className="place-item place-more" onClick={browse}>
+            <Icon name="search" /><span className="place-text"><span className="place-item-name">다른 폴더 찾기…</span></span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // the empty conversation boots like the site's gate: the logo a line at a
-// time, the question typed in, then the note and the starters
-function Empty({ info, ready, onPick }) {
+// time, the question typed in, then where it works and the starters
+function Empty({ info, ready, onPick, onPlace }) {
+  const linked = !!(info.chat || info.folder);
   return (
     <section className="empty">
       <Logo />
       <p className="empty-sub"><span className="prompt">&gt;</span> <Typed text="무엇을 할까요?" delay={180} /><span className="cursor" aria-hidden="true" /></p>
-      <p className="empty-note">{info.folder ? <><span className="mono">{shortPath(info.cwd)}</span>에서 파일을 읽고, 찾고, 고치고, PowerShell 명령을 실행해요. 명령과 파일 수정은 실행 전에 물어봐요.</> : "연결하는 중이에요."}</p>
+      {linked && <PlacePicker info={info} ready={ready} onPlace={onPlace} />}
+      <p className="empty-note">{!linked ? "연결하는 중이에요."
+        : info.chat ? "폴더 없이 이야기해요. 파일을 읽거나 명령을 실행하려면 위에서 폴더를 골라요."
+          : "이 폴더의 파일을 읽고, 찾고, 고치고, PowerShell 명령을 실행해요. 명령과 파일 수정은 실행 전에 물어봐요."}</p>
       <div className="starters">
-        {SUGGESTIONS.map((s) => (
+        {(info.chat ? CHAT_SUGGESTIONS : SUGGESTIONS).map((s) => (
           <button key={s} type="button" className="starter" disabled={!ready} onClick={() => onPick(s)}>
             <span className="prompt">&gt;</span> {s}
           </button>
@@ -392,7 +491,7 @@ function turnEnds(items, busy) {
 // coming back to one put robin at its bottom (codex B9 / B-438)
 const readAt = new Map();
 const ASK_WHAT = { powershell: "명령 실행", bash: "명령 실행", edit: "파일 고치기", write: "파일 쓰기", read: "파일 읽기", grep: "파일 안 찾기", webfetch: "웹 페이지 읽기" };
-const Conversation = memo(function Conversation({ state, outbox = [], asking, onDecide, onPick, onRewind, onRetry, onBranch, onGpu, onUnqueue, onPlanGo }) {
+const Conversation = memo(function Conversation({ state, outbox = [], asking, onDecide, onPick, onPlace, onRewind, onRetry, onBranch, onGpu, onUnqueue, onPlanGo }) {
   const scroller = useRef(null);
   const content = useRef(null);
   const stick = useRef(true);
@@ -436,7 +535,8 @@ const Conversation = memo(function Conversation({ state, outbox = [], asking, on
   }, [state.items, state.busy, last, state.queued.length]);
   // while it runs, keep following what grows (a fold opening, a code block)
   // (a first message being sent is not an empty conversation: its bubble shows)
-  const empty = state.items.length === 0 && outbox.length === 0;
+  // (what waits for a GPU slot shows too: a new conversation's first message)
+  const empty = state.items.length === 0 && outbox.length === 0 && state.queued.length === 0;
   useEffect(() => {
     if (empty || !content.current) return undefined;
     const watch = new ResizeObserver(() => {
@@ -479,7 +579,7 @@ const Conversation = memo(function Conversation({ state, outbox = [], asking, on
   const lastAnswer = state.items.findLast((x) => x.kind === "assistant" || x.kind === "user");
   return (
     <div className="thread" ref={scroller} onScroll={onScroll}>
-      {empty ? <Empty info={state.info} ready={state.ready && state.link} onPick={onPick} /> : (
+      {empty ? <Empty info={state.info} ready={state.ready && state.link} onPick={onPick} onPlace={onPlace} /> : (
         <div className="msgs" ref={content}>
           {state.items.map((item, k) => {
             if (item.kind === "user") {
@@ -549,14 +649,15 @@ const Conversation = memo(function Conversation({ state, outbox = [], asking, on
             <div className="queued" role="group" aria-label="기다리는 말">
               {state.queued.map((q, k) => (
                 <div key={q.id || k} className={`queued-bubble ${q.held ? "held" : q.kind}`}>
-                  <span className="queued-when">{q.held ? "요약이 끝나면" : q.kind === "steer" ? "다음 단계 전에" : "다 끝나면"}</span>
+                  <span className="queued-when">{q.slot ? "GPU 자리가 나면" : q.held ? "요약이 끝나면" : q.kind === "steer" ? "다음 단계 전에" : "다 끝나면"}</span>
                   <div className="queued-text">{q.text}{q.pictures ? <span className="queued-pics"> · 그림 {q.pictures}장</span> : null}</div>
                   <button type="button" className="icon-btn queued-x" aria-label="이 말은 보내지 않고 입력 칸으로" title="보내지 않고 입력 칸으로 (고쳐서 다시 보내요)"
                     onClick={() => onUnqueue(q.id)}><Icon name="close" /></button>
                 </div>
               ))}
               <p className="queued-note">
-                {state.queued.some((q) => q.kind === "steer" && !q.held) ? "모델이 지금 단계를 마치면 바로 전해요." : "이 답이 끝나면 보내요."}
+                {state.queued.some((q) => q.slot) ? "다른 대화 둘이 GPU를 쓰는 중이에요. 하나가 끝나면 바로 보내요. Esc를 누르면 보내지 않고 입력 칸으로 돌려줘요."
+                  : state.queued.some((q) => q.kind === "steer" && !q.held) ? "모델이 지금 단계를 마치면 바로 전해요." : "이 답이 끝나면 보내요."}
                 <span className="queued-keys"> 빈 칸에서 <kbd>↑</kbd>로 꺼내 고쳐요.</span>
                 <button type="button" className="link-act" onClick={() => onUnqueue()}>모두 보내지 않기</button>
               </p>
@@ -598,14 +699,18 @@ function Mark({ text, q }) {
 // a conversation going on: "도는 중" (or waiting for a yes) where its time was;
 // one that ended while robin was in another: "끝났어요" until it is opened
 // (the one on screen has its own blinking status line: no second cursor here)
+// (a third one waits for one of the GPU's two slots: "자리를 기다려요")
 function RunMark({ run, here }) {
-  if (run.done) return <span className="conv-time conv-run conv-done">끝났어요 · 아직 안 봤어요</span>;
-  return run.asking
-    ? <span className="conv-time conv-run conv-ask">[ ?? ] 허락을 기다려요</span>
-    : <span className="conv-time conv-run">[ .. ] 도는 중{!here && <span className="cursor" aria-hidden="true" />}</span>;
+  if (run.done) return <span className="conv-run conv-done">끝났어요 · 아직 안 봤어요</span>;
+  if (run.asking) return <span className="conv-run conv-ask">[ ?? ] 허락을 기다려요</span>;
+  if (run.waiting) return <span className="conv-run conv-wait">[ ·· ] GPU 자리를 기다려요</span>;
+  if (run.failed) return <span className="conv-run conv-ask">[ !! ] 보내지 못했어요 · 열면 쓴 말이 돌아와요</span>;
+  return <span className="conv-run">[ .. ] 도는 중{!here && <span className="cursor" aria-hidden="true" />}</span>;
 }
+// where a conversation works: its folder's name, or none (a plain conversation)
+const placeName = (s) => (s.chat ? "일반 대화" : s.folder || "");
 
-function Conv({ s, q, current, run, now, folder, pinned, onPin, onOpen, onDelete, onRename }) {
+function Conv({ s, q, current, run, now, pinned, onPin, onOpen, onDelete, onRename }) {
   const [editing, setEditing] = useState(false);
   const done = useRef(false);
   const finish = (value) => {
@@ -630,12 +735,14 @@ function Conv({ s, q, current, run, now, folder, pinned, onPin, onOpen, onDelete
           }} />
       ) : (
         <>
-          <button type="button" className="conv-open" title={folder ? `${s.title}\n${folder}` : s.title} onClick={() => onOpen(s.path)}>
+          <button type="button" className="conv-open" title={`${s.title}\n${s.chat ? "일반 대화 (폴더 없음)" : s.cwd || s.folder || ""}`} onClick={() => onOpen(s.path)}>
             <span className="conv-title"><Mark text={s.title} q={q} /></span>
-            {folder && <span className="conv-time conv-folder mono">{shortPath(folder)}</span>}
-            {run ? <RunMark run={run} here={!!current} />
-              : s.snippet ? <span className="conv-snip"><Mark text={s.snippet.text} q={q} /></span>
-                : !folder && <span className="conv-time">{ago(s.modified, now)}</span>}
+            {s.snippet && !run && <span className="conv-snip"><Mark text={s.snippet.text} q={q} /></span>}
+            {/* every folder's conversations are in one list: each says where */}
+            <span className="conv-time">
+              {placeName(s) && <span className={`conv-place${s.chat ? " chat" : ""}`}>{placeName(s)}</span>}
+              {run ? <RunMark run={run} here={!!current} /> : s.modified ? <span>{ago(s.modified, now)}</span> : null}
+            </span>
           </button>
           {onRename && (
             <span className="conv-acts">
@@ -707,18 +814,18 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
   // pinned ones on top, in the order pinned (one deleted falls away by itself)
   const pinned = pins.map((p) => (state.sessions || []).find((s) => s.path === p)).filter(Boolean);
   const rest = (state.sessions || []).filter((s) => !pins.includes(s.path));
-  // going on in another folder (this folder's list does not have them)
+  // going on but not in the list (older than its newest 80)
   const listed = new Set((state.sessions || []).map((s) => s.path));
-  const elsewhere = state.running.filter((r) => r.path !== state.sessionFile && !listed.has(r.path)
-    && r.cwd?.toLowerCase() !== state.info.cwd?.toLowerCase());
+  const elsewhere = state.running.filter((r) => r.path !== state.sessionFile && !listed.has(r.path));
   return (
     <aside className="side" id="side" aria-label="대화 목록">
       <div className="side-head">
         <span className="brand">ROBINCODE</span>
         <button ref={closeRef} type="button" className="icon-btn side-close" aria-label="목록 닫기" onClick={onClose}><Icon name="close" /></button>
       </div>
-      <button type="button" className="btn new-chat" onClick={onNew} title="이 폴더에서 새 대화. 도는 대화는 그대로 계속해요.">
-        <Icon name="plus" /> 새 대화
+      <button type="button" className="btn new-chat" onClick={onNew}
+        title={"지금과 같은 곳에서 새 대화를 열어요(Ctrl+N). 폴더나 일반 대화는 새 대화 첫 화면에서 바꿔요.\n도는 대화는 그대로 계속해요."}>
+        <Icon name="plus" /> 새 대화 <kbd className="search-key">Ctrl N</kbd>
       </button>
       <div className="conv-search">
         <Icon name="search" />
@@ -736,10 +843,10 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
       </div>
       <nav ref={nav} className="conv-nav" aria-label="지난 대화" onKeyDown={moveInList}>
         {!words && elsewhere.length > 0 && (
-          <section className="conv-day" aria-label="다른 폴더에서 도는 대화">
-            <p className="side-label">다른 폴더에서 도는 대화</p>
+          <section className="conv-day" aria-label="도는 대화">
+            <p className="side-label">도는 대화</p>
             <ul className="conv-list">{elsewhere.map((r) => (
-              <Conv key={r.path} s={{ path: r.path, title: r.title }} q="" current={false} run={r} now={now} folder={r.cwd} onOpen={onOpen} />
+              <Conv key={r.path} s={{ path: r.path, title: r.title, folder: r.folder, chat: r.chat, cwd: r.cwd }} q="" current={false} run={r} now={now} onOpen={onOpen} />
             ))}</ul>
           </section>
         )}
@@ -761,13 +868,13 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
       </nav>
       <div className="side-foot">
         <NotifyRow notify={notify} onToggle={onNotify} />
-        <div className="side-row folder-row" title={state.info.cwd}>
+        <div className="side-row folder-row" title={state.info.chat ? "일반 대화: 폴더 없이 이야기만 해요" : state.info.cwd}>
           <span className="side-label">폴더</span>
           <span className="folder-line">
-            <span className="mono">{shortPath(state.info.cwd)}</span>
+            {state.info.chat ? <span>없음 · 일반 대화</span> : <span className="mono">{shortPath(state.info.cwd)}</span>}
             {/* the folder screen, in this window; Esc there comes back */}
             <a className="mini-btn" href={pickerUrl()}
-              title="다른 폴더에서 새 대화를 열어요. 이 대화는 목록에 남고, 도는 중이면 그대로 계속해요.">바꾸기</a>
+              title="다른 폴더에서 새 대화를 열어요. 이 대화는 목록에 남고, 도는 중이면 그대로 계속해요.">다른 폴더…</a>
           </span>
         </div>
         {/* the folder's git branch, and how many files differ from it */}
@@ -1591,9 +1698,9 @@ export default function App() {
   // the taskbar shows it too: a question waiting, or still running
   const waiting = !!askingTool(state);
   useEffect(() => {
-    const name = state.title ? `${state.title} · RobinCode` : `RobinCode · ${state.info.folder}`;
+    const name = state.title ? `${state.title} · RobinCode` : `RobinCode · ${state.info.chat ? "일반 대화" : state.info.folder}`;
     document.title = waiting ? `[ ?? ] 허락을 기다려요 · ${name}` : state.busy ? `[ .. ] ${name}` : name;
-  }, [state.title, state.info.folder, state.busy, waiting]);
+  }, [state.title, state.info.folder, state.info.chat, state.busy, waiting]);
   // the drawer means nothing on a wide window
   useEffect(() => {
     const query = window.matchMedia(NARROW);
@@ -1696,6 +1803,12 @@ export default function App() {
     call().then(() => { closeSide(false); focusBox(); }).catch(fail).finally(() => { opening.current = false; });
   };
   const newChat = () => once(() => api("/api/new"));
+  // the empty conversation's place: a plain conversation or a folder (what was typed stays)
+  const place = (where) => new Promise((done) => {
+    if (opening.current) { done(); return; }
+    opening.current = true;
+    api("/api/new", { place: where }).then(() => focusBox()).catch(fail).finally(() => { opening.current = false; done(); });
+  });
   const open = (path) => once(() => api("/api/open", { path }));
   // the one on screen, deleted and brought back, is opened again (not only listed)
   const remove = (s) => api("/api/delete", { path: s.path }).then((r) => {
@@ -1763,11 +1876,14 @@ export default function App() {
     return api("/api/mode", { mode }).then(() => say(`모드: ${MODE_NAMES[mode]}`)).catch(fail)
       .finally(() => { modeAsks.current -= 1; });
   };
-  const cycleMode = useStable(() => setMode(nextMode(modeNow.current || "ask")));
+  const chatNow = useRef(false);
+  chatNow.current = !!state.info.chat;
+  const cycleMode = useStable(() => { if (!chatNow.current) setMode(nextMode(modeNow.current || "ask")); });
   // the `/` commands the window does itself (commands.js)
   const runCommand = (name, arg) => {
     focusBox();
     if (name === "new" || name === "clear") { newChat(); return; }
+    if (chatNow.current && FOLDER_ONLY.has(name)) { say(`/${name} 명령은 폴더가 있는 대화에서 써요. 새 대화에서 폴더를 골라 주세요.`); return; }
     if (name === "compact") { compact(arg); return; }
     if (name === "init") { send(INIT_PROMPT); return; }
     if (name === "memory") {
@@ -1892,6 +2008,12 @@ export default function App() {
         requestAnimationFrame(() => { searchRef.current?.focus(); searchRef.current?.select(); });
         return;
       }
+      // Ctrl+N: a new conversation in the same place (RobinCode.exe has no menu to take it)
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        newChat();
+        return;
+      }
       // Ctrl+F: words in this conversation
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
@@ -1901,14 +2023,14 @@ export default function App() {
       }
       // Shift+Tab in the message box (or nowhere): the next mode, as in Claude Code
       if (e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey
-        && (e.target === box.current || e.target === document.body) && !panel && !gpuOpen) {
+        && (e.target === box.current || e.target === document.body) && !panel && !gpuOpen && !chatNow.current) {
         e.preventDefault();
         cycleMode();
         return;
       }
       if (e.key === "Escape") {
         if (side && isNarrow()) { e.preventDefault(); closeSide(true); }
-        else if (state.busy || shellRunning) { e.preventDefault(); stop(); }
+        else if (state.busy || shellRunning || state.queued.some((q) => q.slot)) { e.preventDefault(); stop(); }
         return;
       }
       // 1 / 2 / 3 answer the question on screen, unless something is being
@@ -1966,6 +2088,7 @@ export default function App() {
     notify: useStable(toggleNotify),
     close: useStable(() => closeSide(true)),
     new: useStable(newChat),
+    place: useStable(place),
     open: useStable(open),
     remove: useStable(remove),
     rename: useStable(rename),
@@ -1995,6 +2118,12 @@ export default function App() {
           <button ref={menuRef} type="button" className="icon-btn menu-btn" aria-label="대화 목록 열기" aria-controls="side"
             aria-expanded={side} onClick={openSide}><Icon name="menu" /></button>
           <h1 className="main-title">{state.title || "새 대화"}</h1>
+          {/* where this one works (the list holds every folder's) */}
+          {(state.info.chat || state.info.folder) && (
+            <span className={`head-place${state.info.chat ? " chat" : ""}`} title={state.info.chat ? "일반 대화: 폴더 없이 이야기만 해요" : state.info.cwd}>
+              <Icon name={state.info.chat ? "chat" : "folder"} /><span>{state.info.chat ? "일반 대화" : state.info.folder}</span>
+            </span>
+          )}
           {changed > 0 && (
             <button type="button" className="head-changes" onClick={() => setPanel("changes")} title="이 대화가 바꾼 파일 보기·되돌리기 (/changes)" aria-label={`이 대화가 바꾼 파일 ${changed}개 보기`}>
               <Icon name="file" /><span><span className="hc-word">바꾼 파일 </span>{changed}</span>
@@ -2010,7 +2139,7 @@ export default function App() {
           </div>
         )}
         {finding && <FindBar items={state.items} onClose={on.closeFind} />}
-        <Conversation state={state} outbox={outboxHere} asking={asking} onDecide={decide} onPick={on.pick} onRewind={on.rewind} onRetry={on.retry} onBranch={on.branch} onGpu={on.gpu}
+        <Conversation state={state} outbox={outboxHere} asking={asking} onDecide={decide} onPick={on.pick} onPlace={on.place} onRewind={on.rewind} onRetry={on.retry} onBranch={on.branch} onGpu={on.gpu}
           onUnqueue={on.unqueue} onPlanGo={on.planGo} />
         <TodoPanel todo={todo} busy={state.busy} />
         <Composer state={state} convKey={convKey} meter={<ContextMeter context={state.context} busy={state.busy} onCompact={compact} />} box={box} draft={draft}

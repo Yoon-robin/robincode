@@ -4,7 +4,7 @@
 // and the ones taken off the list with Del) and the folders Claude Code knows
 // (the project keys of ~/.claude.json, with the time of their newest
 // conversation file in ~/.claude/projects), newest first. Folders that are gone
-// and Claude Code's ones under %TEMP% (test runs) are left out. Typing narrows
+// and any under %TEMP% (test runs) are left out. Typing narrows
 // it down; a typed C:\, ~\ or \\ is a path, its folders listed under it.
 // ROBINCODE_RECENT and ROBINCODE_CLAUDE_HOME point elsewhere for tests.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -12,7 +12,9 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 const local = process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local");
-const recentFile = process.env.ROBINCODE_RECENT || join(local, "RobinCode", "recent.json");
+// beside the rest of RobinCode's own (ROBINCODE_HOME: a test's folder, so a
+// test run no longer puts its work folder on robin's list)
+const recentFile = process.env.ROBINCODE_RECENT || join(process.env.ROBINCODE_HOME || join(local, "RobinCode"), "recent.json");
 const claudeHome = process.env.ROBINCODE_CLAUDE_HOME || homedir();
 const userHome = (process.env.USERPROFILE || homedir()).replace(/\\+$/, "");
 const tempRoot = `${resolve(process.env.TEMP || join(local, "Temp")).replace(/\\+$/, "")}\\`.toLowerCase();
@@ -127,7 +129,8 @@ export function allFolders(def) {
   const hidden = [...r.hidden].map((h) => h.toLowerCase());
   const list = [];
   for (const [path, t] of at) {
-    if (hidden.includes(path.toLowerCase()) || !isDir(path)) continue;
+    // and nothing under %TEMP% (test runs that got on the list before)
+    if (hidden.includes(path.toLowerCase()) || `${path}\\`.toLowerCase().startsWith(tempRoot) || !isDir(path)) continue;
     list.push({ kind: "folder", path, name: basename(path) || path, at: t });
   }
   return list.sort((a, b) => b.at - a.at || (same(a.path, def || "") ? -1 : same(b.path, def || "") ? 1 : a.name.localeCompare(b.name)));

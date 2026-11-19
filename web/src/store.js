@@ -7,7 +7,7 @@ export const BLOCKED = "허락하지 않았어요";
 export const initial = {
   link: false, // the event stream is up
   ready: false, // the first state arrived
-  info: { cwd: "", folder: "", model: "Qwen3.8-27B" },
+  info: { cwd: "", folder: "", chat: false, model: "Qwen3.8-27B" }, // chat: a plain conversation (no folder)
   fake: false,
   gpu: { state: "unknown" },
   gpuFake: false, // a fake GPU helper (tests): the on/off buttons show with the fake model
@@ -178,7 +178,7 @@ function onEvent(state, e) {
       // a `!명령` still running there: it shows (and Esc stops it) again
       if (s.shell) now.items = [...now.items, { kind: "shell", id: `sh-${s.shell.id}`, command: s.shell.command, output: s.shell.output || "", status: "run", startedAt: s.shell.startedAt || Date.now() }];
       return {
-        ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, model: s.model }, fake: s.fake, gpu: s.gpu, gpuFake: !!s.gpuFake, gpuJob: s.gpuJob || null,
+        ...state, ready: true, info: { cwd: s.cwd, folder: s.folder, chat: !!s.chat, model: s.model }, fake: s.fake, gpu: s.gpu, gpuFake: !!s.gpuFake, gpuJob: s.gpuJob || null,
         mode: s.mode, thinking: !!s.thinking, think: now.think, context: s.context, busy: s.busy, startedAt: s.busy ? s.startedAt || Date.now() : 0,
         phase: s.compacting ? "compact" : now.current ? "write" : "think", compacting: !!s.compacting, compactOnly: !!s.compacting,
         items: now.items, current: now.current, sessionFile: s.sessionFile, title: s.title, retry: null, running: s.running || [], queued: s.queued || [], saved: !!s.saved,

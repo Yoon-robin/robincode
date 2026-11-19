@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api.js";
 import { Icon } from "./icons.jsx";
-import { BUILTIN, ownCommand } from "./commands.js";
+import { BUILTIN, FOLDER_ONLY, ownCommand } from "./commands.js";
 import { LAMPS, MODE_NAMES, MODE_TIPS, nextMode } from "./modes.js";
 
 const MAX_PICTURES = 4;
@@ -192,7 +192,8 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
 
   // ---- @ files
   const look = (el) => {
-    const m = mentionAt(el.value, el.selectionStart);
+    // (a plain conversation has no folder to point into)
+    const m = state.info.chat ? null : mentionAt(el.value, el.selectionStart);
     const next = m && m.start !== dismissed.current ? m : null;
     setMention((old) => (old?.start === next?.start && old?.q === next?.q && old?.end === next?.end ? old : next));
     if (!m) dismissed.current = -1;
@@ -231,12 +232,12 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
   const cmdList = useMemo(() => {
     if (slashWord == null) return [];
     const q = slashWord.toLowerCase();
-    const all = [...BUILTIN.map((c) => ({ ...c, kind: "own" })),
+    const all = [...BUILTIN.filter((c) => !state.info.chat || !FOLDER_ONLY.has(c.name)).map((c) => ({ ...c, kind: "own" })),
       ...(commands?.prompts || []).map((p) => ({ name: p.name, hint: p.description || "프롬프트 템플릿", kind: "template", arg: "" })),
       ...(commands?.skills || []).map((s) => ({ name: `skill:${s.name}`, hint: s.description || "스킬", kind: "skill", arg: "" }))];
     const starts = all.filter((c) => c.name.toLowerCase().startsWith(q));
     return [...starts, ...all.filter((c) => !starts.includes(c) && c.name.toLowerCase().includes(q))].slice(0, 30);
-  }, [slashWord, commands]);
+  }, [slashWord, commands, state.info.chat]);
   useEffect(() => { setCmdPick(0); }, [slashWord]);
   useEffect(() => { if (slashWord == null) setCmdClosed(false); }, [slashWord]);
   const cmdOpen = slashWord != null && !cmdClosed && !mention;
@@ -279,7 +280,8 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
   const offline = state.ready && !state.link;
   const empty = !draft.trim() && !pictures.length;
   const stop = state.busy && empty;
-  const shell = /^!/.test(draft);
+  // a plain conversation runs no commands: "!" is only a letter there
+  const shell = !state.info.chat && /^!/.test(draft);
   const mode = state.mode || "ask";
   const think = state.thinking;
   // when: "now" (after the step it is on) or "end" (when the turn is over), while it runs
@@ -334,7 +336,7 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
           value={draft}
           disabled={offline}
           placeholder={offline ? "서버와 연결이 끊겼어요" : state.compacting ? "앞부분을 요약하는 중이에요. 보내면 요약이 끝난 뒤에 보내요"
-            : state.busy ? "이어서 할 말 (Enter: 다음 단계 전에 · Ctrl+Enter: 다 끝나면)" : "무엇을 할까요? (@ 파일 · / 명령 · ! PowerShell · 그림 붙여넣기)"}
+            : state.busy ? "이어서 할 말 (Enter: 다음 단계 전에 · Ctrl+Enter: 다 끝나면)" : state.info.chat ? "무엇이든 물어보세요 (/ 명령 · 그림 붙여넣기)" : "무엇을 할까요? (@ 파일 · / 명령 · ! PowerShell · 그림 붙여넣기)"}
           aria-label="메시지"
           aria-autocomplete="list"
           aria-expanded={open || cmdOpen}
@@ -398,11 +400,14 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
         </button>
       </form>
       <div className="composer-foot">
-        <button type="button" className={`mode mode-${mode}`} aria-label={`모드: ${MODE_NAMES[mode]}. 누르면 다음 모드`}
-          title={`${MODE_TIPS[mode]}\n누르거나 Shift+Tab: ${MODE_NAMES[nextMode(mode)]}`}
-          onClick={() => onMode()}>
-          <span className={`lamp ${LAMPS[mode]}`} aria-hidden="true" />{MODE_NAMES[mode]}
-        </button>
+        {/* a plain conversation has no modes: it has only the web, which asks */}
+        {!state.info.chat && (
+          <button type="button" className={`mode mode-${mode}`} aria-label={`모드: ${MODE_NAMES[mode]}. 누르면 다음 모드`}
+            title={`${MODE_TIPS[mode]}\n누르거나 Shift+Tab: ${MODE_NAMES[nextMode(mode)]}`}
+            onClick={() => onMode()}>
+            <span className={`lamp ${LAMPS[mode]}`} aria-hidden="true" />{MODE_NAMES[mode]}
+          </button>
+        )}
         {/* Qwen thinks before it answers: slower, better on hard work */}
         <button type="button" className={`mode${think ? " on" : ""}`} aria-pressed={think}
           title={think ? "모델이 답하기 전에 먼저 생각해요. 느리지만 어려운 일에 나아요. 누르면 바로 답해요." : "모델이 바로 답해요. 누르면 답하기 전에 먼저 생각해요(느리지만 어려운 일에 나아요)."}
@@ -414,7 +419,7 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
             a hidden second line) instead of being cut mid-word as "Esc 멈…" */}
         <span className="keys">{(state.busy
           ? [<><kbd>Esc</kbd> 멈추기</>, <><kbd>Enter</kbd> 다음 단계 전에</>, <><kbd>Ctrl</kbd>+<kbd>Enter</kbd> 끝난 뒤에</>, <><kbd>↑</kbd> 기다리는 말 고치기</>]
-          : [<><kbd>Enter</kbd> 보내기</>, <><kbd>Shift</kbd>+<kbd>Enter</kbd> 줄 바꿈</>, <><kbd>Shift</kbd>+<kbd>Tab</kbd> 모드</>, <><kbd>↑</kbd> 보낸 말</>, <><kbd>/help</kbd> 단축키</>]
+          : [<><kbd>Enter</kbd> 보내기</>, <><kbd>Shift</kbd>+<kbd>Enter</kbd> 줄 바꿈</>, ...(state.info.chat ? [] : [<><kbd>Shift</kbd>+<kbd>Tab</kbd> 모드</>]), <><kbd>↑</kbd> 보낸 말</>, <><kbd>/help</kbd> 단축키</>]
         ).map((k, i) => <span key={i} className="key">{k}</span>)}</span>
       </div>
     </footer>
