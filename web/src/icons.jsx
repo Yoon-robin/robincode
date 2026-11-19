@@ -6,6 +6,8 @@ const PATHS = {
   check: "M5 12.5l4.5 4.5L19 7.5",
   down: "M12 5v14M6 13l6 6 6-6",
   left: "M15 6l-6 6 6 6",
+  // lucide chevron-down
+  chevdown: "M6 9l6 6 6-6",
   right: "M9 6l6 6-6 6",
   retry: "M20 12a8 8 0 1 1-2.35-5.65M20 4.5v4h-4",
   edit: "M4 20h4L18.5 9.5a2.12 2.12 0 0 0-3-3L5 17v3zM13.5 7.5l3 3",

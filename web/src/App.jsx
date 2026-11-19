@@ -4,6 +4,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api, connect, pickerUrl } from "./api.js";
 import { askingTool, initial, reducer } from "./store.js";
+import { fileHunks } from "./hunks.js";
 import { Composer, PICTURE_TYPES } from "./Composer.jsx";
 import { CopyButton, Markdown } from "./Markdown.jsx";
 import { ANSWER_KEYS, REVEAL, ShellRun, TodoPanel, ToolGroup, describe, latestTodo } from "./Tools.jsx";
@@ -1144,7 +1145,7 @@ function FindBar({ items, onClose }) {
 }
 
 // ---- /memory and /help: a sheet over the conversation
-function Sheet({ label, onClose, children }) {
+function Sheet({ label, wide, onClose, children }) {
   const panel = useRef(null);
   useEffect(() => {
     panel.current?.focus();
@@ -1155,7 +1156,7 @@ function Sheet({ label, onClose, children }) {
   }, [onClose]);
   return (
     <div className="modal-back" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <section className="sheet" role="dialog" aria-modal="true" aria-label={label} ref={panel} tabIndex={-1}>
+      <section className={`sheet${wide ? " sheet-wide" : ""}`} role="dialog" aria-modal="true" aria-label={label} ref={panel} tabIndex={-1}>
         <header className="gpu-panel-head">
           <p className="gpu-kicker"><span className="prompt">&gt;</span> {label}</p>
           <button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}><Icon name="close" /></button>
@@ -1165,6 +1166,99 @@ function Sheet({ label, onClose, children }) {
     </div>
   );
 }
+// ---- /changes: what this conversation changed, file by file, each can be put back
+const STATE_WORD = { added: "새 파일", deleted: "지워짐", big: "너무 커서 못 보여요" };
+function FileDiff({ before, now }) {
+  const d = useMemo(() => fileHunks(before, now), [before, now]);
+  if (!d.hunks.length) return <p className="chg-none">바뀐 줄이 없어요.</p>;
+  return (
+    <div className="chg-diff" role="table">
+      {d.hunks.map((h, k) => (
+        <div key={k} className="chg-hunk">
+          <div className="chg-at" role="row"><span>@@ {h.oldStart ?? 0} → {h.newStart ?? 0}</span></div>
+          {h.rows.map(([sign, text, a, b], i) => (
+            <div key={i} className={`chg-row ${sign === "+" ? "add" : sign === "-" ? "del" : "same"}`} role="row">
+              <span className="chg-no">{a ?? ""}</span><span className="chg-no">{b ?? ""}</span>
+              <span className="chg-sign" aria-hidden="true">{sign}</span><span className="chg-text">{text || " "}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+function ChangeFile({ f, busy, open, onToggle, onRevert, onPut }) {
+  const [sure, setSure] = useState(false);
+  useEffect(() => { if (!sure) return undefined; const t = setTimeout(() => setSure(false), 4000); return () => clearTimeout(t); }, [sure]);
+  const stat = useMemo(() => (f.state === "big" ? null : fileHunks(f.before, f.now)), [f]);
+  const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/") + 1) : "";
+  return (
+    <li className={`chg-file${f.reverted ? " reverted" : ""}`}>
+      <div className="chg-head">
+        <button type="button" className="chg-toggle" aria-expanded={open} onClick={onToggle} disabled={f.state === "big" || f.reverted}>
+          <Icon name={open ? "chevdown" : "right"} />
+          <span className="chg-path mono"><span className="chg-dir">{dir}</span>{f.path.slice(dir.length)}</span>
+          {STATE_WORD[f.state] && <span className="chg-badge">{STATE_WORD[f.state]}</span>}
+          {stat && !f.reverted && <span className="step-delta"><span className="add">+{stat.add}</span>{stat.del > 0 && <span className="del">−{stat.del}</span>}</span>}
+        </button>
+        {f.reverted ? (
+          <span className="chg-done">되돌렸어요{f.undo !== undefined && f.undo !== null && <button type="button" className="mini-btn" disabled={busy} onClick={onPut}>다시 살리기</button>}</span>
+        ) : f.undo ? (
+          <button type="button" className={`mini-btn${sure ? " sure" : ""}`} disabled={busy} title={busy ? "도는 동안에는 되돌리지 않아요" : "이 대화가 고치기 전으로"}
+            onClick={() => { if (sure) { setSure(false); onRevert(); } else setSure(true); }}>
+            {sure ? (f.state === "added" ? "정말 지울까요?" : "정말 되돌릴까요?") : "되돌리기"}
+          </button>
+        ) : null}
+      </div>
+      {open && !f.reverted && f.state !== "big" && <FileDiff before={f.before} now={f.now} />}
+    </li>
+  );
+}
+function ChangesPanel({ busy, onClose, onError }) {
+  const [files, setFiles] = useState(null);
+  const [open, setOpen] = useState(() => new Set());
+  useEffect(() => {
+    api("/api/changes").then((r) => {
+      setFiles(r.files);
+      // a few: all open; many: the first only
+      setOpen(new Set((r.files.length <= 3 ? r.files : r.files.slice(0, 1)).map((f) => f.path)));
+    }).catch((e) => { onError(`읽지 못했어요: ${e.message}`); setFiles([]); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const swap = (path, change) => setFiles((all) => all.map((f) => (f.path === path ? { ...f, ...change } : f)));
+  const revert = (f) => api("/api/changes", { revert: f.path })
+    .then((r) => swap(f.path, { reverted: true, undo: r.undo }))
+    .catch((e) => onError(`되돌리지 못했어요: ${e.message}`));
+  const put = (f) => api("/api/changes", { put: f.path, hash: f.undo })
+    .then((r) => swap(f.path, { ...r.file, reverted: false }))
+    .catch((e) => onError(`되살리지 못했어요: ${e.message}`));
+  const total = useMemo(() => (files || []).reduce((t, f) => {
+    if (f.state === "big" || f.reverted) return t;
+    const d = fileHunks(f.before, f.now);
+    return { add: t.add + d.add, del: t.del + d.del };
+  }, { add: 0, del: 0 }), [files]);
+  const toggle = (path) => setOpen((o) => { const n = new Set(o); if (n.has(path)) n.delete(path); else n.add(path); return n; });
+  return (
+    <Sheet label="이 대화가 바꾼 파일" wide onClose={onClose}>
+      {files === null ? <p className="chg-note">읽는 중…</p> : files.length === 0 ? (
+        <p className="chg-note">이 대화는 아직 파일을 바꾸지 않았어요. (명령으로 바뀐 것은 여기 없어요.)</p>
+      ) : (
+        <>
+          <p className="chg-note">
+            파일 {files.length}개 · <span className="chg-add">+{total.add}</span>{total.del > 0 && <> <span className="chg-del">−{total.del}</span></>}
+            <span className="chg-hint"> — 이 대화가 고치기 전과 지금 파일을 견줘요. 되돌리기는 그 파일만 고치기 전으로.</span>
+          </p>
+          <ul className="chg-files">
+            {files.map((f) => (
+              <ChangeFile key={f.path} f={f} busy={busy} open={open.has(f.path)} onToggle={() => toggle(f.path)}
+                onRevert={() => revert(f)} onPut={() => put(f)} />
+            ))}
+          </ul>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 function MemoryPanel({ onClose, onError }) {
   const [r, setR] = useState(null);
   const [line, setLine] = useState("");
@@ -1311,7 +1405,13 @@ export default function App() {
   const picturesRef = useRef(null); // the composer's "these are the pictures"
   const addPicturesRef = useRef(null); // the composer's "these too" (taken back from the queue)
   const askingRef = useRef(null); // the question on screen (its "늘 허용" rule)
-  const [panel, setPanel] = useState(null); // "memory" | "help" | null
+  const [panel, setPanel] = useState(null); // "memory" | "help" | "rules" | "changes" | null
+  // files this conversation's edits and writes changed (the review sheet has the truth)
+  const changed = useMemo(() => {
+    const paths = new Set();
+    for (const it of state.items) if (it.kind === "tools") for (const t of it.tools) if ((t.name === "edit" || t.name === "write") && t.status === "ok" && t.args?.path) paths.add(String(t.args.path).replace(/\\/g, "/").replace(/^\.\//, ""));
+    return paths.size;
+  }, [state.items]);
   const [finding, setFinding] = useState(false); // Ctrl+F
   const box = useRef(null);
   const menuRef = useRef(null);
@@ -1523,6 +1623,7 @@ export default function App() {
     }
     if (name === "plan") { setMode("plan"); return; }
     if (name === "permissions") { setPanel("rules"); return; }
+    if (name === "changes" || name === "diff") { setPanel("changes"); return; }
     if (name === "think") {
       api("/api/thinking", { on: !state.thinking }).then((r) => say(r.on ? "생각 켬: 답하기 전에 먼저 생각해요." : "생각 끔: 바로 답해요.")).catch(fail);
       return;
@@ -1705,6 +1806,11 @@ export default function App() {
           <button ref={menuRef} type="button" className="icon-btn menu-btn" aria-label="대화 목록 열기" aria-controls="side"
             aria-expanded={side} onClick={openSide}><Icon name="menu" /></button>
           <h1 className="main-title" key={state.title}>{state.title || "새 대화"}</h1>
+          {changed > 0 && (
+            <button type="button" className="head-changes" onClick={() => setPanel("changes")} title="이 대화가 바꾼 파일 보기·되돌리기 (/changes)" aria-label={`이 대화가 고친 파일 ${changed}개 보기`}>
+              <Icon name="file" /><span><span className="hc-word">고친 파일 </span>{changed}</span>
+            </button>
+          )}
           <div className="head-narrow"><Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} compact onOpen={() => setGpuOpen(true)} /></div>
         </header>
         {offline && <div className="lost" role="alert">{lostLong ? "RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요." : "RobinCode 서버와 다시 연결하는 중이에요…"}</div>}
@@ -1725,6 +1831,7 @@ export default function App() {
         {panel === "memory" && <MemoryPanel onClose={on.closePanel} onError={on.say} />}
         {panel === "help" && <HelpPanel commands={commands} onClose={on.closePanel} />}
         {panel === "rules" && <RulesPanel onClose={on.closePanel} onError={on.say} />}
+        {panel === "changes" && <ChangesPanel busy={state.busy} onClose={on.closePanel} onError={on.say} />}
         {gpuOpen &&<GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); focusBox(); }} />}
         {drag && (
           <div className="drop" aria-hidden="true">

@@ -1067,6 +1067,45 @@ function filePlan() {
   return out;
 }
 const planNames = (plan) => plan.map((c) => shown(c.path));
+// ---- what this conversation changed (the review sheet) ----------------------
+// every file a tool changed on the branch the conversation is on: as it was
+// before the first of those changes, and as it is on disk now (whatever changed
+// it since). Only these files can be put back from the window
+const REVIEW_MAX = 400_000;
+function reviewFiles() {
+  if (!theShelf()) return [];
+  const ran = new Set();
+  const leaf = session.sessionManager.getLeafId();
+  for (const x of leaf ? session.sessionManager.getBranch(leaf) : []) {
+    if (x.type !== "message" || x.message.role !== "assistant") continue;
+    for (const p of x.message.content || []) if (p.type === "toolCall") ran.add(p.id);
+  }
+  const first = new Map();
+  const calls = Object.entries(shelf.index.calls).filter(([id, r]) => ran.has(id) && "after" in r).sort((a, b) => a[1].at - b[1].at);
+  for (const [, r] of calls) if (!first.has(keyOf(r.path))) first.set(keyOf(r.path), { path: r.path, before: r.before, at: r.at });
+  return [...first.values()];
+}
+const blobText = (hash) => (hash && keepable(hash) ? readFileSync(join(shelf.dir, hash), "utf8") : null);
+function reviewOne(f) {
+  const out = { path: shown(f.path), at: f.at };
+  let now = null;
+  try { const buf = readFileSync(f.path); now = buf.length > REVIEW_MAX ? "big" : buf.toString("utf8"); } catch (e) { if (e.code !== "ENOENT") now = "unread"; }
+  if (!keepable(f.before ?? "") && f.before !== null) return { ...out, state: "big", undo: false };
+  if (now === "big" || now === "unread") return { ...out, state: "big", undo: true };
+  let before = null;
+  try { before = blobText(f.before); } catch { return { ...out, state: "big", undo: false }; }
+  if (before !== null && before.length > REVIEW_MAX) return { ...out, state: "big", undo: true };
+  const state = before === null ? (now === null ? "same" : "added") : now === null ? "deleted" : before === now ? "same" : "changed";
+  return { ...out, state, before: before ?? "", now: now ?? "", undo: true };
+}
+// the file put back as it was before the conversation changed it; what was
+// there is kept on the shelf so it can be put back again (`undo`)
+function revertOne(f) {
+  const was = take(f.path);
+  if (f.before === null) { try { unlinkSync(f.path); } catch (e) { if (e.code !== "ENOENT") throw e; } }
+  else { mkdirSync(dirname(f.path), { recursive: true }); writeFileSync(f.path, readFileSync(join(shelf.dir, f.before))); }
+  return was;
+}
 // put the files back as the conversation has them now; a file changed since by
 // something else (a command, robin's editor) is left as it is
 function syncFiles() {
@@ -2166,6 +2205,35 @@ const server = createServer(async (req, res) => {
         if (!known.some((p) => keyOf(p) === keyOf(want))) { send(res, 404, { error: "그 파일은 열 수 없어요." }); return; }
         spawn("cmd.exe", ["/d", "/c", "start", "\"\"", `"${want}"`], { windowsHide: true, windowsVerbatimArguments: true, stdio: "ignore", detached: true }).unref();
         send(res, 200, { ok: true });
+        return;
+      }
+      case "/api/changes": {
+        // what this conversation changed; { revert: path } puts one back as
+        // it was, { put: path, hash } puts back what a revert took away
+        const files = reviewFiles();
+        const which = (p) => files.find((f) => shown(f.path) === String(p || ""));
+        if (body.revert != null || body.put != null) {
+          if (busyNow()) { send(res, 409, { error: "도는 동안에는 되돌리지 않아요. 끝난 뒤에 하세요." }); return; }
+          const f = which(body.revert ?? body.put);
+          if (!f) { send(res, 404, { error: "이 대화가 바꾼 파일이 아니에요." }); return; }
+          try {
+            if (body.revert != null) {
+              if (!keepable(f.before ?? "") && f.before !== null) { send(res, 409, { error: "너무 커서 담아 두지 못한 파일이라 되돌릴 수 없어요." }); return; }
+              const was = revertOne(f);
+              log(`되돌림: ${shown(f.path)}`);
+              send(res, 200, { ok: true, undo: keepable(was ?? "") ? was : was === null ? "none" : null, file: reviewOne(f) });
+            } else {
+              const hash = String(body.hash || "");
+              if (hash === "none") { try { unlinkSync(f.path); } catch { /* gone */ } }
+              else if (/^[0-9a-f]{16,128}$/.test(hash) && existsSync(join(shelf.dir, hash))) writeFileSync(f.path, readFileSync(join(shelf.dir, hash)));
+              else { send(res, 404, { error: "되살릴 내용이 없어요." }); return; }
+              log(`되살림: ${shown(f.path)}`);
+              send(res, 200, { ok: true, file: reviewOne(f) });
+            }
+          } catch (e) { send(res, 500, { error: `파일을 쓰지 못했어요: ${e.message}` }); }
+          return;
+        }
+        send(res, 200, { files: files.map(reviewOne).filter((f) => f.state !== "same") });
         return;
       }
       case "/api/export":

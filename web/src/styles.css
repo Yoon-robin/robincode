@@ -825,6 +825,41 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   box-shadow: 0 24px 64px rgb(0 0 0 / 60%); animation: rise 0.18s var(--ease) both; outline: none;
 }
 .sheet p { margin: 0; }
+/* /changes: wider, for diffs */
+.sheet-wide { width: min(980px, 100%); }
+.chg-note { font-size: 13px; color: var(--text); }
+.chg-hint { color: var(--faint); }
+.chg-add { font-family: var(--mono); color: var(--head); }
+.chg-del { font-family: var(--mono); color: var(--faint); }
+.chg-files { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.chg-file { border: 1px solid var(--line-weak); border-radius: var(--radius); overflow: hidden; }
+.chg-file.reverted { opacity: 0.7; }
+.chg-head { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 4px; }
+.chg-file:has(.chg-diff) .chg-head { border-bottom: 1px solid var(--line-weak); }
+.chg-toggle { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; padding: 6px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); text-align: left; font-size: 13px; }
+.chg-toggle:hover:not(:disabled) { background: var(--press); }
+.chg-toggle .ico { flex: none; width: 14px; height: 14px; color: var(--faint); }
+.chg-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--head); font-size: 12.5px; }
+.chg-dir { color: var(--faint); }
+.chg-badge { flex: none; padding: 0 6px; border: 1px solid var(--line-win); border-radius: 4px; font-size: 11.5px; color: var(--soft); }
+.chg-done { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--soft); }
+.mini-btn.sure { color: var(--red); border-color: rgb(248 113 113 / 40%); }
+.chg-diff { max-height: 420px; overflow: auto; font: 400 12px/1.6 var(--mono); scrollbar-width: thin; }
+.chg-hunk + .chg-hunk { border-top: 1px dashed var(--line-weak); }
+.chg-at { padding: 2px 12px; color: var(--faint); font-size: 11.5px; background: rgb(255 255 255 / 2%); }
+.chg-row { display: flex; min-width: max-content; }
+.chg-no { flex: none; width: 3.6em; padding-right: 8px; text-align: right; color: var(--faint); user-select: none; opacity: 0.7; }
+.chg-sign { flex: none; width: 1.4em; text-align: center; color: var(--faint); user-select: none; }
+.chg-text { padding-right: 16px; white-space: pre; color: var(--soft); }
+.chg-row.add { background: rgb(255 255 255 / 6%); }
+.chg-row.add .chg-sign, .chg-row.add .chg-text { color: #fff; }
+.chg-row.del { background: rgb(248 113 113 / 9%); }
+.chg-row.del .chg-sign, .chg-row.del .chg-text { color: #fca5a5; }
+.chg-none { padding: 10px 12px; font-size: 12.5px; color: var(--faint); }
+/* the header's "바뀐 파일 n" */
+.head-changes { display: inline-flex; flex: none; align-items: center; gap: 6px; margin-left: 12px; padding: 5px 10px; border: 1px solid var(--line-win); border-radius: 999px; background: none; color: var(--text); font-size: 12.5px; }
+.head-changes:hover { background: var(--press); color: var(--head); }
+.head-changes .ico { width: 13px; height: 13px; color: var(--soft); }
 .mem-files { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .mem-file { border: 1px solid var(--line-weak); border-radius: var(--radius); overflow: hidden; }
 .mem-head { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line-weak); font-size: 12.5px; }
@@ -1026,6 +1061,8 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   .main-head { padding: 10px 16px; }
 }
 @media (max-width: 560px) {
+  .head-changes { margin-left: 8px; padding: 5px 8px; }
+  .hc-word { display: none; }
   .msgs { padding: 20px 14px 16px; }
   .composer { padding: 0 12px 10px; }
   .mentions { left: 12px; right: 12px; }

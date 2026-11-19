@@ -169,6 +169,25 @@ await page.waitForTimeout(600);
 await idle();
 ok((await modeText()).includes("바로 실행"), `계획 전 모드로: ${await modeText()}`);
 ok(readFileSync(join(work, "README.md"), "utf8").includes("계획대로 고쳤어요"), "계획대로 README 고침");
+
+// ---- the review sheet: header button, the diff, put back with two presses, back again
+const headBtn = page.locator(".head-changes");
+ok(/고친 파일 1/.test(await headBtn.innerText().catch(() => "")), `머리줄 '고친 파일 1' (${await headBtn.innerText().catch(() => "없음")})`);
+await headBtn.click();
+await page.waitForSelector(".chg-file", { timeout: 5000 }).catch(() => {});
+const sheet = page.locator(".chg-file", { hasText: "README.md" });
+ok(/계획대로 고쳤어요/.test(await sheet.locator(".chg-row.add").allInnerTexts().then((t) => t.join(" "))), "검토 창: README의 더한 줄");
+const fixed = readFileSync(join(work, "README.md"), "utf8");
+await sheet.getByRole("button", { name: "되돌리기" }).click();
+ok(readFileSync(join(work, "README.md"), "utf8") === fixed, "한 번 눌러서는 안 되돌림");
+await sheet.getByRole("button", { name: /정말/ }).click();
+await page.waitForTimeout(500);
+ok(!readFileSync(join(work, "README.md"), "utf8").includes("계획대로"), "두 번 눌러 되돌림");
+await sheet.getByRole("button", { name: "다시 살리기" }).click();
+await page.waitForTimeout(500);
+ok(readFileSync(join(work, "README.md"), "utf8") === fixed, "다시 살리기");
+await page.keyboard.press("Escape");
+await page.waitForTimeout(300);
 await say("/mode ask");
 await page.waitForTimeout(500);
 ok((await modeText()).includes("묻고 실행"), "/mode ask");
@@ -181,7 +200,11 @@ await say("목록도 봐 줘");
 await say("끝나고 이것도", "Control+Enter");
 await page.waitForTimeout(250);
 const qs = await page.locator(".queued-bubble").allInnerTexts();
-ok(qs.length === 2 && qs[0].includes("다음 단계 전에") && qs[1].includes("끝나면"), `기다리는 말: ${JSON.stringify(qs.map((x) => x.replace(/\s+/g, " ")))}`);
+// a quick model can take the steer at its next step before this looks (B-417):
+// then it is already in the conversation instead of waiting
+const steerTaken = (await page.locator(".msg-user", { hasText: "목록도 봐 줘" }).count()) === 1;
+const steerOk = steerTaken ? qs.length === 1 : qs.length === 2 && qs[0].includes("다음 단계 전에");
+ok(steerOk && qs.at(-1)?.includes("끝나면"), `기다리는 말${steerTaken ? "(끼어든 말은 이미 들어감)" : ""}: ${JSON.stringify(qs.map((x) => x.replace(/\s+/g, " ")))}`);
 await box.click();
 await box.press("ArrowUp");
 await page.waitForTimeout(600);

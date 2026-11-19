@@ -11,6 +11,8 @@ export const BUILTIN = [
   { name: "plan", hint: "계획 모드: 읽고 찾아보기만 하고 계획을 써요" },
   { name: "permissions", hint: "이 폴더에서 \"늘 허용\"한 명령과 사이트를 보고 지워요" },
   { name: "think", hint: "모델이 답하기 전에 생각하기를 켜고 꺼요" },
+  { name: "changes", hint: "이 대화가 바꾼 파일을 한곳에서 보고, 파일마다 되돌려요" },
+  { name: "diff", hint: "이 대화가 바꾼 파일을 봐요 (/changes와 같아요)" },
   { name: "export", hint: "이 대화를 Markdown 파일로 저장해요" },
   { name: "help", hint: "명령과 단축키를 봐요" },
 ];

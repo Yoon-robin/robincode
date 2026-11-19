@@ -203,7 +203,21 @@ createServer(async (req, res) => {
     } else await streamToolCall(res, "ls", { path: "." }, usage);
     return;
   }
-  // "할 일": the todo list as it goes (a step every 0.7 s, for queue tests too)
+  // "할 일": the todo list as it goes (a step every 0.7 s, for queue tests too).
+  // A message robin slips in between steps (steer) does not end it: the turn
+  // began at the first user message after the last finished answer (B-417)
+  const done = messages.findLastIndex((m) => m.role === "assistant" && !m.tool_calls?.length);
+  const turnStart = messages.findIndex((m, i) => i > done && m.role === "user");
+  const turnAsk = turnStart >= 0 ? textOf(messages[turnStart].content) : "";
+  if (/할 일/.test(turnAsk) && !/할 일/.test(lastUser) && tools.includes("todo") && messages.slice(turnStart).some((m) => m.role === "tool")) {
+    const runs = messages.slice(turnStart + 1).filter((m) => m.role === "tool").length;
+    const list = (k) => ["폴더 보기", "package.json 읽기", "정리해서 답하기"].map((text, i) => ({ text, status: i < k ? "completed" : i === k ? "in_progress" : "pending" }));
+    const plan = [["todo", { items: list(0) }], ["ls", { path: "." }], ["todo", { items: list(1) }], ["read", { path: "package.json" }], ["todo", { items: list(2) }]];
+    await sleep(700);
+    if (runs < plan.length) await streamToolCall(res, plan[runs][0], plan[runs][1], usage);
+    else await streamText(res, "할 일을 다 했어요. 파일은 셋이에요.", usage);
+    return;
+  }
   if (/할 일/.test(lastUser) && tools.includes("todo")) {
     const runs = messages.slice(messages.findLastIndex((m) => m.role === "user") + 1).filter((m) => m.role === "tool").length;
     const list = (k) => ["폴더 보기", "package.json 읽기", "정리해서 답하기"].map((text, i) => ({ text, status: i < k ? "completed" : i === k ? "in_progress" : "pending" }));
