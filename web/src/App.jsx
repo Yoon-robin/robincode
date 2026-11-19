@@ -10,7 +10,7 @@ import { CopyButton, Markdown } from "./Markdown.jsx";
 import { ANSWER_KEYS, REVEAL, ShellRun, TodoPanel, ToolGroup, describe, latestTodo } from "./Tools.jsx";
 import { AppMark, Icon, Tag } from "./icons.jsx";
 import { ago, seconds, useNow } from "./time.js";
-import { MODE_NAMES, nextMode } from "./modes.js";
+import { MODES, MODE_NAMES, MODE_TIPS, nextMode } from "./modes.js";
 import { BUILTIN, FOLDER_ONLY, INIT_PROMPT } from "./commands.js";
 
 const SUGGESTIONS = ["이 폴더 구조 설명해 줘", "package.json 읽어 줘", "README 고쳐 줘"];
@@ -98,33 +98,23 @@ function GpuProgress({ action, p, mini }) {
   );
 }
 
-function Gpu({ gpu, fake, gpuFake, job, compact, onOpen }) {
+// the GPU in the top bar: a lamp and a word, the whole of it in the title;
+// pressed, the GPU window (turn on, off, rent)
+function HeadGpu({ gpu, fake, gpuFake, job, onOpen }) {
   const prog = progressOf(gpu, job);
   const state = prog ? "starting" : gpu.state || "unknown"; // a rent says "켜는 중" before Vast does
   const lamp = fake && !gpuFake ? "test" : lampOf(state);
+  const can = (!fake || gpuFake) && state !== "unknown" && state !== "unreachable";
   const short = gpu.hours != null && gpu.hours <= 1;
-  const can = !fake || gpuFake;
-  const label = job?.running ? JOB_WORDS[job.action][0] : state === "on" || state === "starting" ? "끄기…" : "켜기…";
   const dl = prog && downloadOf(prog.p);
-  return (
-    <div className={`gpu${compact ? " compact" : ""}`}>
-      <span className="gpu-line">
-        <span className={`lamp ${lamp}`} aria-hidden="true" />
-        <span className="gpu-label">GPU</span>
-        <span className="gpu-state">{GPU_NAMES[state] || state}{compact && prog ? ` · ${prog.p.name}${dl != null ? ` ${Math.round(dl * 100)}%` : ""}` : ""}</span>
-        {state === "on" && gpu.rate && <span className="gpu-rate">시간당 ${gpu.rate}</span>}
-      </span>
-      {gpu.credit != null && (
-        <span className={`gpu-credit${short ? " warn" : ""}`}>크레딧 ${gpu.credit}{gpu.left ? ` · ${gpu.left}` : ""}</span>
-      )}
-      {fake && <span className="gpu-fake">가짜 모델로 시험 중</span>}
-      {can && state !== "unknown" && state !== "unreachable" && (
-        <button type="button" className={`mini-btn${job?.running ? " working" : ""}`} onClick={onOpen}
-          title="GPU를 켜고 끄는 창을 열어요. 빌릴 자리는 거기서 골라요.">{label}</button>
-      )}
-      {prog && !compact && <GpuProgress action={prog.action} p={prog.p} mini />}
-    </div>
-  );
+  const words = `${GPU_NAMES[state] || state}${prog ? ` · ${prog.p.name}${dl != null ? ` ${Math.round(dl * 100)}%` : ""}` : ""}`;
+  const title = [`GPU ${words}`, state === "on" && gpu.rate ? `시간당 $${gpu.rate}` : "",
+    gpu.credit != null ? `크레딧 $${gpu.credit}${gpu.left ? ` · ${gpu.left}` : ""}` : "", fake ? "가짜 모델로 시험 중" : "",
+    can ? "누르면 GPU를 켜고 끄는 창을 열어요" : ""].filter(Boolean).join("\n");
+  const inner = <><span className={`lamp ${lamp}`} aria-hidden="true" /><span className="hg-word">GPU</span><span className="gpu-state">{words}</span></>;
+  const cls = `head-btn head-gpu${short ? " warn" : ""}${job?.running ? " working" : ""}`;
+  return can ? <button type="button" className={cls} onClick={onOpen} title={title}>{inner}</button>
+    : <span className={`${cls} still`} title={title}>{inner}</span>;
 }
 
 // how full the model's context is; pressed, it says more and can summarize
@@ -383,25 +373,6 @@ function ping(title, body) {
 }
 // an answer's first line, without the Markdown marks
 const firstWords = (text) => (text || "").trim().split("\n")[0].replace(/[#*`>_|]+/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
-
-function NotifyRow({ notify, onToggle }) {
-  if (notify === "none") return null;
-  const on = notify === "on";
-  const blocked = notify === "blocked";
-  return (
-    <div className="side-row">
-      <span className="side-label">알림</span>
-      <span className="notify">
-        <button type="button" className={`toggle${on ? " on" : ""}`} aria-pressed={on} aria-label="Windows 알림" disabled={blocked} onClick={onToggle}
-          title={on ? "다른 창을 보고 있을 때 허락이 필요하거나 끝나면 Windows 알림으로 알려요. 누르면 꺼요." : "누르면 다른 창을 보고 있을 때 허락이 필요하거나 끝나면 Windows 알림으로 알려요."}>
-          {blocked && <span className="toggle-word">막힘</span>}<span className="switch" aria-hidden="true" />
-        </button>
-        {/* what it does is on the button (its title); only a block needs words here */}
-        {blocked && <span className="notify-note">{window.robincodeShell ? "Windows 설정 > 알림에서 RobinCode를 켜 주세요" : "창의 사이트 설정에서 알림을 허용해 주세요"}</span>}
-      </span>
-    </div>
-  );
-}
 
 // commands: what they change, going back cannot put back (edit / write it can)
 const COMMANDS = new Set(["powershell", "bash"]);
@@ -684,15 +655,17 @@ function Mark({ text, q }) {
 // one that ended while robin was in another: "끝났어요" until it is opened
 // (the one on screen has its own blinking status line: no second cursor here)
 // (a third one waits for one of the GPU's two slots: "자리를 기다려요")
+// (one line of a 32px row: short words, the whole sentence in the row's title)
 function RunMark({ run, here }) {
-  if (run.done) return <span className="conv-run conv-done">끝났어요 · 아직 안 봤어요</span>;
+  if (run.done) return <span className="conv-run conv-done">끝났어요<span className="sr"> · 아직 안 봤어요</span></span>;
   if (run.asking) return <span className="conv-run conv-ask"><Tag tag="[ ?? ]" />허락을 기다려요</span>;
-  if (run.waiting) return <span className="conv-run conv-wait"><Tag tag="[ ·· ]" />GPU 자리를 기다려요</span>;
-  if (run.failed) return <span className="conv-run conv-fail"><Tag tag="[ !! ]" />보내지 못했어요 · 열면 쓴 말이 돌아와요</span>;
+  if (run.waiting) return <span className="conv-run conv-wait"><Tag tag="[ ·· ]" />자리를 기다려요</span>;
+  if (run.failed) return <span className="conv-run conv-fail"><Tag tag="[ !! ]" />보내지 못했어요</span>;
   return <span className="conv-run">{here ? <span className="lamp on" aria-hidden="true" /> : <Tag tag="[ .. ]" />}도는 중</span>;
 }
+const runWords = (run) => (run.done ? "끝났어요 · 아직 안 봤어요" : run.asking ? "허락을 기다려요" : run.waiting ? "GPU 자리를 기다려요"
+  : run.failed ? "보내지 못했어요 · 열면 쓴 말이 돌아와요" : "도는 중");
 // where a conversation works: its folder's name, or none (a plain conversation)
-const placeName = (s) => (s.chat ? "일반 대화" : s.folder || "");
 
 function Conv({ s, q, current, run, now, pinned, onPin, onOpen, onDelete, onRename }) {
   const [editing, setEditing] = useState(false);
@@ -719,16 +692,18 @@ function Conv({ s, q, current, run, now, pinned, onPin, onOpen, onDelete, onRena
           }} />
       ) : (
         <>
-          <button type="button" className="conv-open" title={`${s.title}\n${s.chat ? "일반 대화 (폴더 없음)" : s.cwd || s.folder || ""}`} onClick={() => onOpen(s.path)}>
+          <button type="button" className="conv-open"
+            title={[s.title, s.chat ? "일반 대화 (폴더 없음)" : s.cwd || s.folder || "", run ? runWords(run) : s.modified ? ago(s.modified, now) : ""].filter(Boolean).join("\n")}
+            onClick={() => onOpen(s.path)}>
             <Icon name={s.chat ? "chat" : "folder"} />
             <span className="conv-text">
-            <span className="conv-title"><Mark text={s.title} q={q} /></span>
-            {s.snippet && !run && <span className="conv-snip"><Mark text={s.snippet.text} q={q} /></span>}
-            {/* every folder's conversations are in one list: each says where */}
-            <span className="conv-time">
-              {placeName(s) && <span className={`conv-place${s.chat ? " chat" : ""}`}>{placeName(s)}</span>}
-              {run ? <RunMark run={run} here={!!current} /> : s.modified ? <span>{ago(s.modified, now)}</span> : null}
+              <span className="conv-title"><Mark text={s.title} q={q} /></span>
+              {s.snippet && !run && <span className="conv-snip"><Mark text={s.snippet.text} q={q} /></span>}
             </span>
+            {/* every folder's conversations are in one list: each says where (a
+                plain one has its own icon), or what it is doing now */}
+            <span className="conv-time">
+              {run ? <RunMark run={run} here={!!current} /> : !s.chat && s.folder ? <span className="conv-place">{s.folder}</span> : null}
             </span>
           </button>
           {onRename && (
@@ -760,7 +735,7 @@ function moveInList(e) {
   all[Math.max(0, Math.min(all.length - 1, k + (e.key === "ArrowDown" ? 1 : -1)))]?.focus();
 }
 
-const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch, onGpu, shellU, onVersion }) {
+const Sidebar = memo(function Sidebar({ state, closeRef, searchRef, onClose, onNew, onOpen, onDelete, onRename, onLeaveSearch, shellU, settings, onSettings }) {
   const now = useNow(60000);
   const nav = useRef(null);
   // ended while robin was elsewhere: marked until opened (this window's run only)
@@ -806,13 +781,16 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
   const elsewhere = state.running.filter((r) => r.path !== state.sessionFile && !listed.has(r.path));
   return (
     <aside className="side" id="side" aria-label="대화 목록">
+      {/* the brand cell: as tall as the top bar, its rule on the same line */}
       <div className="side-head">
-        <span className="brand"><AppMark />RobinCode</span>
+        <span className="brand"><AppMark />
+          <span className="brand-text"><span className="brand-name">RobinCode</span><span className="brand-sub" title="이 앱이 쓰는 모델">{state.info.model}</span></span>
+        </span>
         <button ref={closeRef} type="button" className="icon-btn side-close" aria-label="목록 닫기" onClick={onClose}><Icon name="close" /></button>
       </div>
-      <button type="button" className="btn new-chat" onClick={onNew}
+      <button type="button" className="side-item new-chat" onClick={onNew}
         title={"지금과 같은 곳에서 새 대화를 열어요(Ctrl+N). 폴더나 일반 대화는 새 대화 첫 화면에서 바꿔요.\n도는 대화는 그대로 계속해요."}>
-        <Icon name="plus" /> 새 대화 <kbd className="search-key">Ctrl N</kbd>
+        <Icon name="plus" /><span>새 대화</span><kbd className="search-key">Ctrl N</kbd>
       </button>
       <div className="conv-search">
         <Icon name="search" />
@@ -853,35 +831,7 @@ const Sidebar = memo(function Sidebar({ state, notify, onNotify, closeRef, searc
           ))
         )}
       </nav>
-      <div className="side-foot">
-        <div className="side-card">
-        <NotifyRow notify={notify} onToggle={onNotify} />
-        <div className="side-row folder-row" title={state.info.chat ? "일반 대화: 폴더 없이 이야기만 해요" : state.info.cwd}>
-          <span className="side-label">폴더</span>
-          <span className="folder-line">
-            {state.info.chat ? <span>일반 대화</span> : <span className="mono">{state.info.folder || shortPath(state.info.cwd)}</span>}
-            {/* the folder screen, in this window; Esc there comes back */}
-            <a className="mini-btn" href={pickerUrl()}
-              title="다른 폴더에서 새 대화를 열어요. 이 대화는 목록에 남고, 도는 중이면 그대로 계속해요.">다른 폴더…</a>
-          </span>
-        </div>
-        {/* the folder's git branch, and how many files differ from it */}
-        {state.git && (
-          <div className="side-row git-row" title={`git 브랜치 ${state.git.branch}${state.git.changed ? `, 바뀌었거나 새로 생긴 파일 ${state.git.changed}개` : ", 바뀐 파일 없음"}${state.git.ahead ? `, 올리지 않은 커밋 ${state.git.ahead}개` : ""}${state.git.behind ? `, 받지 않은 커밋 ${state.git.behind}개` : ""}`}>
-            <span className="side-label">git</span>
-            <span className="mono git-line">
-              {state.git.branch}
-              {state.git.changed > 0 && <span className="git-changed"> · 바뀐 파일 {state.git.changed}</span>}
-              {state.git.ahead > 0 && <span className="git-ahead"> ↑{state.git.ahead}</span>}
-              {state.git.behind > 0 && <span className="git-ahead"> ↓{state.git.behind}</span>}
-            </span>
-          </div>
-        )}
-        <div className="side-row"><span className="side-label">모델</span><span className="mono">{state.info.model}</span></div>
-        <div className="side-row gpu-row"><span className="side-label">GPU</span><Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} onOpen={onGpu} /></div>
-        </div>
-        <VersionRow version={state.version} shellU={shellU} onOpen={onVersion} />
-      </div>
+      <AccountRow version={state.version} shellU={shellU} open={settings} onOpen={onSettings} />
     </aside>
   );
 });
@@ -937,24 +887,186 @@ function updateStatus(v, u, now = Date.now()) {
   return { kind: "none", mark: "[ -- ]", text: "저장소에서 켠 판이에요", detail: "바탕화면 바로가기로 켜면 새 판을 알아서 받아요." };
 }
 
-function VersionRow({ version, shellU, onOpen }) {
-  if (!version?.version) return null;
-  const s = updateStatus(version, shellU);
-  const fresh = version.fresh?.length || 0;
-  const tag = s.tone === "new" ? <span className="ver-tag new"><Tag tag="[NEW]" /> 새 판</span>
+// the account row at the foot of the sidebar (docs/brand.md 뼈대): the app's
+// mark, its name, the version (and a new one) under it; the whole row opens
+// the settings
+function AccountRow({ version, shellU, open, onOpen }) {
+  const s = version?.version ? updateStatus(version, shellU) : null;
+  const fresh = version?.fresh?.length || 0;
+  const tag = !s ? null : s.tone === "new" ? <span className="ver-tag new"><Tag tag="[NEW]" /> 새 판</span>
     : s.kind === "downloading" ? <span className="ver-tag"><Tag tag="[ .. ]" />받는 중</span>
     : s.tone === "warn" ? <span className="ver-tag warn">새 판 있음</span>
     : fresh ? <span className="ver-tag">바뀐 것 {fresh}</span>
     : s.kind === "error" ? <span className="ver-tag faint">확인 못 함</span> : null;
   return (
-    <button type="button" className="ver-row" onClick={onOpen} aria-haspopup="dialog" title="판과 바뀐 것 보기 (/version)">
+    <button type="button" className="acct" onClick={onOpen} aria-pressed={!!open} title="설정: 알림, 모드, 폴더, GPU, 판">
       <AppMark />
-      <span className="ver-line">
-        <span className="ver-name">RobinCode</span>
-        <span className="ver-when"><span className="sr">판 </span>{verLabel(version.version).when}{tag}</span>
+      <span className="acct-line">
+        <span className="acct-name">RobinCode</span>
+        <span className="acct-sub">{version?.version ? <><span className="sr">판 </span>{verLabel(version.version).when}</> : "설정"}{tag}</span>
       </span>
-      <Icon name="right" />
+      <Chev />
     </button>
+  );
+}
+// the original's small marks: › (6x10) and ⌄ (9x5)
+const Chev = () => <svg className="chev-r" viewBox="0 0 6 10" aria-hidden="true"><path d="M1 1l4 4-4 4" /></svg>;
+const ChevDown = () => <svg className="chev-d" viewBox="0 0 9 5" aria-hidden="true"><path d="M.75.75 4.5 4.25 8.25.75" /></svg>;
+
+// ---- the settings, from the account row (robin 2026-11-19 "네버루즈랑 완전히
+// 똑같게"): what the sidebar's card held and the commands' sheets, laid out as
+// the original's page — small heads over cards, a row per setting (name left,
+// its control right), two columns when there is room. Only what RobinCode has.
+function SetRow({ name, off, tip, className = "", children }) {
+  return (
+    <div className={`set-row${off ? " off" : ""}${className ? ` ${className}` : ""}`} data-tip={off ? tip : undefined}>
+      <span className="set-name">{name}</span>
+      <span className="set-ctl">{children}</span>
+    </div>
+  );
+}
+// a row that opens a page of its own: the whole row is the button
+function SubRow({ name, value, off, tip, title, href, onClick }) {
+  const inner = <><span className="set-name">{name}</span>{value != null && <span className="set-value">{value}</span>}<Chev /></>;
+  if (off) return <div className="set-row sub off" role="button" aria-disabled="true" tabIndex={0} data-tip={tip}>{inner}</div>;
+  if (href) return <a className="set-row sub" href={href} title={title}>{inner}</a>;
+  return <button type="button" className="set-row sub" onClick={onClick} title={title}>{inner}</button>;
+}
+// a select (the original's dropdown button, 132x24): its menu is the kit's
+// dropdown; arrows, Enter, Esc
+function Select({ label, value, options, disabled, onChange }) {
+  const [open, setOpen] = useState(false);
+  const btn = useRef(null);
+  const menu = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (!menu.current?.contains(e.target) && !btn.current?.contains(e.target)) setOpen(false); };
+    // Esc here only closes the menu (it must not stop the agent)
+    const esc = (e) => { if (e.key !== "Escape") return; e.preventDefault(); e.stopPropagation(); setOpen(false); btn.current?.focus(); };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc, true);
+    const all = [...(menu.current?.querySelectorAll("[role=menuitemradio]") || [])];
+    (all.find((x) => x.getAttribute("aria-checked") === "true") || all[0])?.focus();
+    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc, true); };
+  }, [open]);
+  const keys = (e) => {
+    const all = [...menu.current.querySelectorAll("[role=menuitemradio]")];
+    const k = all.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); all[(k + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length]?.focus(); }
+    else if (e.key === "Home" || e.key === "End") { e.preventDefault(); all[e.key === "Home" ? 0 : all.length - 1]?.focus(); }
+    else if (e.key === "Tab") setOpen(false);
+  };
+  const now = options.find((o) => o.value === value) || options[0];
+  const pick = (o) => { setOpen(false); btn.current?.focus(); if (o.value !== value) onChange(o.value); };
+  return (
+    <span className="sel">
+      <button ref={btn} type="button" className="set-select" aria-haspopup="menu" aria-expanded={open} disabled={disabled}
+        aria-label={`${label}: ${now.label}`} onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => { if (e.key === "ArrowDown" && !open) { e.preventDefault(); setOpen(true); } }}>
+        <span className="sel-text">{now.label}</span><ChevDown />
+      </button>
+      {open && (
+        <div ref={menu} className="pop sel-menu" role="menu" aria-label={label} onKeyDown={keys}>
+          {options.map((o) => (
+            <button key={o.value} type="button" role="menuitemradio" aria-checked={o.value === value} className="place-item" onClick={() => pick(o)}>
+              <span className="place-text"><span className="place-item-name">{o.label}</span>{o.hint && <span className="pop-note">{o.hint}</span>}</span>
+              {o.value === value && <span className="place-check"><Icon name="check" /></span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+function Settings({ state, notify, shellU, onNotify, onMode, onThink, onGpu, onPanel, onClose }) {
+  const page = useRef(null);
+  useEffect(() => {
+    page.current?.focus();
+    // Esc closes the page (a sheet or a select over it closes itself first)
+    const esc = (e) => {
+      if (e.key !== "Escape" || document.querySelector("[aria-modal='true'], .sel-menu")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    };
+    document.addEventListener("keydown", esc, true);
+    return () => document.removeEventListener("keydown", esc, true);
+  }, [onClose]);
+  const { info, git: g, gpu } = state;
+  const chat = !!info.chat;
+  const prog = progressOf(gpu, state.gpuJob);
+  const gState = prog ? "starting" : gpu.state || "unknown";
+  const can = (!state.fake || state.gpuFake) && gState !== "unknown" && gState !== "unreachable";
+  const gpuWords = <><span className={`lamp ${state.fake && !state.gpuFake ? "test" : lampOf(gState)}`} aria-hidden="true" />{GPU_NAMES[gState] || gState}{prog ? ` · ${prog.p.name}` : ""}{gState === "on" && gpu.rate ? ` · 시간당 $${gpu.rate}` : ""}</>;
+  const v = state.version;
+  const us = v?.version ? updateStatus(v, shellU) : null;
+  const blocked = notify === "blocked";
+  const noFolder = "일반 대화에는 폴더가 없어요. 새 대화에서 폴더를 고르면 써요.";
+  return (
+    <section className="set-page" ref={page} tabIndex={-1} aria-label="설정">
+      <div className="set-grid">
+        <div className="set-col">
+          <h2 className="set-head">이 대화</h2>
+          <div className="set-card">
+            <SetRow name="폴더">
+              {chat ? <span className="set-value">일반 대화</span> : <span className="set-value mono" title={info.cwd}>{info.folder || shortPath(info.cwd || "")}</span>}
+            </SetRow>
+            {!chat && g && (
+              <SetRow name="git">
+                <span className="set-value mono">{g.branch}
+                  {g.changed > 0 && <span className="git-changed"> · 바뀐 파일 {g.changed}</span>}
+                  {g.ahead > 0 && <span className="git-ahead"> ↑{g.ahead}</span>}
+                  {g.behind > 0 && <span className="git-ahead"> ↓{g.behind}</span>}
+                </span>
+              </SetRow>
+            )}
+            <SetRow name="모드" off={chat} tip="일반 대화는 파일도 명령도 쓰지 않아서 모드가 없어요.">
+              <Select label="모드" value={state.mode || "ask"} disabled={chat} onChange={onMode}
+                options={MODES.map((m) => ({ value: m, label: MODE_NAMES[m], hint: MODE_TIPS[m] }))} />
+            </SetRow>
+            <SetRow name="답하기 전에 생각">
+              <button type="button" className={`toggle${state.thinking ? " on" : ""}`} aria-pressed={!!state.thinking} aria-label="답하기 전에 생각"
+                title={state.thinking ? "모델이 답하기 전에 먼저 생각해요. 누르면 꺼요 (/think)" : "누르면 모델이 답하기 전에 먼저 생각해요 (/think)"} onClick={onThink}>
+                <span className="switch" aria-hidden="true" />
+              </button>
+            </SetRow>
+            <SubRow name="다른 폴더에서 새 대화" href={pickerUrl()} title="폴더 화면을 열어요. 이 대화는 목록에 남고, 도는 중이면 그대로 계속해요." />
+          </div>
+          <h2 className="set-head">모델</h2>
+          <div className="set-card">
+            <SetRow name="모델"><span className="set-value mono">{info.model}</span></SetRow>
+            {can ? <SubRow name="GPU" value={gpuWords} onClick={onGpu} title="GPU를 켜고 끄는 창을 열어요. 빌릴 자리는 거기서 골라요." />
+              : <SetRow name="GPU"><span className="set-value">{gpuWords}</span></SetRow>}
+            {gpu.credit != null && (
+              <SetRow name="크레딧"><span className={`set-value${gpu.hours != null && gpu.hours <= 1 ? " warn" : ""}`}>${gpu.credit}{gpu.left ? ` · ${gpu.left}` : ""}</span></SetRow>
+            )}
+            {state.fake && <SetRow name="시험"><span className="set-value warn">가짜 모델로 시험 중</span></SetRow>}
+          </div>
+        </div>
+        <div className="set-col">
+          <h2 className="set-head">앱</h2>
+          <div className="set-card">
+            {notify !== "none" && (
+              <SetRow name="Windows 알림" off={blocked}
+                tip={window.robincodeShell ? "막혀 있어요. Windows 설정 > 알림에서 RobinCode를 켜 주세요." : "막혀 있어요. 창의 사이트 설정에서 알림을 허용해 주세요."}>
+                <button type="button" className={`toggle${notify === "on" ? " on" : ""}`} aria-pressed={notify === "on"} aria-label="Windows 알림" disabled={blocked} onClick={onNotify}
+                  title={blocked ? undefined : "다른 창을 보고 있을 때 허락이 필요하거나 끝나면 Windows 알림으로 알려요."}>
+                  <span className="switch" aria-hidden="true" />
+                </button>
+              </SetRow>
+            )}
+            <SubRow name="판" onClick={() => onPanel("version")} title="판과 바뀐 것, 새 판 (/version)"
+              value={v?.version ? <>{verLabel(v.version).when}{us?.tone === "new" && <> <Tag tag="[NEW]" /></>}</> : "확인 중"} />
+          </div>
+          <h2 className="set-head">규칙과 지시</h2>
+          <div className="set-card">
+            <SubRow name="늘 허용한 것" onClick={() => onPanel("rules")} title="&quot;늘 허용&quot;한 명령과 사이트를 보고 지워요 (/permissions)" />
+            <SubRow name="지시 파일" off={chat} tip={noFolder} onClick={() => onPanel("memory")} title="모델이 읽는 지시 파일 (/memory)" />
+            <SubRow name="명령과 단축키" onClick={() => onPanel("help")} title="/help" />
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1728,7 +1840,10 @@ export default function App() {
   const picturesRef = useRef(null); // the composer's "these are the pictures"
   const addPicturesRef = useRef(null); // the composer's "these too" (taken back from the queue)
   const askingRef = useRef(null); // the question on screen (its "늘 허용" rule)
-  const [panel, setPanel] = useState(null); // "memory" | "help" | "rules" | "changes" | "version" | null
+  const [panel, setPanel] = useState(null); // "settings" | "memory" | "help" | "rules" | "changes" | "version" | null
+  const backTo = useRef(null); // a sheet opened from the settings goes back to them
+  // another conversation (opened, new) is on screen: the settings give way to it
+  useEffect(() => { setPanel((p) => (p === "settings" ? null : p)); }, [convKey]);
   // another conversation opened (Ctrl+K works over a panel): its files are not
   // the ones on the changes panel, so a revert there was the other's file
   useEffect(() => { setPanel((p) => (p === "changes" ? null : p)); }, [state.sessionFile]);
@@ -2144,6 +2259,7 @@ export default function App() {
       // Ctrl+F: words in this conversation
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
+        setPanel((p) => (p === "settings" ? null : p));
         setFinding(true);
         requestAnimationFrame(() => { const el = document.querySelector(".find-bar input"); el?.focus(); el?.select(); });
         return;
@@ -2205,8 +2321,13 @@ export default function App() {
     command: useStable(runCommand),
     shell: useStable(shell),
     say: useStable(say),
-    closePanel: useStable(() => { setPanel(null); focusBox(); }),
-    version: useStable(() => { closeSide(false); setPanel("version"); }),
+    closePanel: useStable(() => { const back = backTo.current; backTo.current = null; setPanel(back); if (!back) focusBox(); }),
+    settings: useStable(() => { closeSide(false); setPanel((p) => (p === "settings" ? null : "settings")); }),
+    closeSettings: useStable(() => { setPanel(null); focusBox(); }),
+    sheet: useStable((name) => { backTo.current = "settings"; setPanel(name); }),
+    mode: useStable((m) => setMode(m)),
+    think: useStable(() => api("/api/thinking", { on: !state.thinking }).catch(fail)),
+    find: useStable(() => { setFinding(true); requestAnimationFrame(() => { const el = document.querySelector(".find-bar input"); el?.focus(); el?.select(); }); }),
     closeFind: useStable(() => { setFinding(false); focusBox(); }),
     pick: useStable((s) => send(s)),
     rewind: useStable(rewind),
@@ -2215,13 +2336,12 @@ export default function App() {
     gpu: useStable(() => setGpuOpen(true)),
     notify: useStable(toggleNotify),
     close: useStable(() => closeSide(true)),
-    new: useStable(newChat),
+    new: useStable(() => { setPanel((x) => (x === "settings" ? null : x)); newChat(); }),
     place: useStable(place),
-    open: useStable(open),
+    open: useStable((path) => { setPanel((x) => (x === "settings" ? null : x)); return open(path); }),
     remove: useStable(remove),
     rename: useStable(rename),
     leaveSearch: useStable(() => { if (isNarrow()) closeSide(true); else focusBox(); }),
-    sideGpu: useStable(() => { closeSide(false); setGpuOpen(true); }),
   };
   const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
   const dropProps = {
@@ -2236,28 +2356,45 @@ export default function App() {
       attachRef.current?.(e.dataTransfer.files);
     },
   };
+  // the settings page, also under a sheet opened from it
+  const settingsOn = panel === "settings" || (!!panel && backTo.current === "settings");
   return (
     <div className="app" data-side={side ? "open" : undefined}>
-      <Sidebar state={sideState} notify={notify} onNotify={on.notify} closeRef={closeRef} searchRef={searchRef} onClose={on.close} onNew={on.new} onOpen={on.open}
-        onDelete={on.remove} onRename={on.rename} onLeaveSearch={on.leaveSearch} onGpu={on.sideGpu} shellU={shellU} onVersion={on.version} />
+      <Sidebar state={sideState} closeRef={closeRef} searchRef={searchRef} onClose={on.close} onNew={on.new} onOpen={on.open}
+        onDelete={on.remove} onRename={on.rename} onLeaveSearch={on.leaveSearch} shellU={shellU} settings={settingsOn} onSettings={on.settings} />
       <div className="scrim" onClick={() => closeSide(true)} aria-hidden="true" />
       <main className="main" {...dropProps}>
+        {/* the top bar (docs/brand.md 뼈대): 55 + its rule, outline buttons for
+            what this conversation has, find at the far end */}
         <header className="main-head">
           <button ref={menuRef} type="button" className="icon-btn menu-btn" aria-label="대화 목록 열기" aria-controls="side"
             aria-expanded={side} onClick={openSide}><Icon name="menu" /></button>
-          <h1 className="main-title">{state.title || "새 대화"}</h1>
-          {/* where this one works (the list holds every folder's) */}
-          {(state.info.chat || state.info.folder) && (
-            <span className={`head-place${state.info.chat ? " chat" : ""}`} title={state.info.chat ? "일반 대화: 폴더 없이 이야기만 해요" : state.info.cwd}>
-              <Icon name={state.info.chat ? "chat" : "folder"} /><span>{state.info.chat ? "일반 대화" : state.info.folder}</span>
-            </span>
+          <h1 className="main-title">{settingsOn ? "설정" : state.title || "새 대화"}</h1>
+          {/* where this one works (the list holds every folder's): pressed, the settings */}
+          {!settingsOn && (state.info.chat || state.info.folder) && (
+            <button type="button" className={`head-btn head-place${state.info.chat ? " chat" : ""}`} onClick={on.settings}
+              title={`${state.info.chat ? "일반 대화: 폴더 없이 이야기만 해요" : state.info.cwd}${state.git && !state.info.chat ? `\ngit 브랜치 ${state.git.branch}${state.git.changed ? `, 바뀌었거나 새로 생긴 파일 ${state.git.changed}개` : ", 바뀐 파일 없음"}${state.git.ahead ? `, 올리지 않은 커밋 ${state.git.ahead}개` : ""}${state.git.behind ? `, 받지 않은 커밋 ${state.git.behind}개` : ""}` : ""}\n누르면 설정을 열어요`}>
+              <span className="hp-ico"><Icon name={state.info.chat ? "chat" : "folder"} /></span>
+              <span className="hp-name">{state.info.chat ? "일반 대화" : state.info.folder}</span>
+              {state.git && !state.info.chat && (
+                <span className="git-row mono">{state.git.branch}
+                  {state.git.changed > 0 && <span className="git-changed"><span className="sr"> · 바뀐 파일</span> ±{state.git.changed}</span>}
+                  {state.git.ahead > 0 && <span className="git-ahead"> ↑{state.git.ahead}</span>}
+                  {state.git.behind > 0 && <span className="git-ahead"> ↓{state.git.behind}</span>}
+                </span>
+              )}
+            </button>
           )}
-          {changed > 0 && (
-            <button type="button" className="head-changes" onClick={() => setPanel("changes")} title="이 대화가 바꾼 파일 보기·되돌리기 (/changes)" aria-label={`이 대화가 바꾼 파일 ${changed}개 보기`}>
+          {!settingsOn && changed > 0 && (
+            <button type="button" className="head-btn head-changes" onClick={() => setPanel("changes")} title="이 대화가 바꾼 파일 보기·되돌리기 (/changes)" aria-label={`이 대화가 바꾼 파일 ${changed}개 보기`}>
               <Icon name="file" /><span><span className="hc-word">바꾼 파일 </span>{changed}</span>
             </button>
           )}
-          <div className="head-narrow"><Gpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} compact onOpen={() => setGpuOpen(true)} /></div>
+          <span className="head-gap" />
+          <HeadGpu gpu={state.gpu} fake={state.fake} gpuFake={state.gpuFake} job={state.gpuJob} onOpen={() => setGpuOpen(true)} />
+          {settingsOn
+            ? <button type="button" className="head-btn head-icon" aria-label="설정 닫기" title="설정 닫기 (Esc)" onClick={on.closeSettings}><Icon name="close" /></button>
+            : <button type="button" className="head-btn head-icon" aria-label="이 대화에서 찾기" title="이 대화에서 찾기 (Ctrl+F)" onClick={on.find}><Icon name="search" /></button>}
         </header>
         {offline && <div className="lost" role="alert">{lostLong ? "RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요." : "RobinCode 서버와 다시 연결하는 중이에요."}</div>}
         {soon != null && (
@@ -2274,12 +2411,14 @@ export default function App() {
           setDraft={setDraft} pastRef={pastRef} attachRef={attachRef} picturesRef={picturesRef} addPicturesRef={addPicturesRef} commands={commands}
           onSend={send} onStop={stop} onError={say} onCommand={on.command} onShell={on.shell} onMode={cycleMode} onUnqueueLast={on.unqueueLast}
           notice={toast && <Toast key={toast.id} toast={toast} onDone={dropToast} onHold={holdToast} />} />
+        {settingsOn && <Settings state={state} notify={notify} shellU={shellU} onNotify={on.notify} onMode={on.mode} onThink={on.think}
+          onGpu={() => setGpuOpen(true)} onPanel={on.sheet} onClose={on.closeSettings} />}
         {panel === "memory" && <MemoryPanel onClose={on.closePanel} onError={on.say} />}
         {panel === "help" && <HelpPanel commands={commands} onClose={on.closePanel} />}
         {panel === "rules" && <RulesPanel onClose={on.closePanel} onError={on.say} />}
         {panel === "version" && <VersionPanel version={state.version} shellU={shellU} running={state.running} onClose={on.closePanel} onError={on.say} />}
         {panel === "changes" && <ChangesPanel busy={state.busy} conv={state.sessionFile || null} onClose={on.closePanel} onError={on.say} />}
-        {gpuOpen &&<GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); focusBox(); }} />}
+        {gpuOpen &&<GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); if (panel !== "settings") focusBox(); }} />}
         {drag && (
           <div className="drop" aria-hidden="true">
             <p><Icon name="image" />여기에 놓으면 그림을 붙여요 <span className="drop-note">{PICTURE_TYPES.map((t) => t.slice(6).toUpperCase()).join("·")} · 4장까지</span></p>

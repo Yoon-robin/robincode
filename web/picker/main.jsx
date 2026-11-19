@@ -57,9 +57,9 @@ function RowIcon({ row, on }) {
 // conversation window's sidebar
 function Brand({ sub }) {
   return (
-    <p className="flex items-center gap-2.5 text-[15px] font-bold tracking-[-0.01em] text-head">
-      <span className="grid size-[26px] place-items-center rounded-[7px] bg-[#11131b] shadow-[inset_0_0_0_1px_#2e3040]" aria-hidden="true">
-        <svg viewBox="0 0 24 24" className="size-[15px] fill-none stroke-white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5" /></svg>
+    <p className="flex items-center gap-[11px] text-[14px] font-bold text-head">
+      <span className="grid size-[35px] place-items-center rounded-[7px] bg-[#11131b] shadow-[inset_0_0_0_1px_#2e3040]" aria-hidden="true">
+        <svg viewBox="0 0 24 24" className="size-[18px] fill-none stroke-white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5" /></svg>
       </span>
       RobinCode
       {sub && <span className="ml-1 text-[13px] font-normal text-faint">{sub}</span>}
@@ -81,7 +81,7 @@ function Row({ row, on }) {
           <span className="flex min-w-0 items-center gap-2">
             <span className={cn("truncate text-[15px] font-semibold", missing ? "text-amber" : on ? "text-white" : "text-text")}>{title}</span>
             {row.branch && (
-              <span className="inline-flex max-w-40 shrink-0 items-center gap-1 rounded-[7px] border border-line-weak px-1.5 font-mono text-[11px] leading-[18px] text-soft">
+              <span className="inline-flex max-w-40 shrink-0 items-center gap-1 rounded-[6px] border border-line px-1.5 font-mono text-[11px] leading-[18px] text-soft">
                 <GitBranch className="size-3 shrink-0" strokeWidth={1.6} />
                 <span className="truncate">{row.branch}</span>
               </span>
@@ -272,7 +272,7 @@ function Picker() {
               <h1 className="mt-4 text-[27px] leading-tight font-bold tracking-[-0.02em] text-white">어디서 열까요?</h1>
             </header>
 
-            <div className="mx-7 mt-5 flex h-[52px] items-center gap-3 rounded-[12px] border border-line bg-card pr-2.5 pl-4 transition-colors focus-within:border-accent/60">
+            <div className="mx-7 mt-5 flex h-[52px] items-center gap-3 rounded-[16px] border border-line bg-raise pr-2.5 pl-4 transition-colors focus-within:border-accent/60">
               <Search className="size-4 shrink-0 text-soft" strokeWidth={1.8} />
               <CommandInput
                 ref={input}

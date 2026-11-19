@@ -25,14 +25,14 @@ const { dirname, join } = require("node:path");
 // colour, see-through) with the mark and a turning ring, as the app
 const LOADING = `<!doctype html><meta charset="utf-8"><title>RobinCode</title>
 <style>
-  html,body{margin:0;height:100%;background:rgb(26 28 40 / 62%);color:#d9dbe2;font:400 15px/1.6 "Pretendard Variable",Pretendard,"Segoe UI","Malgun Gothic",sans-serif}
+  html,body{margin:0;height:100%;background:rgb(34 37 51 / 62%);color:#d9dbe2;font:400 15px/1.6 "Pretendard Variable",Pretendard,"Segoe UI","Malgun Gothic",sans-serif}
   body{display:grid;place-items:center}
-  .box{display:flex;align-items:center;gap:12px}
-  .m{display:grid;place-items:center;width:40px;height:40px;border-radius:10px;background:#11131b}
-  .m svg{width:20px;height:20px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
-  .n{font-weight:700;font-size:17px;color:#fff}
-  .t{display:flex;align-items:center;gap:8px;font-size:13px;color:#9497ab}
-  .r{width:11px;height:11px;border:1.5px solid rgb(78 131 255 / 25%);border-top-color:#4e83ff;border-radius:50%;animation:s .8s linear infinite}
+  .box{display:flex;align-items:center;gap:11px}
+  .m{display:grid;place-items:center;width:35px;height:35px;border-radius:7px;background:#11131b;box-shadow:inset 0 0 0 1px #2e3040}
+  .m svg{width:18px;height:18px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+  .n{font-weight:700;font-size:14px;color:#fff}
+  .t{display:flex;align-items:center;gap:8px;font-size:13px;color:#a3a3a8}
+  .r{width:11px;height:11px;border:1.5px solid rgb(79 125 255 / 25%);border-top-color:#4f7dff;border-radius:50%;animation:s .8s linear infinite}
   @keyframes s{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){.r{animation:none}}
 </style>

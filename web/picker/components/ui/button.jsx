@@ -8,7 +8,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-accent-fill text-white font-semibold hover:bg-[#2f5cd6]",
+        default: "bg-accent-fill text-white font-semibold hover:bg-accent-hover",
         outline: "border border-line bg-transparent text-text hover:border-white/40 hover:bg-white/[0.03]",
         ghost: "text-soft hover:bg-white/[0.06] hover:text-head",
       },

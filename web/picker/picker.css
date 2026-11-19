@@ -1,7 +1,7 @@
 /* The folder window: Tailwind v4 with the RobinX V3 tokens (docs/brand.md,
-   the same values as the RobinCode window's web/src/styles.css): navy
-   charcoal, one blue for the chosen row, amber only for "not there", 8px
-   boxes, Pretendard (Robin Term for paths). Korean Pretendard comes from the server (/fonts/pretendard/,
+   the same values as the RobinCode window's web/src/styles.css, V3.1): navy
+   charcoal, one blue for the chosen row, amber only for "not there", rows
+   r7, the search box r16, Pretendard (Robin Term for paths). Korean Pretendard comes from the server (/fonts/pretendard/,
    RobinMail's subset files), Latin and Robin Term from the build. */
 @import "tailwindcss" source("./");
 
@@ -12,18 +12,20 @@
   --color-page: #15161f;
   --color-card: #15161f;
   --color-hover: #2a2d3e;
-  --color-press: #33364a;
+  --color-press: #33374a;
   --color-text: #d9dbe2;
   --color-head: #ffffff;
-  --color-soft: #9497ab;
-  --color-faint: #868aa0;
-  --color-dim: #868aa0;
-  --color-line: #2e3040;
-  --color-line-weak: #25262f;
-  --color-accent: #4e83ff;
+  --color-soft: #a3a3a8;
+  --color-faint: #8b8fa5;
+  --color-dim: #8b8fa5;
+  --color-line: #23242f;  /* --line-strong: around controls */
+  --color-line-weak: #1c1e28;  /* --line */
+  --color-accent: #4f7dff;
   --color-accent-fill: #3566e8;
+  --color-accent-hover: #2f5cd6;
+  --color-raise: #1d1d2b;
   --color-amber: #f5b942;
-  --radius-box: 10px;
+  --radius-box: 7px;  /* a row (--radius-row) */
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
   --font-mono: "Robin Term", "Cascadia Code", "Cascadia Mono", Consolas, "Pretendard Variable", "Malgun Gothic", monospace;
   --animate-blink: blink 1s steps(1) infinite;
@@ -42,5 +44,5 @@
     user-select: none;
     color-scheme: dark;
   }
-  ::selection { background: rgb(78 131 255 / 32%); }
+  ::selection { background: rgb(79 125 255 / 32%); }
 }
