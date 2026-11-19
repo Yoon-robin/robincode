@@ -1,36 +1,45 @@
 /* RobinCode window. RobinX brand V3 (docs/brand.md, 2026-11-19: robin
-   "Neverlose V3 스타일로 재디자인해"): a navy-charcoal ground, rounded cards,
-   one blue for what is on or chosen, a row's label left and its control
-   right. The frame stays RobinAI's: a sidebar on the left, the conversation
-   right. Tokens: docs/brand/robinx-v3-tokens.css. */
+   "Neverlose V3 스타일로 재디자인해"), then matched to the official
+   2026-11-14 Neverlose footage (docs/design/neverlose-reference/, robin's
+   pixel-fidelity brief): the sidebar lighter than the content, the content a
+   darker panel with rounded left corners laid over it, cards the content's
+   own colour told apart by a hairline, toggles 29x18 sunk into the card, one
+   blue. The frame stays RobinAI's: a sidebar on the left, the conversation
+   right. */
 @font-face { font-family: "Robin Term"; src: url("/fonts/robin-term.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
 @font-face { font-family: "Pretendard"; src: url("/fonts/pretendard-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 :root {
-  --side: #0a0c10;
-  --page: #0d0f14;
-  --card: #151821;
-  --raise: #1b1f2a;
-  --press: #222736;
-  --head: #eceef4;
-  --text: #c8ccd6;
-  --soft: #8b91a1;
-  --faint: #7f8597; /* 4.5:1 on a card */
-  --line: rgb(255 255 255 / 7%);
-  --line-win: rgb(255 255 255 / 12%); /* controls and menus */
-  --line-weak: rgb(255 255 255 / 5%);
-  --accent: #6c84ff;
-  --accent-fill: #4f68e8; /* white text on it: 4.7:1 */
-  --accent-soft: rgb(108 132 255 / 14%);
+  /* measured off the official footage (frames 5.5s and 15.2s, see
+     docs/design/neverlose-reference/REFERENCE_MANIFEST.md) */
+  --side: #222533;   /* sidebar, lighter than the content */
+  --page: #15161f;   /* the content panel */
+  --card: #15161f;   /* cards are the content's colour, told apart by --line */
+  --raise: #1d1e2b;  /* a control: select, value pill, button */
+  --press: #33364a;  /* the chosen row */
+  --hover: #2a2d3e;  /* a row pointed at, on the sidebar */
+  --sunk: #0a0b10;   /* an off toggle's track, sunk into the card */
+  --head: #ffffff;
+  --text: #d9dbe2;
+  --soft: #9497ab;
+  --faint: #868aa0; /* 4.9:1 on the content */
+  --line: #25262f;
+  --line-win: #2e3040; /* controls and menus */
+  --line-weak: #1e1f28;
+  --accent: #4e83ff;  /* the footage's toggles and icons; 5.0:1 on the content */
+  --accent-fill: #3566e8; /* white text on it: 5.0:1 (the footage's #4176fe is 4.0:1) */
+  --accent-soft: rgb(78 131 255 / 16%);
   --amber: #f5b942;
   --red: #f26b6e;
   --green: #5fd08a; /* a diff's added lines only */
-  /* the inset dark of code and command output (it was the window's) */
-  --win: var(--side);
-  --radius: 8px;
-  --radius-sm: 6px;
-  --radius-pop: 12px;
-  --radius-win: 14px;
+  /* the inset dark of code and command output, below the content panel
+     (not --side: on the glass window that one is see-through) */
+  --inset: #101119;
+  --win: var(--inset);
+  --radius: 6px;      /* a navigation row */
+  --radius-sm: 5px;   /* a control */
+  --radius-pop: 13px; /* a settings card */
+  --radius-win: 14px; /* the shell, a popover */
   --shadow: 0 10px 30px rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 30%);
   --sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
   --mono: "Robin Term", "Cascadia Code", "Cascadia Mono", Consolas, D2Coding, "Malgun Gothic", monospace;
@@ -52,11 +61,11 @@ body {
   /* Korean breaks between words, not inside one ("써져/요") */
   word-break: keep-all;
 }
-::selection { background: rgb(108 132 255 / 32%); }
+::selection { background: rgb(78 131 255 / 32%); }
 button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; }
-a { color: var(--accent); text-underline-offset: 3px; text-decoration-color: rgb(108 132 255 / 45%); }
+a { color: var(--accent); text-underline-offset: 3px; text-decoration-color: rgb(78 131 255 / 45%); }
 a:hover { text-decoration-color: currentColor; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .mono { font-family: var(--mono); }
@@ -69,7 +78,7 @@ a:hover { text-decoration-color: currentColor; }
   height: 0.8em;
   margin-left: 0.4em;
   vertical-align: -0.08em;
-  border: 1.5px solid rgb(108 132 255 / 25%);
+  border: 1.5px solid rgb(78 131 255 / 25%);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -106,18 +115,19 @@ a:hover { text-decoration-color: currentColor; }
   letter-spacing: 0.06em;
 }
 
-/* ---- RobinCode's mark: a blue square, code brackets in white ---- */
-.app-mark { display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 7px; background: var(--accent-fill); }
+/* ---- RobinCode's mark: a dark tile, code brackets in white (the footage's
+   logo tile and avatar are near-black; blue is kept for what is on) ---- */
+.app-mark { display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 7px; background: #11131b; }
 .app-mark svg { width: 15px; height: 15px; fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .app-mark.big { width: 52px; height: 52px; border-radius: 14px; }
 .app-mark.big svg { width: 28px; height: 28px; stroke-width: 2.2; }
 
 /* ---- a switch (Neverlose's toggles): off grey, on blue ---- */
 .toggle { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: var(--text); }
-.switch { position: relative; flex: none; width: 28px; height: 16px; border-radius: 8px; background: var(--press); box-shadow: inset 0 0 0 1px var(--line-win); transition: background-color 0.15s, box-shadow 0.15s; }
-.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 10px; height: 10px; border-radius: 50%; background: var(--soft); transition: transform 0.15s var(--ease), background-color 0.15s; }
-.toggle.on .switch, .toggle[aria-pressed="true"] .switch { background: var(--accent-fill); box-shadow: none; }
-.toggle.on .switch::after, .toggle[aria-pressed="true"] .switch::after { background: #fff; transform: translateX(12px); }
+.switch { position: relative; flex: none; width: 29px; height: 18px; border-radius: 9px; background: var(--sunk); transition: background-color 0.15s; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #76828d; transition: transform 0.15s var(--ease), background-color 0.15s; }
+.toggle.on .switch, .toggle[aria-pressed="true"] .switch { background: var(--accent); }
+.toggle.on .switch::after, .toggle[aria-pressed="true"] .switch::after { background: #fff; transform: translateX(11px); }
 .toggle:disabled { cursor: default; opacity: 0.6; }
 .toggle-word { font-size: 12px; color: var(--amber); }
 
@@ -143,7 +153,7 @@ a:hover { text-decoration-color: currentColor; }
 .btn:disabled { opacity: 0.4; }
 .btn:disabled:hover { background: var(--raise); }
 .btn-primary { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; font-weight: 600; }
-.btn-primary:hover { background: #4460e0; border-color: #4460e0; color: #fff; }
+.btn-primary:hover { background: #2f5cd6; border-color: #2f5cd6; color: #fff; }
 .btn-primary:disabled, .btn-primary:disabled:hover { background: var(--press); border-color: var(--line-win); color: var(--soft); }
 .btn-small { min-height: 30px; padding: 0 10px; font-size: 13px; border-radius: var(--radius-sm); }
 .icon-btn {
@@ -253,8 +263,26 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .ctx.bad .ctx-value { color: var(--red); }
 
 /* ---- app frame ---- */
-.app { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); height: 100%; }
-.main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+/* RobinCode.exe's window is acrylic (desktop/main.cjs, preload.cjs): the
+   sidebar lets the blurred desktop through as the footage's does, the
+   conversation stays a nearly solid dark panel laid over it */
+html.glass, html.glass body { background: transparent; }
+html.glass { --side: rgb(26 28 40 / 62%); --hover: rgb(255 255 255 / 7%); }
+html.glass .app { background: var(--side); }
+html.glass .side { background: none; }
+/* on the glass the sidebar's controls and its settings card are see-through
+   too: a darker tint, not a solid block */
+html.glass .side .btn, html.glass .conv-search { border-color: rgb(255 255 255 / 8%); background: rgb(8 9 14 / 28%); }
+html.glass .side .btn:hover { background: rgb(255 255 255 / 8%); }
+html.glass .side-card { border-color: rgb(255 255 255 / 8%); background: rgb(8 9 14 / 34%); }
+html.glass .side-card .btn { background: rgb(255 255 255 / 6%); }
+html.glass .main { background: rgb(21 22 31 / 96%); }
+html.glass .conv { --conv-bg: #2a2d3e; }
+html.glass .conv[aria-current="true"] { --conv-bg: var(--press); }
+html.glass .conv:hover, html.glass .conv:focus-within { --conv-bg: #2a2d3e; background: rgb(255 255 255 / 7%); }
+html.glass .conv[aria-current="true"] { background: rgb(255 255 255 / 11%); }
+.app { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); height: 100%; background: var(--side); }
+.main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; border-radius: var(--radius-win) 0 0 var(--radius-win); background: var(--page); box-shadow: -1px 0 0 var(--line), -8px 0 24px rgb(0 0 0 / 22%); }
 .lost { margin: 10px 20px 0; padding: 9px 12px; border: 1px solid rgb(242 107 110 / 40%); border-radius: var(--radius); background: rgb(242 107 110 / 7%); color: var(--red); font-size: 14px; }
 
 /* ---- conversation ---- */
@@ -409,7 +437,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   transition: background-color 0.15s, border-color 0.15s, transform 0.12s var(--ease);
 }
 .place-btn:hover, .place-btn[aria-expanded="true"] { background: var(--press); }
-.place-btn[aria-expanded="true"] { border-color: rgb(108 132 255 / 50%); }
+.place-btn[aria-expanded="true"] { border-color: rgb(78 131 255 / 50%); }
 .place-btn:disabled { color: var(--soft); }
 .place-btn .ico { flex: none; width: 15px; height: 15px; color: var(--soft); }
 .place-name { flex: none; font-weight: 600; }
@@ -479,7 +507,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .md table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .md th, .md td { padding: 8px 12px; border-bottom: 1px solid var(--line-weak); text-align: left; vertical-align: top; }
 .md th { color: var(--head); font-weight: 600; background: var(--card); }
-.md .table-wrap { background: var(--side); }
+.md .table-wrap { background: var(--inset); }
 .md tr:last-child td { border-bottom: 0; }
 .md .img-alt { color: var(--soft); font-size: 13px; }
 /* the square cursor at the end of text that is still coming */
@@ -497,7 +525,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 }
 .md.streaming > .code:last-child::after, .md.streaming > .table-wrap:last-child::after { display: none; }
 
-.code { margin: 0 0 0.9em; border: 1px solid var(--line); border-radius: var(--radius-pop); background: var(--side); overflow: hidden; }
+.code { margin: 0 0 0.9em; border: 1px solid var(--line); border-radius: var(--radius-pop); background: var(--inset); overflow: hidden; }
 .code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); background: var(--card); }
 .code-lang { font: 400 12px/1 var(--mono); color: var(--soft); }
 .code pre { margin: 0; padding: 12px 14px; overflow-x: auto; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 14%) transparent; }
@@ -574,7 +602,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--side);
+  background: var(--inset);
   font: 400 12.5px/1.55 var(--mono);
   color: var(--text);
   white-space: pre-wrap;
@@ -591,7 +619,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   padding: 7px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--side);
+  background: var(--inset);
   font: 400 12px/1.55 var(--mono);
   color: var(--soft);
   white-space: pre-wrap;
@@ -656,7 +684,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--side);
+  background: var(--inset);
   font: 400 12.5px/1.6 var(--mono);
   scrollbar-width: thin;
 }
@@ -684,8 +712,8 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .ask-risk svg { width: 14px; height: 14px; flex: none; }
 .ask-note { display: block; width: 100%; margin-top: 10px; padding: 7px 10px; border: 1px solid var(--line-win); border-radius: var(--radius); background: var(--raise); color: var(--head); font: inherit; font-size: 13px; outline: 0; }
 .ask-note::placeholder { color: var(--faint); }
-.ask-note:focus { border-color: rgb(108 132 255 / 55%); }
-.ask-note:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px rgb(108 132 255 / 40%); }
+.ask-note:focus { border-color: rgb(78 131 255 / 55%); }
+.ask-note:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px rgb(78 131 255 / 40%); }
 .ask.risky { border-color: rgb(242 107 110 / 50%); }
 .ask.risky .ask-title .ico, .ask.risky .ask-risk { color: var(--red); }
 .ask-cmd {
@@ -695,7 +723,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--side);
+  background: var(--inset);
   font: 400 13px/1.6 var(--mono);
   color: var(--head);
   white-space: pre-wrap;
@@ -752,7 +780,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
-.composer-box:focus-within { border-color: rgb(108 132 255 / 55%); box-shadow: 0 8px 24px rgb(0 0 0 / 30%), 0 0 0 3px rgb(108 132 255 / 12%); }
+.composer-box:focus-within { border-color: rgb(78 131 255 / 55%); box-shadow: 0 8px 24px rgb(0 0 0 / 30%), 0 0 0 3px rgb(78 131 255 / 12%); }
 .composer textarea {
   flex: 1;
   min-width: 0;
@@ -800,7 +828,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   color: var(--head);
   transition: background-color 0.15s;
 }
-.pic-x:hover { background: var(--side); }
+.pic-x:hover { background: var(--inset); }
 .pic-x .ico { width: 12px; height: 12px; }
 /* files and folders for @, over the composer */
 .mentions {
@@ -870,7 +898,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .mode.mode-edits { color: var(--head); }
 .mode.mode-auto { border-color: rgb(245 185 66 / 45%); color: var(--amber); }
 /* plan: only reads and writes a plan */
-.mode.mode-plan { border-color: rgb(108 132 255 / 50%); background: var(--accent-soft); color: var(--head); }
+.mode.mode-plan { border-color: rgb(78 131 255 / 50%); background: var(--accent-soft); color: var(--head); }
 .lamp.plan { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
 
 /* ---- the `/` list ---- */
@@ -896,7 +924,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 
 /* ---- what waits: when each goes in ---- */
 .queued-bubble { position: relative; padding-right: 38px; }
-.queued-bubble.held { border-color: rgb(108 132 255 / 45%); }
+.queued-bubble.held { border-color: rgb(78 131 255 / 45%); }
 .queued-when { display: block; margin-bottom: 3px; font-size: 11px; color: var(--faint); }
 .queued-bubble.steer .queued-when { color: var(--text); }
 .queued-pics { color: var(--faint); }
@@ -931,7 +959,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 
 /* ---- plan mode: go ahead with the plan ---- */
 .act.act-go { margin-left: 0; background: var(--accent-fill); color: #fff; }
-.act.act-go:hover { background: #4460e0; color: #fff; }
+.act.act-go:hover { background: #2f5cd6; color: #fff; }
 
 /* ---- Ctrl+F ---- */
 .find-bar {
@@ -944,7 +972,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .find-bar input { flex: 1; min-width: 0; padding: 6px 4px; border: 0; outline: 0; background: transparent; color: var(--head); font: inherit; font-size: 13.5px; }
 .find-count { flex: none; min-width: 42px; font-size: 11.5px; color: var(--soft); font-variant-numeric: tabular-nums; text-align: right; margin-right: 4px; }
 .find-bar .icon-btn { width: 28px; height: 28px; }
-::highlight(find) { background-color: rgb(108 132 255 / 30%); color: inherit; }
+::highlight(find) { background-color: rgb(78 131 255 / 30%); color: inherit; }
 ::highlight(find-now) { background-color: var(--accent); color: #fff; }
 
 /* ---- /memory, /help ---- */
@@ -963,7 +991,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .chg-add { font-family: var(--mono); color: var(--green); }
 .chg-del { font-family: var(--mono); color: var(--faint); }
 .chg-files { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.chg-file { border: 1px solid var(--line); border-radius: var(--radius); background: var(--side); overflow: hidden; }
+.chg-file { border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); overflow: hidden; }
 .chg-file.reverted { opacity: 0.7; }
 .chg-head { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 4px; }
 .chg-file:has(.chg-diff) .chg-head { border-bottom: 1px solid var(--line); }
@@ -998,14 +1026,14 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .head-place .ico { flex: none; width: 13px; height: 13px; }
 .head-changes .ico { width: 13px; height: 13px; color: var(--soft); }
 .mem-files { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-.mem-file { border: 1px solid var(--line); border-radius: var(--radius); background: var(--side); overflow: hidden; }
+.mem-file { border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); overflow: hidden; }
 .mem-head { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line); background: var(--raise); font-size: 12.5px; }
 .mem-path { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--head); }
 .mem-text { max-height: 220px; margin: 0; padding: 8px 12px; overflow: auto; font: 400 12px/1.55 var(--mono); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
 .mem-add { display: grid; gap: 6px; }
 .mem-add-row { display: flex; gap: 8px; }
 .mem-add-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line-win); border-radius: var(--radius); background: var(--raise); color: var(--head); font: inherit; font-size: 13.5px; outline: 0; }
-.mem-add-row input:focus { border-color: rgb(108 132 255 / 55%); }
+.mem-add-row input:focus { border-color: rgb(78 131 255 / 55%); }
 .rule-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .rule { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raise); font-size: 13px; }
 .rule-kind { flex: none; width: 44px; font-size: 12px; color: var(--faint); }
@@ -1021,10 +1049,12 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .git-ahead { color: var(--soft); }
 
 /* ---- sidebar, as RobinAI ---- */
-.side { display: flex; flex-direction: column; min-height: 0; padding: 14px 12px 12px; border-right: 1px solid var(--line); background: var(--side); }
+.side { display: flex; flex-direction: column; min-height: 0; padding: 14px 12px 12px; background: var(--side); }
 .side-head { display: flex; align-items: center; justify-content: space-between; min-height: 40px; padding: 0 2px 0 8px; margin-bottom: 10px; }
 .side-close { display: none; }
-.brand { display: inline-flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: var(--head); }
+.brand { display: inline-flex; align-items: center; gap: 12px; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--head); }
+.brand .app-mark { width: 40px; height: 40px; border-radius: 10px; }
+.brand .app-mark svg { width: 20px; height: 20px; }
 .new-chat { width: 100%; justify-content: flex-start; padding: 0 12px; }
 .new-chat .ico { width: 16px; height: 16px; color: var(--accent); }
 .new-chat .search-key { margin: 0 0 0 auto; }
@@ -1039,13 +1069,13 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   height: 36px;
   margin-top: 8px;
   padding: 0 4px 0 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-win);
   border-radius: var(--radius);
-  background: var(--card);
+  background: var(--raise);
   color: var(--soft);
   transition: border-color 0.15s;
 }
-.conv-search:focus-within { border-color: rgb(108 132 255 / 55%); }
+.conv-search:focus-within { border-color: rgb(78 131 255 / 60%); }
 .conv-search > .ico { flex: none; width: 15px; height: 15px; }
 .conv-search input { flex: 1; min-width: 0; padding: 0; border: 0; outline: 0; background: none; color: var(--head); font-size: 14px; }
 .conv-search input::placeholder { color: var(--faint); }
@@ -1056,19 +1086,19 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .conv mark { background: none; color: var(--accent); font-weight: 700; }
 .conv-day + .conv-day { margin-top: 14px; }
 .conv {
-  --conv-bg: var(--card);
+  --conv-bg: var(--side);
   position: relative;
   display: flex;
   align-items: center;
   /* the height of a title and a time line, so the rename field (one line)
      does not make the list below jump */
   min-height: calc(16px + (14px + 12px) * 1.65);
-  border-radius: var(--radius);
+  border-radius: 10px;
   transition: background-color 0.15s;
 }
-.conv:hover, .conv:focus-within { background: var(--card); }
+.conv:hover, .conv:focus-within { --conv-bg: var(--hover); background: var(--hover); }
 .conv[aria-current="true"] { --conv-bg: var(--press); background: var(--press); }
-.conv-open { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; padding: 8px 10px; border: 0; border-radius: var(--radius); background: none; text-align: left; }
+.conv-open { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; padding: 8px 10px; border: 0; border-radius: 10px; background: none; text-align: left; }
 .conv-open > .ico { width: 16px; height: 16px; margin-top: 3px; color: var(--faint); transition: color 0.15s; }
 .conv-text { flex: 1; min-width: 0; }
 .conv:hover .conv-open > .ico { color: var(--soft); }
@@ -1080,7 +1110,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   display: flex;
   align-items: center;
   padding: 0 4px 0 22px;
-  border-radius: 0 var(--radius) var(--radius) 0;
+  border-radius: 0 10px 10px 0;
   background: linear-gradient(to right, transparent, var(--conv-bg) 18px);
   opacity: 0;
   transition: opacity 0.15s;
@@ -1094,7 +1124,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   min-width: 0;
   margin: 5px 4px;
   padding: 6px 8px;
-  border: 1px solid rgb(108 132 255 / 55%);
+  border: 1px solid rgb(78 131 255 / 60%);
   border-radius: var(--radius);
   outline: 0;
   background: var(--raise);
@@ -1122,7 +1152,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .conv-place.chat { font-family: var(--sans); font-size: 12px; color: var(--soft); }
 .conv-place + ::before { content: "·"; margin: 0 0.4em; color: var(--faint); }
 .side-foot { display: grid; gap: 8px; padding-top: 12px; }
-.side-card { display: grid; gap: 2px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius-pop); background: var(--card); }
+.side-card { display: grid; gap: 2px; padding: 4px 12px; border: 1px solid var(--line); border-radius: var(--radius-pop); background: var(--page); }
 /* label left, what it is right (2026-11-19: the labels over each value made a
    tall, loose stack) */
 .side-row { display: grid; grid-template-columns: 48px minmax(0, 1fr); column-gap: 8px; align-items: start; min-width: 0; padding: 4px 0; }
@@ -1139,18 +1169,21 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pop);
-  background: var(--card);
+  width: calc(100% + 8px);
+  margin: 4px -4px 0;
+  padding: 10px 8px 6px;
+  border: 0;
+  border-top: 1px solid #2f3241;
+  border-radius: 0;
+  background: none;
   color: inherit;
   font: inherit;
   text-align: left;
   transition: background-color 0.15s, transform 0.12s var(--ease);
 }
-.ver-row:hover { background: var(--press); }
-.ver-row .app-mark { width: 32px; height: 32px; border-radius: 8px; }
+.ver-row:hover { background: none; }
+.ver-row:hover .ver-name { color: var(--accent); }
+.ver-row .app-mark { width: 36px; height: 36px; border-radius: 50%; }
 .ver-line { display: grid; flex: 1; min-width: 0; line-height: 1.35; }
 .ver-name { font-size: 13.5px; font-weight: 600; color: var(--head); }
 .ver-when { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--soft); font-variant-numeric: tabular-nums; }
@@ -1208,7 +1241,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   z-index: 30;
   display: grid;
   place-items: center;
-  border: 1.5px dashed rgb(108 132 255 / 60%);
+  border: 1.5px dashed rgb(78 131 255 / 60%);
   border-radius: var(--radius-win);
   background: rgb(13 15 20 / 86%);
   pointer-events: none;
@@ -1262,6 +1295,13 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 }
 @media (hover: none) {
   .conv-acts, .out-copy { opacity: 1; }
+}
+
+/* narrow: the sidebar slides over the conversation, so it is solid there, and
+   the conversation fills the window without its rounded panel edge */
+@media (max-width: 860px) {
+  .main { border-radius: 0; box-shadow: none; }
+  html.glass .side { background: #222533; }
 }
 
 /* ---- the folder row: the folder screen is a click away ---- */
@@ -1334,7 +1374,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .btn-danger:hover { background: rgb(242 107 110 / 12%); color: var(--red); }
 .gpu-note { font-size: 12.5px; color: var(--soft); }
 .gpu-warn { font-size: 12.5px; color: var(--amber); }
-.gpu-job { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--side); }
+.gpu-job { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); }
 .gpu-job-head { font-weight: 600; color: var(--head); }
 .gpu-job.bad .gpu-job-head { color: var(--red); }
 .gpu-job-lines { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font: 400 12px/1.55 var(--mono); color: var(--soft); overflow-wrap: anywhere; }
@@ -1346,7 +1386,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .gpu-progress-when { font-size: 12px; color: var(--soft); font-variant-numeric: tabular-nums; }
 .gpu-segs { display: grid; gap: 4px; }
 .gpu-seg { position: relative; display: block; height: 5px; border-radius: 3px; background: var(--press); overflow: hidden; }
-.gpu-seg.done { background: rgb(108 132 255 / 55%); }
+.gpu-seg.done { background: rgb(78 131 255 / 55%); }
 .gpu-seg.now i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--accent); transition: width 0.6s var(--ease); }
 .gpu-steps { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 11.5px; line-height: 1.35; color: var(--faint); }
 .gpu-steps li { min-width: 0; overflow-wrap: anywhere; }
@@ -1374,7 +1414,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .ver-sub > * + *::before { content: "·"; margin: 0 0.5em; color: var(--faint); }
 .ver-sub .mono { font-size: 12px; color: var(--text); }
 .ver-state { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raise); }
-.ver-state.new { border-color: rgb(108 132 255 / 45%); background: var(--accent-soft); }
+.ver-state.new { border-color: rgb(78 131 255 / 45%); background: var(--accent-soft); }
 .ver-state.warn { border-color: rgb(245 185 66 / 32%); }
 .ver-state.bad { border-color: rgb(242 107 110 / 35%); }
 .ver-mark { flex: none; display: inline-flex; padding-top: 3px; }
@@ -1385,7 +1425,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .ver-sure { flex: 1 1 100%; font-size: 12.5px; color: var(--amber); text-align: right; }
 .ver-sec { display: grid; gap: 6px; }
 .ver-sec .side-label { margin: 0; }
-.ver-notes { display: grid; margin: 0; padding: 0 12px; list-style: none; border: 1px solid var(--line); border-radius: var(--radius); background: var(--side); }
+.ver-notes { display: grid; margin: 0; padding: 0 12px; list-style: none; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); }
 /* the lines come in one after another (a sheet opened now and then, not a
    frequent one) */
 .ver-notes li {
@@ -1406,7 +1446,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 
 /* a long path in an error line does not run out of the window */
 .line > span:last-child { min-width: 0; }
-.find-bar:focus-within { border-color: rgb(108 132 255 / 55%); }
+.find-bar:focus-within { border-color: rgb(78 131 255 / 55%); }
 
 .ask-whole { margin-top: 6px; }
 /* sent, the model being checked: the bubble as it will be, faint, and a note */

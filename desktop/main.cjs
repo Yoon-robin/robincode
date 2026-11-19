@@ -21,19 +21,22 @@ const { execFileSync, spawn } = require("node:child_process");
 const { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
 const { dirname, join } = require("node:path");
 
+// the first screen while the server starts: the window's glass (the sidebar's
+// colour, see-through) with the mark and a turning ring, as the app
 const LOADING = `<!doctype html><meta charset="utf-8"><title>RobinCode</title>
 <style>
-  html,body{margin:0;height:100%;background:#0d0f14;color:#c8ccd6;font:400 15px/1.6 "Pretendard Variable",Pretendard,"Segoe UI","Malgun Gothic",sans-serif}
+  html,body{margin:0;height:100%;background:rgb(26 28 40 / 62%);color:#d9dbe2;font:400 15px/1.6 "Pretendard Variable",Pretendard,"Segoe UI","Malgun Gothic",sans-serif}
   body{display:grid;place-items:center}
-  .box{display:grid;gap:10px;justify-items:start;min-width:260px}
-  .k{font:700 12px/1 "Cascadia Code",Consolas,monospace;letter-spacing:.14em;color:#9e9e9e}
-  .k b{color:#f2f2f2}
-  #t{font:400 14px/1.6 "Cascadia Code",Consolas,"Malgun Gothic",monospace;color:#cfcfcf}
-  .c{display:inline-block;width:.6em;height:1.1em;margin-left:4px;vertical-align:-2px;background:#f2f2f2;animation:b 1s steps(1) infinite}
-  @keyframes b{50%{opacity:0}}
-  @media (prefers-reduced-motion:reduce){.c{animation:none}}
+  .box{display:flex;align-items:center;gap:12px}
+  .m{display:grid;place-items:center;width:40px;height:40px;border-radius:10px;background:#11131b}
+  .m svg{width:20px;height:20px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+  .n{font-weight:700;font-size:17px;color:#fff}
+  .t{display:flex;align-items:center;gap:8px;font-size:13px;color:#9497ab}
+  .r{width:11px;height:11px;border:1.5px solid rgb(78 131 255 / 25%);border-top-color:#4e83ff;border-radius:50%;animation:s .8s linear infinite}
+  @keyframes s{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.r{animation:none}}
 </style>
-<div class="box"><div class="k"><b>&gt;</b> ROBINCODE</div><div><span id="t">켜는 중이에요</span><span class="c"></span></div></div>`;
+<div class="box"><span class="m"><svg viewBox="0 0 24 24"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/></svg></span><div><div class="n">RobinCode</div><div class="t"><span class="r"></span><span id="t">켜는 중이에요</span></div></div></div>`;
 
 module.exports = function start(dir) {
   const TEST = !!process.env.ROBINCODE_SHELL_TEST;
@@ -240,7 +243,14 @@ module.exports = function start(dir) {
       if (on && b.width >= 420 && b.height >= 480) bounds = { x: b.x, y: b.y, width: b.width, height: b.height };
     } catch { /* first time */ }
     win = new BrowserWindow({
-      ...bounds, minWidth: 420, minHeight: 480, show: false, title: "RobinCode", backgroundColor: "#0d0f14",
+      // Windows 11's acrylic: the window is blurred glass and the page
+      // paints over it (the sidebar see-through, the conversation a dark
+      // panel), as the Neverlose footage robin pointed at ("이거 투명블러
+      // 창이야"). The colour under it has to be clear for the glass to show;
+      // where Windows has no acrylic (10, transparency effects off) the
+      // see-through sidebar has nothing under it and shows darker.
+      ...bounds, minWidth: 420, minHeight: 480, show: false, title: "RobinCode",
+      backgroundColor: "#00000000", backgroundMaterial: "acrylic",
       icon: existsSync(join(dir, "robincode.ico")) ? join(dir, "robincode.ico") : join(dir, "..", "ops", "windows", "robincode.ico"), autoHideMenuBar: true,
       webPreferences: { contextIsolation: true, sandbox: true, spellcheck: false, preload: join(__dirname, "preload.cjs") },
     });

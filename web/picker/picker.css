@@ -9,21 +9,21 @@
 @font-face { font-family: "Pretendard"; src: url("../../../assets/pretendard-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 @theme {
-  --color-page: #0d0f14;
-  --color-card: #151821;
-  --color-hover: #1b1f2a;
-  --color-press: #222736;
-  --color-text: #c8ccd6;
-  --color-head: #eceef4;
-  --color-soft: #8b91a1;
-  --color-faint: #7f8597;
-  --color-dim: #7f8597;
-  --color-line: rgb(255 255 255 / 12%);
-  --color-line-weak: rgb(255 255 255 / 7%);
-  --color-accent: #6c84ff;
-  --color-accent-fill: #4f68e8;
+  --color-page: #15161f;
+  --color-card: #15161f;
+  --color-hover: #2a2d3e;
+  --color-press: #33364a;
+  --color-text: #d9dbe2;
+  --color-head: #ffffff;
+  --color-soft: #9497ab;
+  --color-faint: #868aa0;
+  --color-dim: #868aa0;
+  --color-line: #2e3040;
+  --color-line-weak: #25262f;
+  --color-accent: #4e83ff;
+  --color-accent-fill: #3566e8;
   --color-amber: #f5b942;
-  --radius-box: 8px;
+  --radius-box: 10px;
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
   --font-mono: "Robin Term", "Cascadia Code", "Cascadia Mono", Consolas, "Pretendard Variable", "Malgun Gothic", monospace;
   --animate-blink: blink 1s steps(1) infinite;
@@ -42,5 +42,5 @@
     user-select: none;
     color-scheme: dark;
   }
-  ::selection { background: rgb(108 132 255 / 32%); }
+  ::selection { background: rgb(78 131 255 / 32%); }
 }
