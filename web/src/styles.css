@@ -143,7 +143,7 @@ a:hover { text-decoration-color: currentColor; }
 .btn:disabled { opacity: 0.4; }
 .btn:disabled:hover { background: var(--raise); }
 .btn-primary { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; font-weight: 600; }
-.btn-primary:hover { background: #5d75f2; border-color: #5d75f2; color: #fff; }
+.btn-primary:hover { background: #4460e0; border-color: #4460e0; color: #fff; }
 .btn-primary:disabled, .btn-primary:disabled:hover { background: var(--press); border-color: var(--line-win); color: var(--soft); }
 .btn-small { min-height: 30px; padding: 0 10px; font-size: 13px; border-radius: var(--radius-sm); }
 .icon-btn {
@@ -931,7 +931,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 
 /* ---- plan mode: go ahead with the plan ---- */
 .act.act-go { margin-left: 0; background: var(--accent-fill); color: #fff; }
-.act.act-go:hover { background: #5d75f2; color: #fff; }
+.act.act-go:hover { background: #4460e0; color: #fff; }
 
 /* ---- Ctrl+F ---- */
 .find-bar {
