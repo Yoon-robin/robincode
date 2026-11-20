@@ -1,7 +1,9 @@
 /* The folder window: Tailwind v4 with the RobinX V3 tokens (docs/brand.md,
    the same values as the RobinCode window's web/src/styles.css, V3.2): nearly
-   black navy, one blue for the chosen row, amber only for "not there", rows
-   r7, the search box r16, Pretendard (Robin Term for paths). Korean Pretendard comes from the server (/fonts/pretendard/,
+   black navy, one blue for the chosen row, amber only for "not there",
+   Pretendard (Robin Term for paths). V3.4 (부품 더): the folders are a list
+   — rows r8 on --raise 4 apart, a 1px blue edge on the chosen one, a 4px
+   scrollbar — under a search field 34 r8; the buttons 32 r8. Korean Pretendard comes from the server (/fonts/pretendard/,
    RobinMail's subset files), Latin and Robin Term from the build. */
 @import "tailwindcss" source("./");
 
@@ -27,10 +29,10 @@
   --color-amber: #f5b942;
   --radius-box: 7px;  /* a row (--radius-row) */
   /* B-456: Pretendard one notch heavier (robin "Pretandard 볼드체") */
-  --font-weight-normal: 600;
-  --font-weight-medium: 650;
-  --font-weight-semibold: 700;
-  --font-weight-bold: 800;
+  --font-weight-normal: 500;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
   --font-mono: "Robin Term", "Cascadia Code", "Cascadia Mono", Consolas, "Pretendard Variable", "Malgun Gothic", monospace;
   --animate-blink: blink 1s steps(1) infinite;
@@ -50,4 +52,12 @@
     color-scheme: dark;
   }
   ::selection { background: rgb(79 125 255 / 32%); }
+  /* the list's scrollbar: 4 wide, r2, --line-strong, no track */
+  [cmdk-list] { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
+  @supports selector(::-webkit-scrollbar) {
+    [cmdk-list] { scrollbar-width: auto; scrollbar-color: auto; }
+    [cmdk-list]::-webkit-scrollbar { width: 4px; }
+    [cmdk-list]::-webkit-scrollbar-thumb { border-radius: 2px; background: var(--color-line); }
+    [cmdk-list]::-webkit-scrollbar-track { background: transparent; }
+  }
 }

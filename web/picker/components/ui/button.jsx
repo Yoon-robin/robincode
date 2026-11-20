@@ -1,21 +1,22 @@
-// shadcn/ui's Button, in the RobinX colors (white is the one light: the main
-// action; the rest are outlined or bare)
+// shadcn/ui's Button, in the RobinX colors and V3.4's shapes (docs/brand.md
+// 부품 더): the main action filled blue, the outline button on --raise, both
+// 32 r8 (pressed as 36: ::after); the rest bare
 import { cva } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-box text-[13px] font-medium transition-[color,background-color,border-color,opacity] duration-150 outline-none select-none focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-35 [&_svg]:size-4 [&_svg]:shrink-0",
+  "relative inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-[8px] text-[13px] font-[500] transition-[color,background-color,border-color,opacity] duration-150 outline-none select-none after:absolute after:inset-x-0 after:-inset-y-0.5 after:content-[''] focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-35 [&_svg]:size-3.5 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-accent-fill text-white font-semibold hover:bg-accent-hover",
-        outline: "border border-line bg-transparent text-text hover:border-white/40 hover:bg-white/[0.03]",
+        default: "bg-accent-fill text-white font-[600] hover:bg-accent-hover",
+        outline: "border border-line bg-raise text-text hover:bg-press hover:text-head",
         ghost: "text-soft hover:bg-white/[0.06] hover:text-head",
       },
       size: {
-        default: "h-9 px-3.5",
+        default: "h-8 px-3",
         sm: "h-8 px-3",
-        icon: "size-9",
+        icon: "size-8",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

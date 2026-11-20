@@ -31,6 +31,9 @@ function shortPath(path) {
 const offSoon = (gpu) => (gpu?.state === "on" && gpu.idle != null && gpu.idleLimit && gpu.idleLimit - gpu.idle <= 3
   ? Math.max(0, gpu.idleLimit - gpu.idle) : null);
 const lampOf = (state) => (state === "on" ? "on" : state === "starting" ? "warn" : state === "unknown" ? "idle" : "bad");
+// the GPU's state as a status chip: amber while it turns on (or is the fake
+// one), red only when the server cannot be asked; off is not an error
+const chipTone = (state, lamp) => (lamp === "warn" || lamp === "test" ? " warn" : state === "unreachable" ? " bad" : "");
 
 // ---- turning on: where a rent or start is ------------------------------------------
 // robinai-gpu says it every 10 s ("진행:" lines, server.mjs parseProgress)
@@ -239,6 +242,7 @@ function PlacePicker({ info, ready, onPlace }) {
       </button>
       {open && (
         <div ref={menu} className="place-menu" role="menu" aria-label="새 대화를 열 곳" onKeyDown={keys}>
+          <p className="list-head" role="presentation"><Icon name="folder" /><span>새 대화를 열 곳</span></p>
           <button type="button" role="menuitemradio" aria-checked={!!info.chat} className="place-item" onClick={() => go("chat")}>
             <Icon name="chat" />
             <span className="place-text"><span className="place-item-name">일반 대화</span><span className="place-item-note">폴더 없이 이야기만 해요. 웹 페이지는 물어보고 읽어요.</span></span>
@@ -656,12 +660,13 @@ function Mark({ text, q }) {
 // (the one on screen has its own blinking status line: no second cursor here)
 // (a third one waits for one of the GPU's two slots: "자리를 기다려요")
 // (one line of a 32px row: short words, the whole sentence in the row's title)
+// (a status chip, docs/brand.md 부품 더: amber asks or waits, red failed)
 function RunMark({ run, here }) {
-  if (run.done) return <span className="conv-run conv-done">끝났어요<span className="sr"> · 아직 안 봤어요</span></span>;
-  if (run.asking) return <span className="conv-run conv-ask"><Tag tag="[ ?? ]" />허락을 기다려요</span>;
-  if (run.waiting) return <span className="conv-run conv-wait"><Tag tag="[ ·· ]" />자리를 기다려요</span>;
-  if (run.failed) return <span className="conv-run conv-fail"><Tag tag="[ !! ]" />보내지 못했어요</span>;
-  return <span className="conv-run">{here ? <span className="lamp on" aria-hidden="true" /> : <Tag tag="[ .. ]" />}도는 중</span>;
+  if (run.done) return <span className="conv-run conv-done chip-state">끝났어요<span className="sr"> · 아직 안 봤어요</span></span>;
+  if (run.asking) return <span className="conv-run conv-ask chip-state warn"><Tag tag="[ ?? ]" />허락을 기다려요</span>;
+  if (run.waiting) return <span className="conv-run conv-wait chip-state warn"><Tag tag="[ ·· ]" />자리를 기다려요</span>;
+  if (run.failed) return <span className="conv-run conv-fail chip-state bad"><Tag tag="[ !! ]" />보내지 못했어요</span>;
+  return <span className="conv-run chip-state">{here ? <span className="lamp on" aria-hidden="true" /> : <Tag tag="[ .. ]" />}도는 중</span>;
 }
 const runWords = (run) => (run.done ? "끝났어요 · 아직 안 봤어요" : run.asking ? "허락을 기다려요" : run.waiting ? "GPU 자리를 기다려요"
   : run.failed ? "보내지 못했어요 · 열면 쓴 말이 돌아와요" : "도는 중");
@@ -926,8 +931,9 @@ function SetRow({ name, off, tip, className = "", children }) {
   );
 }
 // a row that opens a page of its own: the whole row is the button
-function SubRow({ name, value, off, tip, title, href, onClick }) {
-  const inner = <><span className="set-name">{name}</span>{value != null && <span className="set-value">{value}</span>}<Chev /></>;
+// (`val`: the row's one value, in blue)
+function SubRow({ name, value, val, off, tip, title, href, onClick }) {
+  const inner = <><span className="set-name">{name}</span>{value != null && <span className={`set-value${val ? " val" : ""}`}>{value}</span>}<Chev /></>;
   if (off) return <div className="set-row sub off" role="button" aria-disabled="true" tabIndex={0} data-tip={tip}>{inner}</div>;
   if (href) return <a className="set-row sub" href={href} title={title}>{inner}</a>;
   return <button type="button" className="set-row sub" onClick={onClick} title={title}>{inner}</button>;
@@ -997,7 +1003,9 @@ function Settings({ state, notify, shellU, onNotify, onMode, onThink, onGpu, onP
   const prog = progressOf(gpu, state.gpuJob);
   const gState = prog ? "starting" : gpu.state || "unknown";
   const can = (!state.fake || state.gpuFake) && gState !== "unknown" && gState !== "unreachable";
-  const gpuWords = <><span className={`lamp ${state.fake && !state.gpuFake ? "test" : lampOf(gState)}`} aria-hidden="true" />{GPU_NAMES[gState] || gState}{prog ? ` · ${prog.p.name}` : ""}{gState === "on" && gpu.rate ? ` · 시간당 $${gpu.rate}` : ""}</>;
+  // the state as a status chip (its lamp's tone), the rate after it
+  const gLamp = state.fake && !state.gpuFake ? "test" : lampOf(gState);
+  const gpuWords = <><span className={`chip-state${chipTone(gState, gLamp)}`}><span className={`lamp ${gLamp}`} aria-hidden="true" />{GPU_NAMES[gState] || gState}{prog ? ` · ${prog.p.name}` : ""}</span>{gState === "on" && gpu.rate ? ` · 시간당 $${gpu.rate}` : ""}</>;
   const v = state.version;
   const us = v?.version ? updateStatus(v, shellU) : null;
   const blocked = notify === "blocked";
@@ -1009,7 +1017,7 @@ function Settings({ state, notify, shellU, onNotify, onMode, onThink, onGpu, onP
           <h2 className="set-head">이 대화</h2>
           <div className="set-card">
             <SetRow name="폴더">
-              {chat ? <span className="set-value">일반 대화</span> : <span className="set-value mono" title={info.cwd}>{info.folder || shortPath(info.cwd || "")}</span>}
+              {chat ? <span className="set-value val">일반 대화</span> : <span className="set-value val mono" title={info.cwd}>{info.folder || shortPath(info.cwd || "")}</span>}
             </SetRow>
             {!chat && g && (
               <SetRow name="git">
@@ -1034,13 +1042,13 @@ function Settings({ state, notify, shellU, onNotify, onMode, onThink, onGpu, onP
           </div>
           <h2 className="set-head">모델</h2>
           <div className="set-card">
-            <SetRow name="모델"><span className="set-value mono">{info.model}</span></SetRow>
+            <SetRow name="모델"><span className="set-value val mono">{info.model}</span></SetRow>
             {can ? <SubRow name="GPU" value={gpuWords} onClick={onGpu} title="GPU를 켜고 끄는 창을 열어요. 빌릴 자리는 거기서 골라요." />
               : <SetRow name="GPU"><span className="set-value">{gpuWords}</span></SetRow>}
             {gpu.credit != null && (
-              <SetRow name="크레딧"><span className={`set-value${gpu.hours != null && gpu.hours <= 1 ? " warn" : ""}`}>${gpu.credit}{gpu.left ? ` · ${gpu.left}` : ""}</span></SetRow>
+              <SetRow name="크레딧"><span className={`set-value${gpu.hours != null && gpu.hours <= 1 ? " warn" : gpu.left ? "" : " val"}`}>${gpu.credit}{gpu.left ? ` · ${gpu.left}` : ""}</span></SetRow>
             )}
-            {state.fake && <SetRow name="시험"><span className="set-value warn">가짜 모델로 시험 중</span></SetRow>}
+            {state.fake && <SetRow name="시험"><span className="set-value"><span className="chip-state warn">가짜 모델로 시험 중</span></span></SetRow>}
           </div>
         </div>
         <div className="set-col">
@@ -1055,7 +1063,7 @@ function Settings({ state, notify, shellU, onNotify, onMode, onThink, onGpu, onP
                 </button>
               </SetRow>
             )}
-            <SubRow name="판" onClick={() => onPanel("version")} title="판과 바뀐 것, 새 판 (/version)"
+            <SubRow name="판" val={!!v?.version} onClick={() => onPanel("version")} title="판과 바뀐 것, 새 판 (/version)"
               value={v?.version ? <>{verLabel(v.version).when}{us?.tone === "new" && <> <Tag tag="[NEW]" /></>}</> : "확인 중"} />
           </div>
           <h2 className="set-head">규칙과 지시</h2>
@@ -1091,8 +1099,19 @@ function VersionPanel({ version: v, shellU: u, running, onClose, onError }) {
     shell.relaunch();
   };
   const fresh = new Set(v.fresh || []);
+  // the foot: "다시 확인" an outline button, "그만두기" as words, the start again filled (red when it stops a turn)
+  const foot = (canCheck || (s.relaunch && shell?.relaunch)) && (
+    <>
+      {sure && <p className="ver-sure">도는 대화 {going}개가 멈춰요. 쓰는 중인 답은 남지 않을 수 있어요.</p>}
+      {canCheck && !sure && <button type="button" className="btn" disabled={busy} onClick={check}>{busy ? "보는 중…" : "다시 확인"}</button>}
+      {sure && <button type="button" className="btn btn-text" onClick={() => setSure(false)}>그만두기</button>}
+      {s.relaunch && shell?.relaunch && (
+        <button type="button" className={`btn ${sure ? "btn-danger" : "btn-primary"}`} autoFocus={sure} onClick={relaunch}>{sure ? "멈추고 다시 켜기" : "다시 켜기"}</button>
+      )}
+    </>
+  );
   return (
-    <Sheet label="RobinCode 판" onClose={onClose}>
+    <Sheet label="RobinCode 판" foot={foot} onClose={onClose}>
       <div className="ver-now">
         <p className="ver-big">{l.when}</p>
         <p className="ver-sub">
@@ -1109,16 +1128,6 @@ function VersionPanel({ version: v, shellU: u, running, onClose, onError }) {
           {s.kind === "shell" && <p className="ver-detail"><a href="https://ai.yoonrobin.xyz/" target="_blank" rel="noreferrer">ai.yoonrobin.xyz에서 받기</a></p>}
         </div>
       </div>
-      {(canCheck || (s.relaunch && shell?.relaunch)) && (
-        <div className="ver-actions">
-          {sure && <p className="ver-sure">도는 대화 {going}개가 멈춰요. 쓰는 중인 답은 남지 않을 수 있어요.</p>}
-          {canCheck && !sure && <button type="button" className="btn btn-small" disabled={busy} onClick={check}>{busy ? "보는 중…" : "다시 확인"}</button>}
-          {sure && <button type="button" className="btn btn-small" onClick={() => setSure(false)}>그만두기</button>}
-          {s.relaunch && shell?.relaunch && (
-            <button type="button" className={`btn btn-small ${sure ? "btn-danger" : "btn-primary"}`} autoFocus={sure} onClick={relaunch}>{sure ? "멈추고 다시 켜기" : "다시 켜기"}</button>
-          )}
-        </div>
-      )}
       {s.relaunch && !shell?.relaunch && <p className="ver-detail">RobinCode를 닫았다가 다시 켜면 바뀌어요.</p>}
       {v.pending?.notes?.length > 0 && (
         <section className="ver-sec">
@@ -1255,120 +1264,120 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
   const rented = state === "on" || state === "starting" || state === "stopped";
   // a rent can be cancelled once the server has the instance (server.mjs)
   const canCancel = running && job.action === "rent" && job.rented;
+  // the step it is at: what the second press will do (said in the body) and
+  // its buttons (in the foot: "취소" as words, the main one filled, red when it deletes)
+  let confirm = null;
+  let foot = null;
+  if (canCancel) {
+    if (sure === "cancel") {
+      confirm = <p>빌리던 GPU를 지워요. 지금까지 쓴 몇 분 요금만 나가고, 이제부터는 안 나가요.</p>;
+      foot = (
+        <>
+          <button type="button" className="btn btn-text" onClick={() => setSure(null)}>계속 빌리기</button>
+          <button type="button" className="btn btn-danger" autoFocus onClick={() => run("destroy")}>취소하고 지우기</button>
+        </>
+      );
+    } else foot = <button type="button" className="btn" onClick={() => setSure("cancel")}>취소하고 지우기…</button>;
+  } else if (!running && state === "off" && chosen) {
+    if (sure === "rent") {
+      confirm = <p>빌리면 시간당 <b>${chosen.hour}</b>가 크레딧에서 계속 나가요. 이미지와 모델을 받는 데 약 {chosen.mins + 3}분 걸려요. 다 쓰면 끄세요{gpu.idleLimit ? <>. 깜빡해도 {gpu.idleLimit}분 동안 아무도 안 쓰면 서버가 알아서 지워요.</> : "."}</p>;
+      foot = (
+        <>
+          <button type="button" className="btn btn-text" autoFocus onClick={() => setSure(null)}>취소</button>
+          <button type="button" className="btn btn-primary" onClick={() => run("rent", chosen.offer)}>빌리기 · 시간당 ${chosen.hour}</button>
+        </>
+      );
+    } else foot = <button type="button" className="btn btn-primary" onClick={() => setSure("rent")}>이 자리 빌리기…</button>;
+  } else if (!running && rented) {
+    if (sure === "destroy") {
+      confirm = <p>끄면 GPU 인스턴스를 지워요. 요금이 0이 되고 받아 둔 모델도 지워져요. RobinAI 채팅과 다른 RobinCode 창도 같이 멈춰요. 다음에 켜면 새로 빌려서 6~10분 걸려요.</p>;
+      foot = (
+        <>
+          <button type="button" className="btn btn-text" autoFocus onClick={() => setSure(null)}>취소</button>
+          <button type="button" className="btn btn-danger" onClick={() => run("destroy")}>끄고 지우기</button>
+        </>
+      );
+    } else if (sure === "start") {
+      confirm = <p>다시 켜면 그 GPU의 시간당 요금이 크레딧에서 다시 나가요. 받아 둔 모델이 있어서 몇 분이면 돼요. 다 쓰면 끄세요.</p>;
+      foot = (
+        <>
+          <button type="button" className="btn btn-text" autoFocus onClick={() => setSure(null)}>취소</button>
+          <button type="button" className="btn btn-primary" onClick={() => run("start")}>다시 켜기</button>
+        </>
+      );
+    } else {
+      foot = (
+        <>
+          {state === "stopped" && <button type="button" className="btn" onClick={() => setSure("start")}>다시 켜기…</button>}
+          <button type="button" className="btn" onClick={() => setSure("destroy")}>끄고 지우기…</button>
+        </>
+      );
+    }
+  }
   return (
     <div className="modal-back" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <section className="gpu-panel" role="dialog" aria-modal="true" aria-label="GPU 켜기·끄기" ref={panel} tabIndex={-1}>
-        <header className="gpu-panel-head">
-          <p className="gpu-kicker">RobinAI GPU <span className="gpu-kicker-sub">Vast.ai RTX 5090</span></p>
-          <button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}><Icon name="close" /></button>
-        </header>
-        <div className="gpu-now">
-          <span className={`lamp ${lampOf(state)}`} aria-hidden="true" />
-          <b>{GPU_NAMES[state] || state}</b>
-          {rented && gpu.rate && <span>시간당 ${gpu.rate}</span>}
-          {gpu.credit != null && <span className={credit != null && credit < 1 ? "warn" : ""}>크레딧 ${gpu.credit}{gpu.left ? ` · ${gpu.left}` : ""}</span>}
-        </div>
-        {gpu.autooff && (
-          <div className="gpu-autooff-row">
-            <p className={`gpu-note gpu-autooff${offSoon(gpu) != null ? " warn" : ""}`}>자동 끄기 · {gpu.autooff}</p>
-            {state === "on" && gpu.idle != null && onKeep && (
-              <button type="button" className="mini-btn" onClick={onKeep} disabled={keeping}>{keeping ? "알리는 중…" : "계속 켜 두기"}</button>
-            )}
+        <DialogHead label="RobinAI GPU" note="Vast.ai RTX 5090" onClose={onClose} />
+        <div className="dlg-body">
+          <div className="gpu-now">
+            <span className={`chip-state${chipTone(state, lampOf(state))}`}><span className={`lamp ${lampOf(state)}`} aria-hidden="true" />{GPU_NAMES[state] || state}</span>
+            {rented && gpu.rate && <span>시간당 ${gpu.rate}</span>}
+            {gpu.credit != null && <span className={credit != null && credit < 1 ? "warn" : ""}>크레딧 ${gpu.credit}{gpu.left ? ` · ${gpu.left}` : ""}</span>}
           </div>
-        )}
-
-        {showJob && <JobLog job={job} prog={running ? prog : null} rented={rented} />}
-        {!showJob && prog && (
-          <div className="gpu-job">
-            <p className="gpu-job-head"><span>켜는 중…</span><span className="cursor" aria-hidden="true" /></p>
-            <GpuProgress action={prog.action} p={prog.p} />
-            <p className="gpu-note">서버에서 계속하고 있어요.</p>
-          </div>
-        )}
-        {canCancel && (sure === "cancel" ? (
-          <div className="gpu-confirm">
-            <p>빌리던 GPU를 지워요. 지금까지 쓴 몇 분 요금만 나가고, 이제부터는 안 나가요.</p>
-            <div className="gpu-actions">
-              <button type="button" className="btn" onClick={() => setSure(null)}>계속 빌리기</button>
-              <button type="button" className="btn btn-danger" autoFocus onClick={() => run("destroy")}>취소하고 지우기</button>
+          {gpu.autooff && (
+            <div className="gpu-autooff-row">
+              <p className={`gpu-note gpu-autooff${offSoon(gpu) != null ? " warn" : ""}`}>자동 끄기 · {gpu.autooff}</p>
+              {state === "on" && gpu.idle != null && onKeep && (
+                <button type="button" className="mini-btn" onClick={onKeep} disabled={keeping}>{keeping ? "알리는 중…" : "계속 켜 두기"}</button>
+              )}
             </div>
-          </div>
-        ) : (
-          <div className="gpu-actions">
-            <button type="button" className="btn" onClick={() => setSure("cancel")}>취소하고 지우기…</button>
-          </div>
-        ))}
+          )}
 
-        {!running && state === "off" && (
-          <>
-            <div className="gpu-sec-head">
-              <p className="side-label">빌릴 수 있는 자리 <span className="gpu-faint">한국 먼저, 싼 순</span></p>
-              <button type="button" className="mini-btn" onClick={load} disabled={loading}>{loading ? "받는 중…" : "다시 받기"}</button>
+          {showJob && <JobLog job={job} prog={running ? prog : null} rented={rented} />}
+          {!showJob && prog && (
+            <div className="gpu-job">
+              <p className="gpu-job-head"><span>켜는 중…</span><span className="cursor" aria-hidden="true" /></p>
+              <GpuProgress action={prog.action} p={prog.p} />
+              <p className="gpu-note">서버에서 계속하고 있어요.</p>
             </div>
-            {offers === null && loading && <p className="gpu-note">자리 목록을 받는 중<span className="cursor" aria-hidden="true" /></p>}
-            {offers && (
-              <div className="gpu-offers" role="radiogroup" aria-label="빌릴 자리">
-                {offers.map((o) => (
-                  <button key={o.offer} type="button" role="radio" aria-checked={pick === o.offer}
-                    className={`gpu-offer${pick === o.offer ? " on" : ""}`} onClick={() => { setPick(o.offer); setSure(null); }}>
-                    <span className="gpu-offer-main">
-                      <b>{o.place.replace(/, [A-Z]{2}$/, "")}</b>
-                      <span className="gpu-faint">{o.host} · 신뢰도 {o.rel}% · 최장 {o.days}일</span>
-                    </span>
-                    <span className="gpu-offer-side">
-                      <b className="mono">${o.hour}<span className="gpu-faint">/시간</span></b>
-                      <span className="gpu-faint">모델 받기 약 {o.mins}분</span>
-                    </span>
-                  </button>
-                ))}
+          )}
+
+          {!running && state === "off" && (
+            <>
+              <div className="gpu-sec-head">
+                <p className="side-label">빌릴 수 있는 자리 <span className="gpu-faint">한국 먼저, 싼 순</span></p>
+                <button type="button" className="mini-btn" onClick={load} disabled={loading}>{loading ? "받는 중…" : "다시 받기"}</button>
               </div>
-            )}
-            {chosen && (sure === "rent" ? (
-              <div className="gpu-confirm">
-                <p>빌리면 시간당 <b>${chosen.hour}</b>가 크레딧에서 계속 나가요. 이미지와 모델을 받는 데 약 {chosen.mins + 3}분 걸려요. 다 쓰면 끄세요{gpu.idleLimit ? <>. 깜빡해도 {gpu.idleLimit}분 동안 아무도 안 쓰면 서버가 알아서 지워요.</> : "."}</p>
-                <div className="gpu-actions">
-                  <button type="button" className="btn" autoFocus onClick={() => setSure(null)}>취소</button>
-                  <button type="button" className="btn btn-primary" onClick={() => run("rent", chosen.offer)}>빌리기 · 시간당 ${chosen.hour}</button>
+              {offers === null && loading && <p className="gpu-note">자리 목록을 받는 중<span className="cursor" aria-hidden="true" /></p>}
+              {offers && (
+                <div className="gpu-offers" role="radiogroup" aria-label="빌릴 자리">
+                  {offers.map((o) => (
+                    <button key={o.offer} type="button" role="radio" aria-checked={pick === o.offer}
+                      className={`gpu-offer${pick === o.offer ? " on" : ""}`} onClick={() => { setPick(o.offer); setSure(null); }}>
+                      <span className="gpu-offer-main">
+                        <b>{o.place.replace(/, [A-Z]{2}$/, "")}</b>
+                        <span className="gpu-faint">{o.host} · 신뢰도 {o.rel}% · 최장 {o.days}일</span>
+                      </span>
+                      <span className="gpu-offer-side">
+                        <b className="mono">${o.hour}<span className="gpu-faint">/시간</span></b>
+                        <span className="gpu-faint">모델 받기 약 {o.mins}분</span>
+                      </span>
+                    </button>
+                  ))}
                 </div>
-              </div>
-            ) : (
-              <div className="gpu-actions">
-                {low && <p className="gpu-warn">크레딧이 한 시간 요금보다 적어요. Vast.ai에서 먼저 충전하세요.</p>}
-                <button type="button" className="btn btn-primary" onClick={() => setSure("rent")}>이 자리 빌리기…</button>
-              </div>
-            ))}
-          </>
-        )}
+              )}
+              {chosen && sure !== "rent" && low && <p className="gpu-warn">크레딧이 한 시간 요금보다 적어요. Vast.ai에서 먼저 충전하세요.</p>}
+            </>
+          )}
 
-        {!running && rented && (
-          sure === "destroy" ? (
-            <div className="gpu-confirm">
-              <p>끄면 GPU 인스턴스를 지워요. 요금이 0이 되고 받아 둔 모델도 지워져요. RobinAI 채팅과 다른 RobinCode 창도 같이 멈춰요. 다음에 켜면 새로 빌려서 6~10분 걸려요.</p>
-              <div className="gpu-actions">
-                <button type="button" className="btn" autoFocus onClick={() => setSure(null)}>취소</button>
-                <button type="button" className="btn btn-danger" onClick={() => run("destroy")}>끄고 지우기</button>
-              </div>
-            </div>
-          ) : sure === "start" ? (
-            <div className="gpu-confirm">
-              <p>다시 켜면 그 GPU의 시간당 요금이 크레딧에서 다시 나가요. 받아 둔 모델이 있어서 몇 분이면 돼요. 다 쓰면 끄세요.</p>
-              <div className="gpu-actions">
-                <button type="button" className="btn" autoFocus onClick={() => setSure(null)}>취소</button>
-                <button type="button" className="btn btn-primary" onClick={() => run("start")}>다시 켜기</button>
-              </div>
-            </div>
-          ) : (
-            <div className="gpu-actions">
-              {state === "stopped" && <button type="button" className="btn" onClick={() => setSure("start")}>다시 켜기…</button>}
-              <button type="button" className="btn" onClick={() => setSure("destroy")}>끄고 지우기…</button>
-            </div>
-          )
-        )}
+          {confirm && <div className="gpu-confirm">{confirm}</div>}
 
-        {!running && (state === "unreachable" || state === "unknown") && (
-          <p className="gpu-note">{state === "unknown" ? "GPU 상태를 확인하는 중이에요." : "서버에서 GPU 상태를 읽지 못했어요(ssh contabo). 잠시 뒤 다시 열어 보세요."}</p>
-        )}
-        {err && <p className="gpu-warn" role="alert">{err}</p>}
+          {!running && (state === "unreachable" || state === "unknown") && (
+            <p className="gpu-note">{state === "unknown" ? "GPU 상태를 확인하는 중이에요." : "서버에서 GPU 상태를 읽지 못했어요(ssh contabo). 잠시 뒤 다시 열어 보세요."}</p>
+          )}
+          {err && <p className="gpu-warn" role="alert">{err}</p>}
+        </div>
+        {foot && <footer className="dlg-foot">{foot}</footer>}
       </section>
     </div>
   );
@@ -1567,18 +1576,30 @@ function FindBar({ items, onClose }) {
   );
 }
 
-// ---- /memory and /help: a sheet over the conversation
-function Sheet({ label, wide, onClose, children }) {
+// ---- /memory and /help: a sheet over the conversation, as a dialog
+// (docs/brand.md 부품 더): a head (the title, "· name" in blue when it is about
+// a named thing, a note under it, the x), a body that scrolls, a foot for its
+// buttons when it has any
+function DialogHead({ label, name, note, onClose }) {
+  return (
+    <header className="dlg-head">
+      <div className="dlg-titles">
+        <p className="dlg-title" title={name ? `${label} · ${name}` : undefined}>{label}{name && <> · <span className="dlg-name">{name}</span></>}</p>
+        {note && <p className="dlg-note">{note}</p>}
+      </div>
+      <button type="button" className="icon-btn dlg-x" aria-label="닫기" onClick={onClose}><Icon name="close" /></button>
+    </header>
+  );
+}
+function Sheet({ label, name, wide, foot, onClose, children }) {
   const panel = useRef(null);
   useModal(panel, onClose);
   return (
     <div className="modal-back" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <section className={`sheet${wide ? " sheet-wide" : ""}`} role="dialog" aria-modal="true" aria-label={label} ref={panel} tabIndex={-1}>
-        <header className="gpu-panel-head">
-          <p className="gpu-kicker">{label}</p>
-          <button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}><Icon name="close" /></button>
-        </header>
-        {children}
+        <DialogHead label={label} name={name} onClose={onClose} />
+        <div className="dlg-body">{children}</div>
+        {foot && <footer className="dlg-foot">{foot}</footer>}
       </section>
     </div>
   );
@@ -1631,7 +1652,7 @@ function ChangeFile({ f, busy, open, onToggle, onRevert, onPut }) {
     </li>
   );
 }
-function ChangesPanel({ busy, conv, onClose, onError }) {
+function ChangesPanel({ busy, conv, name, onClose, onError }) {
   const [files, setFiles] = useState(null);
   const [others, setOthers] = useState(null);
   const [open, setOpen] = useState(() => new Set());
@@ -1657,7 +1678,7 @@ function ChangesPanel({ busy, conv, onClose, onError }) {
   }, { add: 0, del: 0 }), [files]);
   const toggle = (path) => setOpen((o) => { const n = new Set(o); if (n.has(path)) n.delete(path); else n.add(path); return n; });
   return (
-    <Sheet label="이 대화가 바꾼 파일" wide onClose={onClose}>
+    <Sheet label="이 대화가 바꾼 파일" name={name} wide onClose={onClose}>
       {files === null ? <p className="chg-note">읽는 중…</p> : files.length === 0 ? (
         <p className="chg-note">이 대화는 아직 edit·write로 파일을 바꾸지 않았어요.</p>
       ) : (
@@ -1684,7 +1705,7 @@ function ChangesPanel({ busy, conv, onClose, onError }) {
   );
 }
 
-function MemoryPanel({ onClose, onError }) {
+function MemoryPanel({ name, onClose, onError }) {
   const [r, setR] = useState(null);
   const [line, setLine] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1698,7 +1719,7 @@ function MemoryPanel({ onClose, onError }) {
   };
   const openFile = (path) => api("/api/open-file", { path }).catch((e) => onError(e.message));
   return (
-    <Sheet label="모델이 읽는 지시 파일" onClose={onClose}>
+    <Sheet label="모델이 읽는 지시 파일" name={name} onClose={onClose}>
       <p className="gpu-note">모델은 대화를 시작할 때 이 파일들을 먼저 읽어요(AGENTS.md, CLAUDE.md: 이 폴더와 위 폴더들의 것).</p>
       {r === null ? <p className="gpu-note">읽는 중<span className="cursor" aria-hidden="true" /></p>
         : r.files.length === 0 ? <p className="gpu-note">아직 없어요. 아래에 한 줄을 적거나 <span className="mono">/init</span>으로 만들어요.</p>
@@ -1728,12 +1749,12 @@ function MemoryPanel({ onClose, onError }) {
     </Sheet>
   );
 }
-function RulesPanel({ onClose, onError }) {
+function RulesPanel({ name, onClose, onError }) {
   const [rules, setRules] = useState(null);
   const load = (body) => api("/api/rules", body).then((r) => setRules(r.rules)).catch((e) => onError(`읽지 못했어요: ${e.message}`));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <Sheet label="늘 허용한 것" onClose={onClose}>
+    <Sheet label="늘 허용한 것" name={name} onClose={onClose}>
       <p className="gpu-note">물을 때 "늘 허용"(4)을 누른 것은 이 폴더에서 다시 묻지 않아요. 명령은 시작이 같거나(… 붙은 것) 똑같을 때만 그래요. 이어 붙이거나(<span className="mono">; && |</span>) 넘기거나(<span className="mono">&gt;</span>) 괄호·<span className="mono">$</span>·줄 바꿈이 들어가면 다시 물어요. node·python·powershell처럼 무엇이든 돌릴 수 있는 명령은 늘 허용할 수 없어요.</p>
       {rules === null ? <p className="gpu-note">읽는 중<span className="cursor" aria-hidden="true" /></p>
         : rules.length === 0 ? <p className="gpu-note">아직 없어요.</p> : (
@@ -2358,6 +2379,8 @@ export default function App() {
   };
   // the settings page, also under a sheet opened from it
   const settingsOn = panel === "settings" || (!!panel && backTo.current === "settings");
+  // the folder a sheet is about (its head says "· name"); a plain conversation has none
+  const folderName = state.info.chat ? undefined : state.info.folder || undefined;
   return (
     <div className="app" data-side={side ? "open" : undefined}>
       <Sidebar state={sideState} closeRef={closeRef} searchRef={searchRef} onClose={on.close} onNew={on.new} onOpen={on.open}
@@ -2413,11 +2436,11 @@ export default function App() {
           notice={toast && <Toast key={toast.id} toast={toast} onDone={dropToast} onHold={holdToast} />} />
         {settingsOn && <Settings state={state} notify={notify} shellU={shellU} onNotify={on.notify} onMode={on.mode} onThink={on.think}
           onGpu={() => setGpuOpen(true)} onPanel={on.sheet} onClose={on.closeSettings} />}
-        {panel === "memory" && <MemoryPanel onClose={on.closePanel} onError={on.say} />}
+        {panel === "memory" && <MemoryPanel name={folderName} onClose={on.closePanel} onError={on.say} />}
         {panel === "help" && <HelpPanel commands={commands} onClose={on.closePanel} />}
-        {panel === "rules" && <RulesPanel onClose={on.closePanel} onError={on.say} />}
+        {panel === "rules" && <RulesPanel name={folderName} onClose={on.closePanel} onError={on.say} />}
         {panel === "version" && <VersionPanel version={state.version} shellU={shellU} running={state.running} onClose={on.closePanel} onError={on.say} />}
-        {panel === "changes" && <ChangesPanel busy={state.busy} conv={state.sessionFile || null} onClose={on.closePanel} onError={on.say} />}
+        {panel === "changes" && <ChangesPanel busy={state.busy} conv={state.sessionFile || null} name={state.title || undefined} onClose={on.closePanel} onError={on.say} />}
         {gpuOpen &&<GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); if (panel !== "settings") focusBox(); }} />}
         {drag && (
           <div className="drop" aria-hidden="true">

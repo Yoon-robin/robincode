@@ -7,7 +7,9 @@
    V3.2 (robin chose ① on the redrawn reference menu): the sidebar nearly the
    panel's black, the panel told apart by a 1px --line edge, cards a step
    lighter than the panel. The frame stays RobinAI's: a sidebar on the left, the conversation
-   right. */
+   right. V3.4 (2026-11-20, docs/brand.md 부품 더): dialogs as head / body /
+   foot, menus r12 with rows r8, list rows on --raise with a blue edge on the
+   chosen one, chip and outline buttons, status chips, search fields 34 r8. */
 @font-face { font-family: "Robin Term"; src: url("/fonts/robin-term.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
 @font-face { font-family: "Pretendard"; src: url("/fonts/pretendard-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
@@ -50,15 +52,17 @@
   --radius: 6px;      /* buttons, inputs */
   --radius-row: 7px;  /* sidebar rows, the logo tile */
   --radius-card: 15px;
-  --radius-pop: 16px; /* dropdown menus, popovers */
-  --radius-win: 16px; /* the content panel, the composer, dialogs */
+  --radius-pop: 12px; /* dropdown menus, popovers (V3.4) */
+  --radius-item: 8px; /* a menu's or a list's row, outline buttons, search fields (V3.4) */
+  --radius-dlg: 14px; /* dialogs and sheets (V3.4) */
+  --radius-win: 16px; /* the content panel, the composer */
   --shadow: 0 10px 30px rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 30%);
-  /* a dropdown (the place menu, the @ and / lists, a select): solid, r16, a
-     hairline of light along the top, rows 32px tinted blue when pointed at */
+  /* a dropdown (the @ and / lists, a select): solid, r12, 6px in, a hairline
+     of light along the top, rows 32px r8, white 6% when pointed at */
   --pop-bg: #141821; /* solid: what is under a menu must not read through */
   --pop-line: rgb(57 61 76 / 80%);
   --pop-shadow: inset 0 1px 0 rgb(255 255 255 / 8%), 0 8px 24px rgb(0 0 0 / 40%);
-  --pop-hover: rgb(79 125 255 / 12%);
+  --pop-hover: rgb(255 255 255 / 6%);
   --sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
   --mono: "Robin Term", "Cascadia Code", "Cascadia Mono", Consolas, D2Coding, "Malgun Gothic", monospace;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -125,14 +129,40 @@ a:hover { text-decoration-color: currentColor; }
 .tag-none { color: var(--faint); }
 .tag-new {
   width: auto;
-  height: 17px;
-  padding: 0 5px;
+  height: 18px;
+  padding: 0 6px;
   border-radius: 4px;
   background: var(--accent-soft);
   color: var(--accent);
-  font: 700 10px/17px var(--sans);
+  font: 600 10px/18px var(--sans);
   letter-spacing: 0.06em;
 }
+
+/* ---- a status chip (docs/brand.md 부품 더): 18 tall, r4, 10px; the state is
+   in its words, the colour only repeats it (amber: asked or waiting, red:
+   failed) ---- */
+.chip-state, .cmd-kind, .step-why, .chg-badge, .shell-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: none;
+  font: 600 10px/1 var(--sans);
+  letter-spacing: 0;
+  color: var(--soft);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.chip-state.warn, .shell-tag { border-color: rgb(245 185 66 / 30%); background: rgb(245 185 66 / 12%); color: var(--amber); }
+.chip-state.bad { border-color: rgb(242 107 110 / 30%); background: rgb(242 107 110 / 12%); color: var(--red); }
+.chip-state .lamp { width: 6px; height: 6px; }
+.chip-state .tag, .chip-state .tag .ico { width: 11px; height: 11px; }
+.chip-state .spin { width: 9px; height: 9px; }
 
 /* ---- RobinCode's mark: a dark tile, code brackets in white (the footage's
    logo tile and avatar are near-black; blue is kept for what is on) ---- */
@@ -154,21 +184,26 @@ a:hover { text-decoration-color: currentColor; }
 .toggle-word { font-size: 12px; color: var(--amber); }
 
 /* ---- buttons ---- */
+/* the outline button (docs/brand.md 부품 더): 32 r8 on --raise, 13px, an icon
+   14 and 8 before the words. What is pressed stays 36 tall (::after) */
 .btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 32px;
+  padding: 0 12px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
+  border-radius: var(--radius-item);
   background: var(--raise);
   color: var(--text);
   font-weight: 500;
-  font-size: 14px;
+  font-size: 13px;
   transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.12s var(--ease);
 }
+.btn::after { content: ""; position: absolute; inset: -3px -1px; }
+.btn .ico { width: 14px; height: 14px; }
 .btn:hover { background: var(--press); color: var(--head); }
 /* pressed: a small give, so a click is felt */
 .btn:active:not(:disabled), .mini-btn:active:not(:disabled), .place-btn:active:not(:disabled), .acct:active { transform: scale(0.985); }
@@ -177,7 +212,10 @@ a:hover { text-decoration-color: currentColor; }
 .btn-primary { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; font-weight: 600; }
 .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
 .btn-primary:disabled, .btn-primary:disabled:hover { background: var(--press); border-color: var(--line-strong); color: var(--soft); }
-.btn-small { min-height: 30px; padding: 0 10px; font-size: 13px; border-radius: var(--radius-sm); }
+/* a dialog's "취소": words only, a --hover cell when pointed at */
+.btn-text { border-color: transparent; background: none; }
+.btn-text:hover { background: var(--hover); color: var(--head); }
+.btn-text:disabled:hover { background: none; }
 .icon-btn {
   display: inline-grid;
   place-items: center;
@@ -191,38 +229,29 @@ a:hover { text-decoration-color: currentColor; }
   transition: background-color 0.15s, color 0.15s, opacity 0.15s;
 }
 .icon-btn:hover { background: var(--press); color: var(--head); }
-.mini-btn {
+/* the chip button (docs/brand.md 부품 더): 24 r6 on --raise, 12px, an icon 13
+   and 6 before the words, a blue 22% edge when pointed at. For the small
+   second actions (copy, again, open, put back); what is pressed is as tall
+   as it was (::after: 26 for .mini-btn, 30 for .act) */
+.mini-btn, .act {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  min-height: 26px;
+  gap: 6px;
+  min-height: 24px;
   padding: 0 8px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: var(--raise);
   font: 500 12px var(--sans);
-  color: var(--soft);
-  transition: background-color 0.15s, color 0.15s, transform 0.12s var(--ease);
+  color: var(--text);
+  transition: border-color 0.13s, color 0.13s, transform 0.12s var(--ease);
 }
-.mini-btn:hover { background: var(--press); color: var(--head); }
-.mini-btn .ico { width: 13px; height: 13px; }
-/* small text actions under an answer, as RobinAI */
-.act {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 8px;
-  margin-left: -8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  font-size: 13px;
-  color: var(--soft);
-  transition: background-color 0.15s, color 0.15s;
-}
-.act .ico { width: 15px; height: 15px; }
-.act:hover { background: var(--press); color: var(--head); }
+.mini-btn::after { content: ""; position: absolute; inset: -2px -1px; }
+.act::after { content: ""; position: absolute; inset: -4px -1px; }
+.mini-btn:hover:not(:disabled), .act:hover:not(:disabled) { border-color: rgb(79 125 255 / 22%); color: var(--head); }
+.mini-btn:disabled { opacity: 0.45; }
+.mini-btn .ico, .act .ico { width: 13px; height: 13px; }
 kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 
 /* status lamps: round, white glow only when on */
@@ -463,14 +492,20 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .place-btn .ico { flex: none; width: 15px; height: 15px; color: var(--soft); }
 .place-name { flex: none; font-weight: 600; }
 .place-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--soft); }
+/* the places as a list popup (docs/brand.md 부품 더): a head (icon 14, title
+   13), rows on --raise 4 apart, a 1px blue edge on the chosen one, a 4px
+   scrollbar; "다른 폴더 찾기…" is a plain menu row under a rule */
 .place-menu {
   position: absolute;
   top: calc(100% + 6px);
   left: 50%;
   z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   width: min(420px, calc(100vw - 32px));
   max-height: min(420px, 60vh);
-  padding: 4px;
+  padding: 6px;
   overflow-y: auto;
   transform: translateX(-50%);
   border: 1px solid var(--pop-line);
@@ -478,38 +513,57 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   background: var(--pop-bg);
   box-shadow: var(--pop-shadow);
   text-align: left;
-  scrollbar-width: thin;
   transform-origin: top center;
   animation: menu-in 0.13s cubic-bezier(0, 0, 0.58, 1) both;
 }
+.place-menu > * { flex: none; }
+.list-head { display: flex; align-items: center; gap: 8px; min-height: 24px; margin: 0; padding: 0 4px; font-size: 13px; line-height: 1.5; color: var(--text); }
+.list-head .ico { flex: none; width: 14px; height: 14px; color: var(--soft); }
+/* a menu's row (docs/brand.md 부품 더): 32 r8, an icon 14 and 12 before the
+   words 13px, white 6% when pointed at */
 .place-item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
   min-height: 32px;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: 10px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-item);
   outline: 0;
   background: none;
   color: var(--text);
+  font-size: 13px;
   text-align: left;
-  transition: background-color 0.12s;
+  transition: background-color 0.12s, border-color 0.12s;
 }
-.place-item:hover, .place-item:focus-visible { background: var(--pop-hover); color: var(--head); }
-.place-item[aria-checked="true"] { color: var(--head); }
+.place-item:hover, .place-item:focus-visible { background: var(--pop-hover); color: var(--chosen); }
+.place-item[aria-checked="true"] { color: var(--chosen); }
 .place-check { flex: none; margin-left: auto; }
 .place-item .place-check .ico { color: var(--accent); }
 .place-item[aria-checked="true"] > .ico { color: var(--accent); }
-.place-item .ico { flex: none; width: 15px; height: 15px; margin-top: 3px; color: var(--soft); }
-.place-text { display: grid; min-width: 0; }
-.place-item-name { font-size: 14px; font-weight: 500; }
+.place-item .ico { flex: none; width: 14px; height: 14px; margin-top: 3px; color: var(--soft); }
+.place-text { display: grid; min-width: 0; line-height: 1.5; }
+.place-item-name { font-size: 13px; font-weight: 500; }
+.place-menu .place-item { background: var(--raise); }
+.place-menu .place-item:hover, .place-menu .place-item:focus-visible { background: var(--press); }
+.place-menu .place-item[aria-checked="true"] { border-color: var(--accent); }
 .place-branch { font-size: 11.5px; font-weight: 500; color: var(--soft); }
 .place-item-note { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--soft); }
 .place-item-note.mono { font: 400 11.5px var(--mono); }
-.place-label, .place-wait { margin: 10px 10px 4px; font-size: 11px; font-weight: 500; color: var(--faint); }
-.place-more { margin-top: 4px; border-top: 1px solid var(--line-weak); border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.place-label, .place-wait { margin: 6px 4px 2px; font-size: 11px; font-weight: 500; line-height: 1.4; color: var(--faint); }
+/* the one action under the list: a rule 4 over it, 4 under the last row */
+.place-menu .place-more { position: relative; margin-top: 5px; background: none; }
+.place-menu .place-more::before { content: ""; position: absolute; top: -6px; left: -1px; right: -1px; height: 1px; background: var(--line); }
+.place-menu .place-more:hover, .place-menu .place-more:focus-visible { background: var(--pop-hover); }
+/* a list's scrollbar: 4 wide, r2, --line-strong, no track */
+.place-menu, .mentions ul { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+@supports selector(::-webkit-scrollbar) {
+  .place-menu, .mentions ul { scrollbar-width: auto; scrollbar-color: auto; }
+  .place-menu::-webkit-scrollbar, .mentions ul::-webkit-scrollbar { width: 4px; height: 4px; }
+  .place-menu::-webkit-scrollbar-thumb, .mentions ul::-webkit-scrollbar-thumb { border-radius: 2px; background: var(--line-strong); }
+  .place-menu::-webkit-scrollbar-track, .mentions ul::-webkit-scrollbar-track { background: transparent; }
+}
 
 /* ---- answer text (Markdown), as RobinAI ---- */
 /* Long reading text is the one place for 500 (docs/brand.md 굵게, B-456):
@@ -607,7 +661,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .step-name { flex: none; color: var(--soft); }
 .step-what { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 400 12.5px var(--mono); color: var(--head); }
 .step-delta { flex: none; margin-left: 10px; font: 400 12px var(--mono); color: var(--soft); white-space: nowrap; }
-.step-why { flex: none; margin-left: 8px; padding: 0 6px; border-radius: 4px; background: var(--raise); font-size: 11.5px; color: var(--soft); }
+.step-why { flex: none; align-self: center; margin-left: 8px; } /* a status chip */
 .step-delta .add { color: var(--green); }
 .step-delta .del { margin-left: 6px; color: var(--faint); }
 .step-delta + .step-ms { margin-left: auto; }
@@ -825,7 +879,8 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 }
 .composer textarea::placeholder { color: var(--faint); }
 .composer textarea:disabled { cursor: not-allowed; }
-.send { min-width: 76px; }
+.send { min-width: 76px; min-height: 36px; padding: 0 14px; border-radius: var(--radius); font-size: 14px; }
+.send::after { inset: 0; }
 .attach { flex: none; width: 36px; height: 36px; }
 .attach .ico { width: 18px; height: 18px; }
 .attach:disabled { opacity: 0.35; }
@@ -872,20 +927,20 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   box-shadow: var(--pop-shadow);
   overflow: hidden;
 }
-.mentions ul { max-height: 264px; margin: 0; padding: 4px; overflow-y: auto; list-style: none; scrollbar-width: thin; }
+.mentions ul { max-height: 268px; margin: 0; padding: 6px; overflow-y: auto; list-style: none; }
 .mention {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 12px;
   min-height: 32px;
   padding: 6px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-item);
   font: 400 13px/1.5 var(--mono);
   color: var(--soft);
   cursor: pointer;
 }
-.mention .ico { flex: none; width: 15px; height: 15px; }
-.mention.on { background: var(--pop-hover); color: var(--head); }
+.mention .ico { flex: none; width: 14px; height: 14px; }
+.mention.on { background: var(--pop-hover); color: var(--chosen); }
 .mention.on .ico { color: var(--accent); }
 .mention-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .mention-path b { font-weight: 700; color: var(--accent); }
@@ -933,12 +988,12 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .cmd-name { flex: none; min-width: 112px; font-family: var(--mono); color: var(--head); font-size: 13px; }
 .cmd-arg { color: var(--faint); }
 .cmd-hint { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; }
-.cmd-kind { flex: none; padding: 0 6px; border-radius: 4px; background: var(--raise); font-size: 10.5px; color: var(--soft); }
+.cmd-kind { flex: none; } /* a status chip */
 
 /* ---- `!명령`: the box says it goes to PowerShell ---- */
 .composer-box.shell-mode { border-color: rgb(245 185 66 / 45%); }
 .composer-box.shell-mode textarea { font-family: var(--mono); }
-.shell-tag { align-self: center; flex: none; margin-right: -2px; padding: 1px 6px; border-radius: 4px; background: rgb(245 185 66 / 14%); font-size: 11px; font-weight: 600; color: var(--amber); }
+.shell-tag { align-self: center; flex: none; margin-right: -2px; font-family: var(--mono); } /* an amber status chip */
 .shell-run { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--card); overflow: hidden; }
 .shell-run.fail { border-color: rgb(242 107 110 / 35%); }
 .shell-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font: 400 12.5px var(--mono); color: var(--text); }
@@ -985,32 +1040,60 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .todo-item.completed .todo-mark { color: var(--accent); }
 
 /* ---- plan mode: go ahead with the plan ---- */
-.act.act-go { margin-left: 0; background: var(--accent-fill); color: #fff; }
-.act.act-go:hover { background: var(--accent-hover); color: #fff; }
+.act.act-go { border-color: var(--accent-fill); background: var(--accent-fill); color: #fff; font-weight: 600; }
+.act.act-go:hover:not(:disabled) { border-color: var(--accent-hover); background: var(--accent-hover); color: #fff; }
 
 /* ---- Ctrl+F ---- */
+/* a search field (docs/brand.md 부품 더): 34 r8 on --raise, the magnifier 14
+   --faint and 8 before the words; its buttons 24 (pressed as 28x32) */
 .find-bar {
   position: absolute; top: 64px; right: 24px; z-index: 20;
-  display: flex; align-items: center; gap: 4px; width: min(380px, calc(100% - 48px)); padding: 4px 6px 4px 12px;
-  border: 1px solid var(--line-strong); border-radius: var(--radius-pop); background: var(--card);
+  display: flex; align-items: center; gap: 4px; width: min(380px, calc(100% - 48px)); height: 34px; padding: 0 4px 0 10px;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-item); background: var(--raise);
   box-shadow: var(--shadow);
 }
-.find-bar > .ico { flex: none; width: 15px; height: 15px; color: var(--faint); }
-.find-bar input { flex: 1; min-width: 0; padding: 6px 4px; border: 0; outline: 0; background: transparent; color: var(--head); font: inherit; font-size: 13.5px; }
+.find-bar > .ico { flex: none; width: 14px; height: 14px; margin-right: 4px; color: var(--faint); }
+.find-bar input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--head); font: inherit; font-size: 13px; }
+.find-bar input::placeholder { color: var(--faint); }
 .find-count { flex: none; min-width: 42px; font-size: 11.5px; color: var(--soft); font-variant-numeric: tabular-nums; text-align: right; margin-right: 4px; }
-.find-bar .icon-btn { width: 28px; height: 28px; }
+.find-bar .icon-btn { position: relative; width: 24px; height: 24px; }
+.find-bar .icon-btn::after { content: ""; position: absolute; inset: -4px -2px; }
+.find-bar .icon-btn .ico { width: 15px; height: 15px; }
 ::highlight(find) { background-color: rgb(79 125 255 / 30%); color: inherit; }
 ::highlight(find-now) { background-color: var(--accent); color: #fff; }
 
-/* ---- /memory, /help ---- */
-.sheet {
-  display: grid; gap: 12px; width: min(640px, 100%); max-height: 100%; overflow-y: auto; padding: 18px 20px 20px;
-  border: 1px solid var(--line); border-radius: var(--radius-win); background: var(--card);
+/* ---- a dialog (docs/brand.md 부품 더): /memory, /help, /changes, /version,
+   the GPU window. --card with a --line edge, r14; a head (title 14, a note
+   12 under it, the x 28), a body 16 in that scrolls, a foot (a rule, the
+   buttons at the right: "취소" as words, the main one filled) ---- */
+.sheet, .gpu-panel {
+  display: flex; flex-direction: column; width: min(640px, 100%); max-height: 100%; overflow: hidden;
+  border: 1px solid var(--line); border-radius: var(--radius-dlg); background: var(--card);
   box-shadow: var(--shadow); outline: none;
   animation: sheet-in 0.24s var(--ease) both;
 }
 @keyframes sheet-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
-.sheet p { margin: 0; }
+.sheet p, .gpu-panel p { margin: 0; }
+.dlg-head { display: flex; flex: none; align-items: flex-start; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
+.dlg-titles { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.dlg-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; font-weight: 600; line-height: 20px; color: var(--head); }
+/* "title · name": what the dialog is about, in blue */
+.dlg-name { color: var(--accent); }
+.dlg-note { font-size: 12px; line-height: 16px; color: var(--faint); }
+/* the x: 28 r6, a --hover cell; pressed as 36 */
+.dlg-x { position: relative; flex: none; width: 28px; height: 28px; margin: -4px -4px -4px 0; border-radius: var(--radius-sm); }
+.dlg-x::after { content: ""; position: absolute; inset: -4px; }
+.dlg-x:hover { background: var(--hover); color: var(--head); }
+.dlg-x .ico { width: 16px; height: 16px; }
+.dlg-body { display: grid; align-content: start; grid-template-columns: minmax(0, 1fr); gap: 12px; min-height: 0; padding: 16px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 12%) transparent; }
+.dlg-foot { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+/* the foot's main button: filled, 30 r6, 13px 600 (red when it deletes: dark
+   words on it, white is 3:1 there); "취소" the same size, words only */
+.dlg-foot .btn-primary, .dlg-foot .btn-danger, .dlg-foot .btn-text { min-height: 30px; border-radius: var(--radius-sm); }
+.dlg-foot .btn-primary::after, .dlg-foot .btn-danger::after, .dlg-foot .btn-text::after { inset: -4px -1px; }
+.dlg-foot .btn-danger { border-color: var(--red); background: var(--red); color: var(--inset); font-weight: 600; }
+.dlg-foot .btn-danger:hover { background: var(--red); color: var(--inset); filter: brightness(0.92); }
+.dlg-foot > p { flex: 1 1 100%; }
 /* /changes: wider, for diffs */
 .sheet-wide { width: min(980px, 100%); }
 .chg-note { font-size: 13px; color: var(--text); }
@@ -1028,9 +1111,9 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .chg-toggle .ico { flex: none; width: 14px; height: 14px; color: var(--faint); }
 .chg-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--head); font-size: 12.5px; }
 .chg-dir { color: var(--faint); }
-.chg-badge { flex: none; padding: 0 6px; border-radius: 4px; background: var(--accent-soft); font-size: 11.5px; color: var(--accent); }
+.chg-badge { flex: none; } /* a status chip */
 .chg-done { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--soft); }
-.mini-btn.sure { color: var(--red); border-color: rgb(242 107 110 / 40%); }
+.mini-btn.sure, .mini-btn.sure:hover:not(:disabled) { color: var(--red); border-color: rgb(242 107 110 / 40%); }
 .chg-diff { max-height: 420px; overflow: auto; font: 400 12px/1.6 var(--mono); scrollbar-width: thin; }
 .chg-hunk + .chg-hunk { border-top: 1px dashed var(--line-weak); }
 .chg-at { padding: 2px 12px; color: var(--faint); font-size: 11.5px; background: rgb(255 255 255 / 2%); }
@@ -1050,10 +1133,12 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .mem-text { max-height: 220px; margin: 0; padding: 8px 12px; overflow: auto; font: 400 12px/1.55 var(--mono); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
 .mem-add { display: grid; gap: 6px; }
 .mem-add-row { display: flex; gap: 8px; }
+.mem-add-row .btn { border-radius: var(--radius); }
 .mem-add-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--raise); color: var(--head); font: inherit; font-size: 13.5px; outline: 0; }
 .mem-add-row input:focus { border-color: rgb(79 125 255 / 55%); }
-.rule-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.rule { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raise); font-size: 13px; }
+/* a list's rows: 32 r8 on --raise, 4 apart */
+.rule-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.rule { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 3px 4px 3px 10px; border-radius: var(--radius-item); background: var(--raise); font-size: 13px; }
 .rule-kind { flex: none; width: 44px; font-size: 12px; color: var(--faint); }
 .rule-label { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--head); }
 .help-list { display: grid; gap: 2px; margin: 0 0 6px; }
@@ -1111,14 +1196,14 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   display: flex;
   flex: none;
   align-items: center;
-  gap: 12px;
-  height: 32px;
+  gap: 8px;
+  height: 34px;
   margin-top: 5px;
   padding: 0 4px 0 11px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-row);
+  border-radius: var(--radius-item);
   background: var(--raise);
-  color: var(--soft);
+  color: var(--faint);
   transition: border-color 0.15s;
 }
 .conv-search:focus-within { border-color: rgb(79 125 255 / 60%); }
@@ -1181,17 +1266,12 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .conv:hover .conv-title { color: var(--chosen); }
 .conv[aria-current="true"] .conv-title { color: var(--chosen); }
 /* the row's end: the folder it works in, or what it is doing now */
-.conv-time { flex: none; max-width: 42%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--faint); }
+.conv-time { flex: none; max-width: 50%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--faint); }
 .conv-time:empty { display: none; }
-.conv-run { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--accent); }
-.conv-run .tag { width: 12px; height: 12px; }
-.conv-run .tag .ico { width: 12px; height: 12px; }
-.conv-run .spin { width: 10px; height: 10px; }
-.conv-ask, .conv-wait { color: var(--amber); }
-.conv-fail { color: var(--red); }
+/* doing something now: a status chip (.chip-state; amber asks or waits, red failed) */
+.conv-run { overflow: hidden; vertical-align: middle; }
 /* ended while robin was in another conversation */
-.conv-done { color: var(--soft); }
-.conv-done::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 2px; border-radius: 50%; background: var(--accent); }
+.conv-done::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .conv-act.on { color: var(--accent); }
 .conv-place { font-family: var(--mono); }
 
@@ -1305,6 +1385,8 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .set-value { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--soft); font-variant-numeric: tabular-nums; }
 .set-value.mono { display: block; font-size: 12px; }
 .set-value.warn { color: var(--amber); }
+/* "name: value" with one value in the row: the value in blue (docs/brand.md 부품 더) */
+.set-value.val { color: var(--accent); }
 .set-value .git-changed { color: var(--amber); }
 .set-value .git-ahead { color: var(--soft); }
 /* a row that opens its own page: the whole row, a › 7 in from the row's end */
@@ -1368,7 +1450,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .pop {
   position: absolute;
   z-index: 25;
-  padding: 4px;
+  padding: 6px;
   border: 1px solid var(--pop-line);
   border-radius: var(--radius-pop);
   background: var(--pop-bg);
@@ -1486,7 +1568,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .folder-line .mono { flex: 1; min-width: 0; }
 .folder-line .mini-btn { flex: none; text-decoration: none; }
 .folder-line .mini-btn[aria-disabled] { opacity: 0.4; cursor: default; }
-.mini-btn.working { color: var(--amber); border-color: rgb(245 185 66 / 35%); }
+.mini-btn.working, .mini-btn.working:hover:not(:disabled) { color: var(--amber); border-color: rgb(245 185 66 / 35%); }
 
 /* ---- the GPU window: on and off, the places to rent ---- */
 .modal-back {
@@ -1496,57 +1578,47 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
   display: grid;
   place-items: center;
   padding: 24px 12px;
-  background: rgb(5 6 9 / 66%);
+  /* behind a dialog: black 55% and a 6px blur (the one place for a blur) */
+  background: rgb(0 0 0 / 55%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   animation: fade-in 0.12s var(--ease) both;
 }
-.gpu-panel {
-  display: grid;
-  gap: 14px;
-  width: min(560px, 100%);
-  max-height: 100%;
-  overflow-y: auto;
-  padding: 18px 20px 20px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-win);
-  background: var(--card);
-  box-shadow: var(--shadow);
-  animation: sheet-in 0.24s var(--ease) both;
-  outline: none;
-}
-.gpu-panel p { margin: 0; }
-.gpu-panel-head { display: flex; align-items: center; justify-content: space-between; margin: -6px -8px -4px 0; }
-.gpu-kicker { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; color: var(--head); }
-.gpu-kicker-sub { margin-left: 8px; font-size: 12px; font-weight: 500; letter-spacing: 0; color: var(--faint); }
-.gpu-now { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 13px; color: var(--soft); font-variant-numeric: tabular-nums; }
-.gpu-now b { font-weight: 600; color: var(--head); margin-left: -6px; }
-.gpu-now .warn { color: var(--amber); }
+/* the frame is .sheet's (a dialog) */
+.gpu-panel { width: min(560px, 100%); }
+.gpu-panel .dlg-body { gap: 14px; }
+.gpu-now { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; color: var(--soft); font-variant-numeric: tabular-nums; }
+.gpu-now > .warn { color: var(--amber); }
 .gpu-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .gpu-sec-head .side-label { margin: 0; }
 /* a head inside a sheet starts at the sheet's edge (the sidebar's sit 10 in) */
 .modal-back .side-label { padding-left: 0; }
 .gpu-faint { color: var(--faint); font-weight: 500; }
-.gpu-offers { display: grid; gap: 6px; }
+/* the places to rent, a list: rows r8 on --raise 4 apart, a 1px blue edge on
+   the chosen one (its surface stays) */
+.gpu-offers { display: grid; gap: 4px; }
 .gpu-offer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-height: 32px;
   padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border: 1px solid transparent;
+  border-radius: var(--radius-item);
   background: var(--raise);
+  color: var(--text);
   text-align: left;
   transition: background-color 0.15s, border-color 0.15s;
 }
 .gpu-offer:hover { background: var(--press); }
-.gpu-offer.on { border-color: var(--accent); background: var(--accent-soft); }
+.gpu-offer.on { border-color: var(--accent); }
 .gpu-offer-main, .gpu-offer-side { display: grid; gap: 1px; min-width: 0; font-size: 12.5px; }
 .gpu-offer-main b { font-size: 14px; font-weight: 600; color: var(--head); }
 .gpu-offer-side { justify-items: end; text-align: right; flex: none; }
 .gpu-offer-side b { font-size: 14px; color: var(--head); }
-.gpu-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
-.gpu-actions .gpu-warn { flex: 1 1 100%; }
-.gpu-confirm { display: grid; gap: 12px; padding: 12px 14px; border: 1px solid rgb(245 185 66 / 30%); border-radius: var(--radius); background: rgb(245 185 66 / 6%); }
+/* what the second press will do: said in the body, its buttons in the foot */
+.gpu-confirm { display: grid; gap: 12px; padding: 12px 14px; border: 1px solid rgb(245 185 66 / 30%); border-radius: var(--radius-item); background: rgb(245 185 66 / 6%); }
 .gpu-confirm p { font-size: 13.5px; line-height: 1.6; color: var(--text); }
 .gpu-confirm b { color: var(--amber); }
 .btn-danger { border-color: rgb(242 107 110 / 50%); color: var(--red); font-weight: 600; }
@@ -1600,8 +1672,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .ver-state-text { font-size: 14px; font-weight: 600; line-height: 1.6; color: var(--head); }
 .ver-detail { margin-top: 2px !important; font-size: 12.5px; line-height: 1.55; color: var(--soft); overflow-wrap: anywhere; }
 .ver-detail a { color: var(--accent); text-underline-offset: 3px; }
-.ver-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
-.ver-sure { flex: 1 1 100%; font-size: 12.5px; color: var(--amber); text-align: right; }
+.ver-sure { font-size: 12.5px; color: var(--amber); text-align: right; }
 .ver-sec { display: grid; gap: 6px; }
 .ver-sec .side-label { margin: 0; }
 .ver-notes { display: grid; margin: 0; padding: 0 12px; list-style: none; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); }
@@ -1632,7 +1703,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .msg-user.sending .bubble { opacity: 0.55; }
 .sending-note { display: block; margin-top: 4px; text-align: right; font-size: 11.5px; color: var(--faint); }
 /* the changes panel: what git sees besides this conversation's edits */
-.chg-others { margin: 14px 20px 18px; }
+.chg-others { margin: 2px 0 0; }
 .chg-others ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; font-size: 13px; }
 .chg-others li { overflow-wrap: anywhere; }
 .chg-how { display: inline-block; min-width: 4.5em; font-size: 11.5px; color: var(--faint); }

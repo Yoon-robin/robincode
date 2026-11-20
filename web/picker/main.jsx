@@ -47,7 +47,7 @@ const SECTION = { recent: "최근 연 폴더", search: "찾은 폴더", path: "�
 const spring = { type: "spring", stiffness: 700, damping: 48, mass: 0.7 };
 
 function RowIcon({ row, on }) {
-  const cls = cn("size-[18px] shrink-0 transition-colors", on ? "text-accent" : "text-faint");
+  const cls = cn("size-3.5 shrink-0 transition-colors", on ? "text-accent" : "text-faint");
   if (row.kind === "path") return row.ok ? <CornerDownRight className={cls} strokeWidth={1.6} /> : <FolderX className={cn(cls, "text-amber")} strokeWidth={1.6} />;
   if (row.branch) return <FolderGit2 className={cls} strokeWidth={1.5} />;
   return on ? <FolderOpen className={cls} strokeWidth={1.5} /> : <Folder className={cls} strokeWidth={1.5} />;
@@ -73,16 +73,16 @@ function Row({ row, on }) {
   return (
     <>
       {on && (
-        <motion.span layoutId="hl" transition={spring} className="absolute inset-0 rounded-box bg-press" />
+        <motion.span layoutId="hl" transition={spring} className="pointer-events-none absolute inset-0 rounded-[8px] border border-accent" />
       )}
-      <span className="relative z-10 grid h-[60px] w-full grid-cols-[18px_1fr_auto] items-center gap-3.5 px-4">
+      <span className="relative z-10 grid h-[60px] w-full grid-cols-[14px_1fr_auto] items-center gap-3 px-3.5">
         <RowIcon row={row} on={on} />
         <span className="flex min-w-0 flex-col gap-[3px]">
           <span className="flex min-w-0 items-center gap-2">
-            <span className={cn("truncate text-[15px] font-semibold", missing ? "text-amber" : on ? "text-white" : "text-text")}>{title}</span>
+            <span className={cn("truncate text-[13px] font-[500]", missing ? "text-amber" : on ? "text-white" : "text-text")}>{title}</span>
             {row.branch && (
-              <span className="inline-flex max-w-40 shrink-0 items-center gap-1 rounded-[6px] border border-line px-1.5 font-mono text-[11px] leading-[18px] text-soft">
-                <GitBranch className="size-3 shrink-0" strokeWidth={1.6} />
+              <span className="inline-flex h-[18px] max-w-40 shrink-0 items-center gap-1 rounded-[4px] border border-line px-1.5 font-mono text-[10px] leading-none font-[600] text-soft">
+                <GitBranch className="size-[11px] shrink-0" strokeWidth={1.8} />
                 <span className="truncate">{row.branch}</span>
               </span>
             )}
@@ -272,8 +272,8 @@ function Picker() {
               <h1 className="mt-4 text-[27px] leading-tight font-bold tracking-[-0.02em] text-white">어디서 열까요?</h1>
             </header>
 
-            <div className="mx-7 mt-5 flex h-[52px] items-center gap-3 rounded-[16px] border border-line bg-raise pr-2.5 pl-4 transition-colors focus-within:border-accent/60">
-              <Search className="size-4 shrink-0 text-soft" strokeWidth={1.8} />
+            <div className="mx-7 mt-5 flex h-[34px] items-center gap-2 rounded-[8px] border border-line bg-raise pr-1 pl-2.5 transition-colors focus-within:border-accent/60">
+              <Search className="size-3.5 shrink-0 text-faint" strokeWidth={1.8} />
               <CommandInput
                 ref={input}
                 autoFocus
@@ -282,7 +282,7 @@ function Picker() {
                 onValueChange={(v) => { setQ(v); setNote(null); }}
                 placeholder="폴더 이름으로 찾거나, C:\ ~\ 로 경로를 써요"
               />
-              {q && <Button variant="ghost" size="sm" className="h-7 px-2 font-mono text-[11px]" onClick={() => { setQ(""); input.current?.focus(); }}>Esc</Button>}
+              {q && <Button variant="ghost" size="sm" className="h-6 rounded-[6px] px-2 font-mono text-[11px]" onClick={() => { setQ(""); input.current?.focus(); }}>Esc</Button>}
             </div>
 
             <CommandList className="mt-5 px-4 pb-2">
@@ -309,7 +309,7 @@ function Picker() {
                       value={`r${i}`}
                       onSelect={onSelect}
                       onPointerDown={() => { click.current.down = true; }}
-                      className="hover:bg-hover"
+                      className="bg-raise hover:bg-press"
                     >
                       <Row row={r} on={value === `r${i}`} />
                     </CommandItem>
