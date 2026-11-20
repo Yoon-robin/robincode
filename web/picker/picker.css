@@ -9,21 +9,21 @@
 @font-face { font-family: "Pretendard"; src: url("../../../assets/pretendard-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 @theme {
-  --color-page: #0b0d13;
-  --color-card: #111219;
-  --color-hover: #17181f;
-  --color-press: #272830;
-  --color-text: #d6d6db;
+  --color-page: #0d0f16;
+  --color-card: #11131b;
+  --color-hover: #1b1e28;
+  --color-press: #272b36;
+  --color-text: #d9dbe2;
   --color-head: #ffffff;
-  --color-soft: #a3a3a8;
-  --color-faint: #8b8fa5;
-  --color-dim: #8b8fa5;
-  --color-line: #21212a;  /* --line-strong: around controls */
-  --color-line-weak: #1a1b21;  /* --line */
-  --color-accent: #4f7dff;
+  --color-soft: #9296a2;
+  --color-faint: #7f8797;
+  --color-dim: #7f8797;
+  --color-line: #2b303c;  /* --line-strong: around controls */
+  --color-line-weak: #20232e;  /* --line */
+  --color-accent: #4e83ff;
   --color-accent-fill: #3566e8;
   --color-accent-hover: #2f5cd6;
-  --color-raise: #191925;
+  --color-raise: #181b25;
   --color-amber: #f5b942;
   --radius-box: 7px;  /* a row (--radius-row) */
   /* B-456: Pretendard one notch heavier (robin "Pretandard 볼드체") */
@@ -43,7 +43,7 @@
     margin: 0;
     background: var(--color-page);
     color: var(--color-text);
-    font: 600 14px/1.5 var(--font-sans);
+    font: 500 14px/1.5 var(--font-sans);
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
     user-select: none;
