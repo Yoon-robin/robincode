@@ -45,8 +45,8 @@ export function CopyButton({ text, label = "복사", className = "mini-btn" }) {
     setTimeout(() => setDone(null), 1400);
   });
   return (
-    <button type="button" className={className} onClick={copy}>
-      <Icon name={done === "ok" ? "check" : "copy"} />
+    <button type="button" className={done === "ok" ? `${className} swapped` : className} onClick={copy}>
+      <Icon key={done === "ok" ? "check" : "copy"} name={done === "ok" ? "check" : "copy"} />
       <span>{done === "ok" ? "복사했어요" : done === "fail" ? "복사하지 못했어요" : label}</span>
     </button>
   );

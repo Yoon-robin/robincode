@@ -66,6 +66,18 @@
   --sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
   --mono: "Robin Term", "Cascadia Code", "Cascadia Mono", Consolas, D2Coding, "Malgun Gothic", monospace;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* neverlose.cc's own motion tokens (docs/brand.md V3.5): how long, and the two other curves */
+  --ease-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-hover: 130ms;
+  --t-fast: 150ms;
+  --t-press: 160ms;
+  --t-open: 180ms;
+  --t: 200ms;
+  --t-move: 220ms;
+  --t-slow: 240ms;
+  --t-reveal: 400ms;
+  --ring: rgb(79 125 255 / 60%);
   --side-w: 272px; /* wider than the original's 170: conversation titles are read here */
   --col: 780px;
   color-scheme: dark;
@@ -89,7 +101,7 @@ button { cursor: pointer; }
 button:disabled { cursor: default; }
 a { color: var(--accent); text-underline-offset: 3px; text-decoration-color: rgb(79 125 255 / 45%); }
 a:hover { text-decoration-color: currentColor; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .mono { font-family: var(--mono); }
 .prompt { color: var(--soft); font-family: var(--mono); font-weight: 700; }
 /* "still going" after some words: a small turning ring (it was a blinking
@@ -112,11 +124,11 @@ a:hover { text-decoration-color: currentColor; }
 @keyframes line-on { from { visibility: hidden; } }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
-@keyframes pop-up { from { opacity: 0; } }
+@keyframes pop-up { from { opacity: 0; translate: 0 6px; filter: blur(6px); } }
 /* going: quicker than coming, a little down (it came up) */
 @keyframes toast-out { to { opacity: 0; transform: translate(-50%, 6px); } }
 /* a menu opens from its button: down a little and in */
-@keyframes menu-in { from { opacity: 0; } }
+@keyframes menu-in { from { opacity: 0; translate: 0 -6px; filter: blur(6px); } }
 .sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -297,7 +309,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   background: var(--card);
   box-shadow: var(--shadow);
   transform: translateX(-50%);
-  animation: pop-up 0.13s cubic-bezier(0, 0, 0.58, 1) both;
+  animation: pop-up var(--t-move) var(--ease-quart) both;
 }
 .ctx-pop p { margin: 0; }
 .ctx-pop-head { display: flex; align-items: baseline; justify-content: space-between; font: 600 13px var(--sans); color: var(--soft); }
@@ -514,7 +526,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   box-shadow: var(--pop-shadow);
   text-align: left;
   transform-origin: top center;
-  animation: menu-in 0.13s cubic-bezier(0, 0, 0.58, 1) both;
+  animation: menu-in var(--t-move) var(--ease-quart) both;
 }
 .place-menu > * { flex: none; }
 .list-head { display: flex; align-items: center; gap: 8px; min-height: 24px; margin: 0; padding: 0 4px; font-size: 13px; line-height: 1.5; color: var(--text); }
@@ -1457,9 +1469,9 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
   box-shadow: var(--pop-shadow);
   text-align: left;
   transform-origin: top right;
-  animation: pop-open 0.13s cubic-bezier(0, 0, 0.58, 1) both;
+  animation: pop-open var(--t-move) var(--ease-quart) both;
 }
-@keyframes pop-open { from { opacity: 0; } }
+@keyframes pop-open { from { opacity: 0; translate: 0 -6px; filter: blur(6px); } }
 .sel-menu { top: calc(100% + 6px); right: 0; width: 280px; }
 .pop-note { font-size: 12px; line-height: 1.45; color: var(--soft); white-space: normal; }
 
@@ -1489,6 +1501,18 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 }
 .toast.leaving { animation: toast-out 0.18s cubic-bezier(0.4, 0, 1, 1) both; pointer-events: none; }
 .toast > span { flex: 1 1 16em; max-width: 34em; overflow-wrap: anywhere; }
+/* The site's toast: an icon in the kind's colour before the words, a cross after them. */
+.toast { gap: 4px 10px; padding: 8px 8px 8px 12px; }
+.toast-ico { flex: none; display: grid; color: var(--accent); }
+.toast-ico .ico { width: 16px; height: 16px; stroke-width: 1.8; }
+.toast[data-kind="ok"] .toast-ico { color: #6ee7b7; }
+.toast[data-kind="err"] .toast-ico { color: var(--red); }
+.toast-x { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--soft); transition: background-color var(--t-hover), color var(--t-hover); }
+.toast-x:hover { background: rgb(255 255 255 / 7.5%); color: var(--text); }
+.toast-x .ico { width: 12px; height: 12px; }
+/* an icon that changes (copy → check) comes out of a blur at 0.7 */
+.swapped .ico { animation: icon-in var(--t) var(--ease-quart) both; }
+@keyframes icon-in { from { opacity: 0; filter: blur(5px); scale: 0.7; } }
 .toast-btn { flex: none; white-space: nowrap; border: 0; background: none; padding: 4px 6px; color: var(--accent); font-weight: 600; border-radius: var(--radius-sm); }
 .toast-btn:hover { background: var(--accent-soft); }
 
@@ -1718,6 +1742,9 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
   @keyframes toast-in { from { opacity: 0; } }
   @keyframes toast-out { to { opacity: 0; } }
   @keyframes menu-in { from { opacity: 0; } }
+  @keyframes pop-up { from { opacity: 0; } }
+  @keyframes pop-open { from { opacity: 0; } }
+  .swapped .ico { animation: none; }
   .btn:active, .mini-btn:active, .place-btn:active, .acct:active { transform: none !important; }
   .ver-notes li { animation: none; }
   @keyframes pop-in { from { opacity: 0; } }

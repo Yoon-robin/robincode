@@ -1189,13 +1189,17 @@ function Toast({ toast, onDone, onHold }) {
   // the mouse over it or the focus in it: it goes only when neither is (codex 2026-11-19)
   const held = useRef({ pointer: false, focus: false });
   const hold = (why, on) => { held.current[why] = on; onHold(held.current.pointer || held.current.focus); };
+  // the icon's colour says how it went, read off the words
+  const kind = /못했|실패|오류|안 돼|없어요|끊겼/.test(toast.text) ? "err" : /했어요|됐어요|지웠어요|옮겼어요|바꿨어요/.test(toast.text) ? "ok" : "info";
   return (
-    <div className={`toast${toast.leaving ? " leaving" : ""}`} role="status" onPointerEnter={() => hold("pointer", true)} onPointerLeave={() => hold("pointer", false)}
+    <div className={`toast${toast.leaving ? " leaving" : ""}`} data-kind={kind} role="status" onPointerEnter={() => hold("pointer", true)} onPointerLeave={() => hold("pointer", false)}
       onFocus={() => hold("focus", true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) hold("focus", false); }}>
+      <span className="toast-ico"><Icon name={kind === "err" ? "alert" : kind === "ok" ? "check" : "ask"} /></span>
       <span>{toast.text}</span>
       {toast.actions.map((a) => (
         <button key={a.label} type="button" className="toast-btn" onClick={() => { onDone(); a.run(); }}>{a.label}</button>
       ))}
+      <button type="button" className="toast-x" aria-label="닫기" onClick={onDone}><Icon name="close" /></button>
     </div>
   );
 }
