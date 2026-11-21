@@ -1756,3 +1756,102 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
   .side, .app[data-side="open"] .side,
   .scrim, .app[data-side="open"] .scrim { transition: none; }
 }
+
+/* ==== V4: the site's skin on the menu's bones (docs/brand.md, 2026-11-21) ====
+   robin "제대로 neverlose UI로 만드는작업 시작해 다 모든것". The skin is
+   neverlose.cc's own (site_tokens_3.md): a near-black ground, glass faces
+   edged by a 1px shadow instead of a border, pill buttons and one-line
+   inputs, floating glass menus, toasts and sheets, weights 450/550/650.
+   The bones stay the game menu's: the side column (in a browser window the
+   site's floating panel, 8 off the edges), the thread, rows, switches.
+   The installed app's glass window keeps its own frame (html.glass above):
+   only the colours follow. */
+:root {
+  --side: #0b0b0d;
+  --page: #0b0b0d;
+  --card: rgb(18 18 21 / 92%);
+  --inset: rgb(255 255 255 / 4.3%);
+  --win: #08080a;
+  --raise: rgb(80 80 80 / 18%);
+  --hover: rgb(255 255 255 / 4.5%);
+  --press: rgb(255 255 255 / 10%);
+  --sunk: rgb(255 255 255 / 12%);
+  --track: rgb(255 255 255 / 7.5%);
+  --head: #f2f2f4;
+  --chosen: #f2f2f4;
+  --text: rgb(255 255 255 / 85%);
+  --soft: rgb(150 150 150 / 85%);
+  --faint: rgb(255 255 255 / 50%);
+  --off-text: rgb(255 255 255 / 34%);
+  --line: rgb(255 255 255 / 6%);
+  --line-strong: rgb(255 255 255 / 10%);
+  --line-weak: rgb(255 255 255 / 6%);
+  --accent: #4e7dff;
+  --accent-fill: #4e7dff;
+  --accent-hover: #6b92ff;
+  --accent-soft: rgb(78 125 255 / 14%);
+  --amber: #fbbf24;
+  --red: #fca5a5;
+  --pop-bg: rgb(14 14 17 / 92%);
+  --pop-line: transparent;
+  --pop-hover: rgb(255 255 255 / 10%);
+  --pop-shadow: 0 0 0 1px rgb(255 255 255 / 6.7%), 0 8px 40px rgb(10 10 10 / 40%);
+  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-row: 10px;
+  --radius-item: 10px;
+  --radius-card: 16px;
+  --radius-pop: 16px;
+  --radius-dlg: 18px;
+  --radius-win: 18px;
+  --shadow: 0 8px 40px rgb(10 10 10 / 40%);
+  --edge: 0 0 0 1px rgb(255 255 255 / 5.5%), 0 8px 40px rgb(10 10 10 / 40%);
+}
+html.glass { --side: rgb(11 11 13 / 86%); }
+html.glass .main { background: rgb(11 11 13 / 96%); }
+html.glass .conv { --conv-bg: #0d0d10; }
+
+body { font-weight: 450; }
+::selection { background: rgb(78 125 255 / 32%); }
+.brand-name, .top-title, .sheet-head h2, .sheet h2 { font-weight: 650; }
+
+/* buttons: pills */
+.btn { border-color: rgb(255 255 255 / 6.7%); border-radius: 9999px; font-weight: 550; transition: background-color var(--t-fast, 150ms) ease-out, border-color var(--t-fast, 150ms) ease-out, color var(--t-fast, 150ms) ease-out; }
+.btn:hover { background: rgb(255 255 255 / 10%); color: var(--head); }
+.btn-primary, .btn-primary:hover { border-color: transparent; color: #fff; font-weight: 550; }
+.btn-primary { background: #4e7dff; }
+.btn-primary:hover { background: #6b92ff; }
+.btn-primary:active { background: #4471ef; }
+.icon-btn { border-radius: 9999px; }
+.send { border-radius: 9999px; }
+.mode { border-color: rgb(255 255 255 / 6.7%); border-radius: 9999px; font-weight: 550; }
+
+/* the side column: a search pill, rows of 10px corners */
+.conv-search { border-color: transparent; border-radius: 9999px; padding-left: 14px; }
+.conv-search:hover { border-color: rgb(255 255 255 / 10%); }
+.conv-search:focus-within { border-color: rgb(78 125 255 / 60%); }
+.side-label { font-size: 12.8px; font-weight: 450; }
+.conv-open { font-weight: 450; }
+.conv[aria-current="true"] .conv-open { font-weight: 550; }
+
+/* the thread: robin's words on a glass pill, the composer a glass box */
+.bubble { border-color: transparent; border-radius: 18px; background: rgb(80 80 80 / 18%); }
+.composer-box { border-color: rgb(255 255 255 / 6.7%); border-radius: 22px; background: rgb(18 18 21 / 92%); box-shadow: 0 8px 40px rgb(10 10 10 / 40%); }
+.composer-box:focus-within { border-color: rgb(78 125 255 / 60%); box-shadow: 0 8px 40px rgb(10 10 10 / 40%); }
+.code { border-color: transparent; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 10%); }
+.code-head { background: rgb(255 255 255 / 3%); }
+
+/* what floats: menus, sheets, the toast */
+.pop { -webkit-backdrop-filter: blur(12px) saturate(1.28); backdrop-filter: blur(12px) saturate(1.28); }
+.sheet, .gpu-panel { border: 0; background: rgb(14 14 17 / 96%); box-shadow: 0 0 0 1px rgb(255 255 255 / 10%), 0 8px 40px rgb(10 10 10 / 40%); }
+.toast { border: 1px solid rgb(255 255 255 / 10%); border-radius: 14px; background: rgb(10 10 12 / 85%); box-shadow: 0 8px 40px rgb(10 10 10 / 40%); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); font-weight: 450; }
+
+@media (min-width: 861px) {
+  /* in a browser window the side column is the site's floating panel and the
+     thread has no face of its own; the app's glass window keeps its panel */
+  html:not(.glass) .app { background: var(--page); }
+  html:not(.glass) .side { margin: 8px 0 8px 8px; border-radius: 16px; background: linear-gradient(rgb(255 255 255 / 4.5%), rgb(255 255 255 / 0%) 40%), rgb(15 15 17 / 60%); box-shadow: 0 0 0 1px rgb(255 255 255 / 7%), 1px 3px 7.5px rgb(10 10 10 / 35%); overflow: hidden; }
+  html:not(.glass) .conv { --conv-bg: #111114; }
+  html:not(.glass) .main { border: 0; border-radius: 0; }
+}
+/* ==== end of V4 ==== */
