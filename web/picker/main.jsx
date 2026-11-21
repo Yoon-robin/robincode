@@ -58,7 +58,7 @@ function RowIcon({ row, on }) {
 function Brand({ sub }) {
   return (
     <p className="flex items-center gap-[11px] text-[14px] font-bold text-head">
-      <span className="grid size-[35px] place-items-center rounded-[7px] bg-[#11131b] shadow-[inset_0_0_0_1px_#2e3040]" aria-hidden="true">
+      <span className="grid size-[35px] place-items-center rounded-[7px] bg-[#111113] shadow-[inset_0_0_0_1px_#2a2a2c]" aria-hidden="true">
         <svg viewBox="0 0 24 24" className="size-[18px] fill-none stroke-white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5" /></svg>
       </span>
       RobinCode

@@ -11,23 +11,23 @@
 @font-face { font-family: "Pretendard"; src: url("../../../assets/pretendard-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 @theme {
-  --color-page: #0d0f16;
-  --color-card: #11131b;
-  --color-hover: #1b1e28;
-  --color-press: #272b36;
-  --color-text: #d9dbe2;
+  --color-page: #0b0b0d;
+  --color-card: #0e0e11;
+  --color-hover: #161618;
+  --color-press: #232325;
+  --color-text: #dadadb;
   --color-head: #ffffff;
-  --color-soft: #9296a2;
-  --color-faint: #7f8797;
-  --color-dim: #7f8797;
-  --color-line: #2b303c;  /* --line-strong: around controls */
-  --color-line-weak: #20232e;  /* --line */
-  --color-accent: #4f7dff;
-  --color-accent-fill: #3566e8;
-  --color-accent-hover: #2f5cd6;
-  --color-raise: #181b25;
-  --color-amber: #f5b942;
-  --radius-box: 7px;  /* a row (--radius-row) */
+  --color-soft: #8b8b8c;
+  --color-faint: #858586;
+  --color-dim: #858586;
+  --color-line: #232325;  /* --line-strong: around controls */
+  --color-line-weak: #1a1a1b;  /* --line */
+  --color-accent: #4e7dff;
+  --color-accent-fill: #4e7dff;
+  --color-accent-hover: #6b92ff;
+  --color-raise: #171719;
+  --color-amber: #fbbf24;
+  --radius-box: 10px;  /* a row (--radius-row) */
   /* B-456: Pretendard one notch heavier (robin "Pretandard 볼드체") */
   --font-weight-normal: 500;
   --font-weight-medium: 500;
@@ -51,7 +51,7 @@
     user-select: none;
     color-scheme: dark;
   }
-  ::selection { background: rgb(79 125 255 / 32%); }
+  ::selection { background: rgb(78 125 255 / 32%); }
   /* the list's scrollbar: 4 wide, r2, --line-strong, no track */
   [cmdk-list] { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
   @supports selector(::-webkit-scrollbar) {
