@@ -19,50 +19,50 @@
      docs/design/neverlose-reference/replica/menu.html?solid=dark): the
      official menu's glass layers set over a dark scene; lines, blue, corners
      and sizes off the 1x picture */
-  --side: #12151e;   /* sidebar, nearly the panel's black */
-  --page: #0d0f16;   /* the content panel, the top bar */
-  --card: #11131b;   /* cards: a step lighter than the panel, with a faint --line */
-  --raise: #181b25;  /* a control: input, select, value box, chip */
-  --hover: #1b1e28;  /* a row pointed at, on the sidebar */
-  --press: #272b36;  /* the chosen row, pressed */
-  --sunk: #0f131c;   /* an off switch's track */
-  --track: #2b303b;  /* a slider's or a meter's groove */
-  --head: #ffffff;
-  --chosen: #f2f2f2; /* the chosen sidebar row, the account name */
-  --text: #d9dbe2;
-  --soft: #9296a2;
-  --faint: #7f8797;  /* 5.9:1 on the content, 5.5:1 on a card */
-  --off-text: #6b6e7c; /* a control that can't be used now (not for reading) */
+  --side: #0b0b0d;   /* sidebar: the ground itself (V4) */
+  --page: #0b0b0d;   /* the content panel, the top bar */
+  --card: rgb(18 18 21 / 92%);   /* cards: a step lighter than the panel, with a faint --line */
+  --raise: rgb(80 80 80 / 18%);  /* a control: input, select, value box, chip */
+  --hover: rgb(255 255 255 / 4.5%);  /* a row pointed at, on the sidebar */
+  --press: rgb(255 255 255 / 10%);  /* the chosen row, pressed */
+  --sunk: rgb(255 255 255 / 12%);   /* an off switch's track */
+  --track: rgb(255 255 255 / 7.5%);  /* a slider's or a meter's groove */
+  --head: #f2f2f4;
+  --chosen: #f2f2f4; /* the chosen sidebar row, the account name */
+  --text: rgb(255 255 255 / 85%);
+  --soft: rgb(150 150 150 / 85%);
+  --faint: rgb(255 255 255 / 50%);  /* 5.9:1 on the content, 5.5:1 on a card */
+  --off-text: rgb(255 255 255 / 42%); /* a control that can't be used now (not for reading) */
   /* lines: faint, the surfaces do most of the telling apart */
-  --line: #20232e;        /* card and panel edges, the top bar's and the sidebar's rules */
-  --line-strong: #2b303c; /* around controls */
-  --line-weak: #1c1f29;   /* between rows inside a card */
-  --accent: #4f7dff;      /* on, chosen, focus, links; 4.9:1 on the content */
-  --accent-fill: #3566e8; /* white text on it: 5.0:1 */
-  --accent-hover: #2f5cd6;
-  --accent-soft: rgb(78 125 255 / 16%);
-  --amber: #f5b942;
-  --red: #f26b6e;
+  --line: rgb(255 255 255 / 6%);        /* card and panel edges, the top bar's and the sidebar's rules */
+  --line-strong: rgb(255 255 255 / 10%); /* around controls */
+  --line-weak: rgb(255 255 255 / 6%);   /* between rows inside a card */
+  --accent: #4e7dff;      /* on, chosen, focus, links; 4.9:1 on the content */
+  --accent-fill: #4e7dff; /* white text on it: 5.0:1 */
+  --accent-hover: #6b92ff;
+  --accent-soft: rgb(78 125 255 / 14%);
+  --amber: #fbbf24;
+  --red: #fca5a5;
   --green: #5fd08a; /* a diff's added lines only */
   /* the inset dark of code and command output, below the content panel
      (not --side: on the glass window that one is see-through) */
-  --inset: #090b12;
-  --win: var(--inset);
-  --radius-sm: 6px;   /* controls: chips, small buttons, selects, value boxes, top bar buttons */
-  --radius: 6px;      /* buttons, inputs */
-  --radius-row: 7px;  /* sidebar rows, the logo tile */
-  --radius-card: 15px;
-  --radius-pop: 12px; /* dropdown menus, popovers (V3.4) */
-  --radius-item: 8px; /* a menu's or a list's row, outline buttons, search fields (V3.4) */
-  --radius-dlg: 14px; /* dialogs and sheets (V3.4) */
-  --radius-win: 16px; /* the content panel, the composer */
-  --shadow: 0 10px 30px rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 30%);
+  --inset: rgb(255 255 255 / 4.3%);
+  --win: #08080a;
+  --radius-sm: 8px;   /* controls: chips, small buttons, selects, value boxes, top bar buttons */
+  --radius: 10px;      /* buttons, inputs */
+  --radius-row: 10px;  /* sidebar rows, the logo tile */
+  --radius-card: 16px;
+  --radius-pop: 16px; /* dropdown menus, popovers (V3.4) */
+  --radius-item: 10px; /* a menu's or a list's row, outline buttons, search fields (V3.4) */
+  --radius-dlg: 18px; /* dialogs and sheets (V3.4) */
+  --radius-win: 18px; /* the content panel, the composer */
+  --shadow: 0 8px 40px rgb(10 10 10 / 40%);
   /* a dropdown (the @ and / lists, a select): solid, r12, 6px in, a hairline
      of light along the top, rows 32px r8, white 6% when pointed at */
-  --pop-bg: #141821; /* solid: what is under a menu must not read through */
-  --pop-line: rgb(57 61 76 / 80%);
-  --pop-shadow: inset 0 1px 0 rgb(255 255 255 / 8%), 0 8px 24px rgb(0 0 0 / 40%);
-  --pop-hover: rgb(255 255 255 / 6%);
+  --pop-bg: rgb(14 14 17 / 92%); /* solid: what is under a menu must not read through */
+  --pop-line: transparent;
+  --pop-shadow: 0 0 0 1px rgb(255 255 255 / 6.7%), 0 8px 40px rgb(10 10 10 / 40%);
+  --pop-hover: rgb(255 255 255 / 10%);
   --sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
   --mono: "Robin Term", "Cascadia Code", "Cascadia Mono", Consolas, D2Coding, "Malgun Gothic", monospace;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -81,6 +81,7 @@
   --side-w: 272px; /* wider than the original's 170: conversation titles are read here */
   --col: 780px;
   color-scheme: dark;
+  --edge: 0 0 0 1px rgb(255 255 255 / 5.5%), 0 8px 40px rgb(10 10 10 / 40%);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -332,7 +333,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 html.glass, html.glass body { background: transparent; }
 /* the sidebar the official window glass (V3.2: nearly black, the desktop
    faintly through), the rows' steps as white over it (hover 7%, chosen 11%) */
-html.glass { --side: rgb(5 8 15 / 87.5%); --hover: rgb(255 255 255 / 7%); }
+html.glass { --side: rgb(11 11 13 / 86%); --hover: rgb(255 255 255 / 7%); }
 html.glass .app { background: var(--side); }
 html.glass .side { background: none; }
 /* on the glass the sidebar's search is see-through too: a darker tint */
@@ -1584,7 +1585,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
    the conversation fills the window without its rounded panel edge */
 @media (max-width: 860px) {
   .main { border: 0; border-radius: 0; }
-  html.glass .side { background: #12151e; } /* --side, solid */
+  html.glass .side { background: #0b0b0d; } /* --side, solid */
 }
 
 /* ---- the folder row: the folder screen is a click away ---- */
@@ -1766,48 +1767,6 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
    site's floating panel, 8 off the edges), the thread, rows, switches.
    The installed app's glass window keeps its own frame (html.glass above):
    only the colours follow. */
-:root {
-  --side: #0b0b0d;
-  --page: #0b0b0d;
-  --card: rgb(18 18 21 / 92%);
-  --inset: rgb(255 255 255 / 4.3%);
-  --win: #08080a;
-  --raise: rgb(80 80 80 / 18%);
-  --hover: rgb(255 255 255 / 4.5%);
-  --press: rgb(255 255 255 / 10%);
-  --sunk: rgb(255 255 255 / 12%);
-  --track: rgb(255 255 255 / 7.5%);
-  --head: #f2f2f4;
-  --chosen: #f2f2f4;
-  --text: rgb(255 255 255 / 85%);
-  --soft: rgb(150 150 150 / 85%);
-  --faint: rgb(255 255 255 / 50%);
-  --off-text: rgb(255 255 255 / 34%);
-  --line: rgb(255 255 255 / 6%);
-  --line-strong: rgb(255 255 255 / 10%);
-  --line-weak: rgb(255 255 255 / 6%);
-  --accent: #4e7dff;
-  --accent-fill: #4e7dff;
-  --accent-hover: #6b92ff;
-  --accent-soft: rgb(78 125 255 / 14%);
-  --amber: #fbbf24;
-  --red: #fca5a5;
-  --pop-bg: rgb(14 14 17 / 92%);
-  --pop-line: transparent;
-  --pop-hover: rgb(255 255 255 / 10%);
-  --pop-shadow: 0 0 0 1px rgb(255 255 255 / 6.7%), 0 8px 40px rgb(10 10 10 / 40%);
-  --radius-sm: 8px;
-  --radius: 10px;
-  --radius-row: 10px;
-  --radius-item: 10px;
-  --radius-card: 16px;
-  --radius-pop: 16px;
-  --radius-dlg: 18px;
-  --radius-win: 18px;
-  --shadow: 0 8px 40px rgb(10 10 10 / 40%);
-  --edge: 0 0 0 1px rgb(255 255 255 / 5.5%), 0 8px 40px rgb(10 10 10 / 40%);
-}
-html.glass { --side: rgb(11 11 13 / 86%); }
 html.glass .main { background: rgb(11 11 13 / 96%); }
 html.glass .conv { --conv-bg: #0d0d10; }
 
