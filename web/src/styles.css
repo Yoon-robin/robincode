@@ -1829,3 +1829,8 @@ body { font-weight: 450; }
 .chip-state.run { border-color: rgb(158 184 255 / 20%); background: rgb(158 184 255 / 10%); color: #9eb8ff; }
 .chip-state.ok .lamp.on, .chip-state.ok.conv-done::before, .chip-state.run .lamp.on { background: currentColor; }
 .chip-state.run .tag { color: currentColor; }
+
+/* fewer words (2026-11-23): the sentence under "무엇을 할까요?" that said what the app does is gone
+   (the folder picker and the starters say it); the starters keep the gap it left. */
+.empty-note { margin-bottom: 0; }
+.starters { margin-top: 24px; }

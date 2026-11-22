@@ -278,9 +278,8 @@ function Empty({ info, ready, onPick, onPlace }) {
       <Logo />
       <h1 className="empty-sub">무엇을 할까요?</h1>
       {linked && <PlacePicker info={info} ready={ready} onPlace={onPlace} />}
-      <p className="empty-note">{!linked ? "연결하는 중이에요."
-        : info.chat ? "폴더 없이 이야기해요. 파일을 읽거나 명령을 실행하려면 위에서 폴더를 골라요."
-          : "이 폴더의 파일을 읽고, 찾고, 고치고, PowerShell 명령을 실행해요. 명령과 파일 수정은 실행 전에 물어봐요."}</p>
+      {/* no sentence saying what the app does: the folder picker above and the starters below say it */}
+      {!linked && <p className="empty-note">연결하는 중이에요.</p>}
       <div className="starters">
         {(info.chat ? CHAT_SUGGESTIONS : SUGGESTIONS).map((s) => (
           <button key={s} type="button" className="starter" disabled={!ready} onClick={() => onPick(s)}>
