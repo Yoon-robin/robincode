@@ -96,7 +96,7 @@ body {
   /* Korean breaks between words, not inside one ("써져/요") */
   word-break: keep-all;
 }
-::selection { background: rgb(78 125 255 / 32%); }
+::selection { color: inherit; background: rgb(78 125 255 / 25%); }
 button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; }
@@ -999,7 +999,8 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 /* ---- the `/` list ---- */
 .mention.cmd { gap: 12px; font-family: var(--sans, inherit); }
 .cmd-name { flex: none; min-width: 112px; font-family: var(--mono); color: var(--head); font-size: 13px; }
-.cmd-arg { color: var(--faint); }
+/* what to type after the command is words, not code: the page's face (the code face set Korean a cell apart) */
+.cmd-arg { font-family: var(--sans); font-size: 12.5px; letter-spacing: 0; color: var(--faint); }
 .cmd-hint { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; }
 .cmd-kind { flex: none; } /* a status chip */
 
@@ -1771,7 +1772,7 @@ html.glass .main { background: rgb(11 11 13 / 96%); }
 html.glass .conv { --conv-bg: #0d0d10; }
 
 body { font-weight: 450; }
-::selection { background: rgb(78 125 255 / 32%); }
+::selection { color: inherit; background: rgb(78 125 255 / 25%); }
 .brand-name, .top-title, .sheet-head h2, .sheet h2 { font-weight: 650; }
 
 /* buttons: pills */
