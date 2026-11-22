@@ -1821,3 +1821,11 @@ body { font-weight: 450; }
 .conv-open { transition: transform 0.12s ease-out; }
 .conv-open:active { transform: scale(0.99); }
 @media (prefers-reduced-motion: reduce) { .conv, .conv-open { transition: none; } .conv-open:active { transform: none; } }
+
+/* states in their colours (2026-11-22, the fifth look at neverlose.cc): a good state is green
+   (the GPU on, a talk that finished), work under way is the site's pale blue; both on 10% of
+   the colour with a 20% edge, as its badges are. They were the same grey as "확인 중". */
+.chip-state.ok { border-color: rgb(110 231 183 / 20%); background: rgb(110 231 183 / 10%); color: #6ee7b7; }
+.chip-state.run { border-color: rgb(158 184 255 / 20%); background: rgb(158 184 255 / 10%); color: #9eb8ff; }
+.chip-state.ok .lamp.on, .chip-state.ok.conv-done::before, .chip-state.run .lamp.on { background: currentColor; }
+.chip-state.run .tag { color: currentColor; }

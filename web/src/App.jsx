@@ -32,8 +32,9 @@ const offSoon = (gpu) => (gpu?.state === "on" && gpu.idle != null && gpu.idleLim
   ? Math.max(0, gpu.idleLimit - gpu.idle) : null);
 const lampOf = (state) => (state === "on" ? "on" : state === "starting" ? "warn" : state === "unknown" ? "idle" : "bad");
 // the GPU's state as a status chip: amber while it turns on (or is the fake
-// one), red only when the server cannot be asked; off is not an error
-const chipTone = (state, lamp) => (lamp === "warn" || lamp === "test" ? " warn" : state === "unreachable" ? " bad" : "");
+// one), red only when the server cannot be asked, green when it is on (a good
+// state is said in green, as neverlose.cc's badges say it); off is not an error
+const chipTone = (state, lamp) => (lamp === "warn" || lamp === "test" ? " warn" : state === "unreachable" ? " bad" : state === "on" && lamp === "on" ? " ok" : "");
 
 // ---- turning on: where a rent or start is ------------------------------------------
 // robinai-gpu says it every 10 s ("진행:" lines, server.mjs parseProgress)
@@ -670,11 +671,11 @@ function Mark({ text, q }) {
 // (one line of a 32px row: short words, the whole sentence in the row's title)
 // (a status chip, docs/brand.md 부품 더: amber asks or waits, red failed)
 function RunMark({ run, here }) {
-  if (run.done) return <span className="conv-run conv-done chip-state">끝났어요<span className="sr"> · 아직 안 봤어요</span></span>;
+  if (run.done) return <span className="conv-run conv-done chip-state ok">끝났어요<span className="sr"> · 아직 안 봤어요</span></span>;
   if (run.asking) return <span className="conv-run conv-ask chip-state warn"><Tag tag="[ ?? ]" />허락을 기다려요</span>;
   if (run.waiting) return <span className="conv-run conv-wait chip-state warn"><Tag tag="[ ·· ]" />자리를 기다려요</span>;
   if (run.failed) return <span className="conv-run conv-fail chip-state bad"><Tag tag="[ !! ]" />보내지 못했어요</span>;
-  return <span className="conv-run chip-state">{here ? <span className="lamp on" aria-hidden="true" /> : <Tag tag="[ .. ]" />}도는 중</span>;
+  return <span className="conv-run chip-state run">{here ? <span className="lamp on" aria-hidden="true" /> : <Tag tag="[ .. ]" />}도는 중</span>;
 }
 const runWords = (run) => (run.done ? "끝났어요 · 아직 안 봤어요" : run.asking ? "허락을 기다려요" : run.waiting ? "GPU 자리를 기다려요"
   : run.failed ? "보내지 못했어요 · 열면 쓴 말이 돌아와요" : "도는 중");
