@@ -450,9 +450,6 @@ function turnEnds(items, busy) {
 // coming back to one put robin at its bottom (codex B9 / B-438)
 const readAt = new Map();
 const ASK_WHAT = { powershell: "명령 실행", bash: "명령 실행", edit: "파일 고치기", write: "파일 쓰기", read: "파일 읽기", grep: "파일 안 찾기", webfetch: "웹 페이지 읽기" };
-// a jump robin asked for (find in the conversation, going to a question): the thread may let go of the bottom
-let jumpAt = 0;
-const noteJump = () => { jumpAt = performance.now(); };
 const Conversation = memo(function Conversation({ state, outbox = [], asking, onDecide, onPick, onPlace, onRewind, onRetry, onBranch, onGpu, onUnqueue, onPlanGo }) {
   const scroller = useRef(null);
   const content = useRef(null);
@@ -470,36 +467,10 @@ const Conversation = memo(function Conversation({ state, outbox = [], asking, on
     size.current = now;
     return true;
   };
-  // Only robin lets go of the bottom. A scroll event says where the view is,
-  // not who moved it: when the thread is redrawn (a summary replaces it, a
-  // long reply paints at once) the browser clamps scrollTop and the event
-  // arrives after the new content, far from the end — that used to read as
-  // "robin scrolled up", and the view stopped following with "아래로" showing
-  // on a thread nobody touched (test/ui.mjs caught it two runs in three,
-  // 2026-11-21). So the view lets go only while robin is at it: the wheel, a
-  // finger, a key in the thread, the scrollbar held, or a jump robin asked
-  // for (find, "허락 요청으로").
-  const userAt = useRef(0);
-  const held = useRef(false);
-  const touched = () => { userAt.current = performance.now(); };
-  // a press anywhere in the thread: the scrollbar, a selection dragged past the edge; the middle button starts
-  // the browser's own autoscroll, which goes on after the button is up, until the next press
-  const auto = useRef(false);
-  const onPointerDown = (e) => { held.current = true; auto.current = e.button === 1; touched(); };
-  useEffect(() => {
-    const up = () => { if (held.current) { held.current = false; touched(); } };
-    // a press outside the thread ends the autoscroll too (the capture phase runs before the thread's own handler)
-    const down = () => { auto.current = false; };
-    window.addEventListener("pointerdown", down, true);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    return () => { window.removeEventListener("pointerdown", down, true); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up); };
-  }, []);
   const onScroll = () => {
     const el = scroller.current;
     if (resized(el) && stick.current) { el.scrollTop = el.scrollHeight; return; }
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) stick.current = true;
-    else if (held.current || auto.current || performance.now() - Math.max(userAt.current, jumpAt) < 700) stick.current = false;
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     setAway(!stick.current);
     const key = fileNow.current || "new";
     readAt.delete(key);
@@ -516,11 +487,19 @@ const Conversation = memo(function Conversation({ state, outbox = [], asking, on
     stick.current = true;
     setAway(false);
   }, [state.sessionFile]);
+  // "something robin just sent" is also a message that is still waiting (sent while a turn or a summary runs):
+  // by the time it is in the conversation the reply may already be the last item — with a fast model both land
+  // in one render — and the view, left up where robin was reading or where find jumped, never came back down
+  // with "아래로" showing (test/ui.mjs "창 크기를 바꿔도 맨 아래" failed two runs in three; 2026-11-22: the log
+  // showed find leaving the view at 45px and nothing bringing it back)
+  const waiting = outbox.length + state.queued.length;
+  const waitingBefore = useRef(waiting);
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (last?.kind === "user") stick.current = true;
+    if (last?.kind === "user" || waiting > waitingBefore.current) stick.current = true;
+    waitingBefore.current = waiting;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [state.items, state.busy, last, state.queued.length]);
+  }, [state.items, state.busy, last, waiting]);
   // while it runs, keep following what grows (a fold opening, a code block)
   // (a first message being sent is not an empty conversation: its bubble shows)
   // (what waits for a GPU slot shows too: a new conversation's first message)
@@ -547,7 +526,6 @@ const Conversation = memo(function Conversation({ state, outbox = [], asking, on
     // answered cards stay (hidden, inert): the one still asking is the last live one
     const card = [...(scroller.current?.querySelectorAll(".ask") || [])].findLast((el) => !el.closest("[inert]"));
     if (!card) { toBottom(); return; }
-    noteJump();
     card.scrollIntoView({ block: "center", behavior: glide() });
     // the card, not its yes: a screen reader reads the question first, and a
     // stray Enter does not say yes
@@ -567,7 +545,7 @@ const Conversation = memo(function Conversation({ state, outbox = [], asking, on
   // the answer that can be asked for again: the conversation's last
   const lastAnswer = state.items.findLast((x) => x.kind === "assistant" || x.kind === "user");
   return (
-    <div className="thread" ref={scroller} onScroll={onScroll} onWheel={touched} onTouchMove={touched} onKeyDown={touched} onPointerDown={onPointerDown}>
+    <div className="thread" ref={scroller} onScroll={onScroll}>
       {empty ? <Empty info={state.info} ready={state.ready && state.link} onPick={onPick} onPlace={onPlace} /> : (
         <div className="msgs" ref={content}>
           {state.items.map((item, k) => {
@@ -1564,7 +1542,6 @@ function FindBar({ items, onClose }) {
       shown.current = key;
       const el = r.startContainer.parentElement;
       // a long code block scrolls by itself; the thread to the line
-      noteJump();
       el?.scrollIntoView({ block: "center" });
     }
   }, [ranges, now]); // eslint-disable-line react-hooks/exhaustive-deps
