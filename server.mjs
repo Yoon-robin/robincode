@@ -2557,10 +2557,10 @@ function findBrowser() {
 }
 function openWindow(url) {
   const browser = findBrowser();
-  if (!browser) { log("앱 창을 띄울 브라우저(Edge·Chrome·Brave)가 없어요. 이 주소를 여세요:", url); return false; }
+  if (!browser) { log("앱 창을 띄울 브라우저(Edge·Chrome·Brave)가 없어요. 이 주소를 열어 주세요:", url); return false; }
   const win = spawn(browser, [`--app=${url}`, `--user-data-dir=${join(appDir, "window")}`, "--window-size=1180,860",
     "--no-first-run", "--no-default-browser-check", "--disable-features=Translate"], { stdio: "ignore", detached: true });
-  win.on("error", (e) => log("창을 띄우지 못했어요:", e.message, "이 주소를 여세요:", url));
+  win.on("error", (e) => log("창을 띄우지 못했어요:", e.message, "이 주소를 열어 주세요:", url));
   win.unref();
   return true;
 }

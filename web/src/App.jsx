@@ -1310,7 +1310,7 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
         </>
       );
     } else if (sure === "start") {
-      confirm = <p>다시 켜면 그 GPU의 시간당 요금이 크레딧에서 다시 나가요. 받아 둔 모델이 있어서 몇 분이면 돼요. 다 쓰면 끄세요.</p>;
+      confirm = <p>다시 켜면 그 GPU의 시간당 요금이 크레딧에서 다시 나가요. 받아 둔 모델이 있어서 몇 분이면 돼요. 다 쓰면 꺼 주세요.</p>;
       foot = (
         <>
           <button type="button" className="btn btn-text" autoFocus onClick={() => setSure(null)}>취소</button>
@@ -1378,7 +1378,7 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
                   ))}
                 </div>
               )}
-              {chosen && sure !== "rent" && low && <p className="gpu-warn">크레딧이 한 시간 요금보다 적어요. Vast.ai에서 먼저 충전하세요.</p>}
+              {chosen && sure !== "rent" && low && <p className="gpu-warn">크레딧이 한 시간 요금보다 적어요. Vast.ai에서 먼저 충전해 주세요.</p>}
             </>
           )}
 
@@ -2107,7 +2107,7 @@ export default function App() {
       const back = () => api("/api/rewind", { id: r.back }).then(() => { setDraft(before); picturesRef.current?.([]); focusBox(); });
       const undo = { label: "되돌리기", run: () => back().catch(fail) };
       if (!r.files?.length) {
-        say(ran ? "이 말 앞으로 돌아왔어요. 명령이 한 일은 그대로예요." : "이 말 앞으로 돌아왔어요. 고쳐서 보내세요.", undo);
+        say(ran ? "이 말 앞으로 돌아왔어요. 명령이 한 일은 그대로예요." : "이 말 앞으로 돌아왔어요. 고쳐서 보내 주세요.", undo);
         return;
       }
       // undoing both: the conversation back where it was, then its files
@@ -2343,7 +2343,7 @@ export default function App() {
     if (soon == null) { warned.current = false; return; }
     if (warned.current || notify !== "on") return;
     warned.current = true;
-    ping("GPU가 곧 꺼져요", `${state.gpu.idle}분째 안 써서 약 ${soon}분 뒤 서버가 꺼요. 계속 쓰려면 RobinCode에서 "계속 켜 두기"를 누르세요.`);
+    ping("GPU가 곧 꺼져요", `${state.gpu.idle}분째 안 써서 약 ${soon}분 뒤 서버가 꺼요. 계속 쓰려면 RobinCode에서 "계속 켜 두기"를 눌러 주세요.`);
   }, [soon, notify]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // for the memo'd conversation and list: the same functions while robin types
@@ -2431,7 +2431,7 @@ export default function App() {
             ? <button type="button" className="head-btn head-icon" aria-label="설정 닫기" title="설정 닫기 (Esc)" onClick={on.closeSettings}><Icon name="close" /></button>
             : <button type="button" className="head-btn head-icon" aria-label="이 대화에서 찾기" title="이 대화에서 찾기 (Ctrl+F)" onClick={on.find}><Icon name="search" /></button>}
         </header>
-        {offline && <div className="lost" role="alert">{lostLong ? "RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 여세요." : "RobinCode 서버와 다시 연결하는 중이에요."}</div>}
+        {offline && <div className="lost" role="alert">{lostLong ? "RobinCode 서버와 연결이 끊겼어요. 창을 닫고 다시 열어 주세요." : "RobinCode 서버와 다시 연결하는 중이에요."}</div>}
         {soon != null && (
           <div className="gpu-soon" role="status">
             <span>GPU를 {state.gpu.idle}분째 안 써서 {soon ? `약 ${soon}분 뒤` : "곧"} 서버가 꺼요. 다시 켜려면 6~10분 걸려요.</span>
