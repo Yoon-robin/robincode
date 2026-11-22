@@ -1834,3 +1834,74 @@ body { font-weight: 450; }
    (the folder picker and the starters say it); the starters keep the gap it left. */
 .empty-note { margin-bottom: 0; }
 .starters { margin-top: 24px; }
+
+/* ==== V5: Recurrence (docs/brand.md, 2026-11-23) ======================================
+   robin: "neverlose cs2 recurrence 이게 내가원하던 네버루즈 메뉴엿는데", then "그거 기반으로 다 …
+   모든 사이트에 적용". Measured from that file (recurrence_6.md): three blue-black faces
+   parted by 1px lines and no glass; controls with 7px corners; and what floats (a state
+   chip, the toast) drawn as its indicators are: a dark face with a short tick at the left
+   in the colour of what it says. No amber, no green outside a diff: plain, blue (on, at
+   work, done), salmon (asks, waits), red (failed). The installed app's glass window keeps
+   its frame; only the colours follow. */
+:root {
+  --side: #0a0e11; --page: #0e1012; --card: #0f1115;
+  --raise: #14151c; --inset: #14151c; --hover: #15181b; --press: #222629; --sunk: #030913; --track: #1c1e24;
+  --head: #f0f0f0; --chosen: #f0f0f0; --text: #e6e7e9; --soft: #8a8e94; --faint: #7d8187; --off-text: #6b7076;
+  --line: #181a1d; --line-strong: #26272d; --line-weak: #181a1d;
+  --accent: #4b7dfe; --accent-hover: #4b7dfe; --accent-soft: rgb(75 125 254 / 14%); --ring: rgb(75 125 254 / 60%);
+  --amber: #c27463; --red: #e5475a;
+  --win: #0a0e11;
+  --radius-sm: 6px; --radius: 7px; --radius-row: 7px; --radius-card: 12px; --radius-pop: 12px; --radius-item: 7px; --radius-dlg: 14px; --radius-win: 14px;
+  --shadow: 0 0 14px rgb(0 0 0 / 60%);
+  --pop-bg: #08090b; --pop-line: transparent; --pop-shadow: 0 0 0 1px #1c1e22, 0 0 14px rgb(0 0 0 / 60%); --pop-hover: #16181c;
+  --edge: inset 0 0 0 1px #181a1d;
+}
+html.glass .main { background: rgb(14 16 18 / 97%); }
+html.glass .conv { --conv-bg: #0c1013; }
+::selection { background: rgb(75 125 254 / 28%); }
+
+/* controls: 7px corners, the select's face and line */
+.btn { border-color: var(--line-strong); border-radius: 7px; background: var(--raise); }
+.btn:hover { background: #1b1d25; border-color: #32343b; }
+.btn-primary, .btn-primary:hover { border-color: transparent; }
+.btn-primary { background: #3d6af0; }
+.btn-primary:hover { background: #4b7dfe; }
+.icon-btn, .send { border-radius: 7px; }
+.mode { border-color: var(--line-strong); border-radius: 7px; }
+.conv-search { border-color: var(--line-strong); border-radius: 7px; padding-left: 10px; background: var(--raise); }
+.conv-search:hover { border-color: #32343b; }
+.conv-search:focus-within { border-color: var(--ring); }
+.side-label { color: var(--faint); }
+
+/* the thread: robin's words and the composer are rectangles on the control face */
+.bubble { border-color: var(--line-strong); border-radius: 12px; background: var(--raise); }
+.composer-box { border-color: var(--line-strong); border-radius: 12px; background: var(--card); box-shadow: none; }
+.composer-box:focus-within { border-color: var(--ring); box-shadow: none; }
+.code { border-radius: 10px; box-shadow: inset 0 0 0 1px var(--line); }
+.code-head { background: #121419; }
+
+/* what floats: the indicator's face. The toast is the log line. */
+.pop { background: #08090b; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.sheet, .gpu-panel { background: var(--card); box-shadow: 0 0 0 1px #17191b, 0 18px 60px rgb(0 0 0 / 55%); }
+.toast { border: 0; border-radius: 10px; padding-left: 16px; background: linear-gradient(var(--tick, #98a4b8), var(--tick, #98a4b8)) 6px 50% / 2px 44% no-repeat, #08090b; box-shadow: 0 0 0 1px #1c1e22, 0 0 14px rgb(0 0 0 / 60%); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.toast[data-kind="ok"] { --tick: #4b7dfe; }
+.toast[data-kind="err"], .toast[data-kind="fail"] { --tick: #d52236; }
+.toast[data-kind="ok"] .toast-ico { color: #4b7dfe; }
+
+/* a state chip is an indicator: the tick says it, so the lamp inside is not drawn twice */
+.chip-state { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#98a4b8, #98a4b8) 5px 50% / 2px 44% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: #f0f0f0; }
+.chip-state.ok { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#4b7dfe, #4b7dfe) 5px 50% / 2px 44% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: #f0f0f0; }
+.chip-state.run { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#4b7dfe, #4b7dfe) 5px 50% / 2px 44% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: #f0f0f0; }
+.chip-state.warn { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#c27463, #c27463) 5px 50% / 2px 44% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: #c27463; }
+.chip-state.bad { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#d52236, #d52236) 5px 50% / 2px 44% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: var(--red); }
+.chip-state { height: 20px; }
+.chip-state .lamp, .chip-state.conv-done::before { display: none; }
+.lamp.on { background: #4b7dfe; }
+
+@media (min-width: 861px) {
+  /* in a browser window the side column is part of the window: to the edges, a 1px line */
+  html:not(.glass) .side { margin: 0; border-radius: 0; background: var(--side); box-shadow: 1px 0 0 #17191b; }
+  html:not(.glass) .conv { --conv-bg: var(--side); }
+  html:not(.glass) .main { border-left: 1px solid #17191b; }
+}
+/* ==== end of V5 ==== */
