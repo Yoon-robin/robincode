@@ -38,8 +38,8 @@
   --line-strong: rgb(255 255 255 / 10%); /* around controls */
   --line-weak: rgb(255 255 255 / 6%);   /* between rows inside a card */
   --accent: #4e7dff;      /* on, chosen, focus, links; 4.9:1 on the content */
-  --accent-fill: #4e7dff; /* white text on it: 5.0:1 */
-  --accent-hover: #6b92ff;
+  --accent-fill: #3d6af0; /* white text on it: 5.0:1 */
+  --accent-hover: #4e7dff;
   --accent-soft: rgb(78 125 255 / 14%);
   --amber: #fbbf24;
   --red: #fca5a5;
@@ -1778,9 +1778,9 @@ body { font-weight: 450; }
 .btn { border-color: rgb(255 255 255 / 6.7%); border-radius: 9999px; font-weight: 550; transition: background-color var(--t-fast, 150ms) ease-out, border-color var(--t-fast, 150ms) ease-out, color var(--t-fast, 150ms) ease-out; }
 .btn:hover { background: rgb(255 255 255 / 10%); color: var(--head); }
 .btn-primary, .btn-primary:hover { border-color: transparent; color: #fff; font-weight: 550; }
-.btn-primary { background: #4e7dff; }
-.btn-primary:hover { background: #6b92ff; }
-.btn-primary:active { background: #4471ef; }
+.btn-primary { background: #3d6af0; }
+.btn-primary:hover { background: #4e7dff; }
+.btn-primary:active { background: #3562e0; }
 .icon-btn { border-radius: 9999px; }
 .send { border-radius: 9999px; }
 .mode { border-color: rgb(255 255 255 / 6.7%); border-radius: 9999px; font-weight: 550; }

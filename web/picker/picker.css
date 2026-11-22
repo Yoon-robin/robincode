@@ -23,8 +23,8 @@
   --color-line: #232325;  /* --line-strong: around controls */
   --color-line-weak: #1a1a1b;  /* --line */
   --color-accent: #4e7dff;
-  --color-accent-fill: #4e7dff;
-  --color-accent-hover: #6b92ff;
+  --color-accent-fill: #3d6af0;
+  --color-accent-hover: #4e7dff;
   --color-raise: #171719;
   --color-amber: #fbbf24;
   --radius-box: 10px;  /* a row (--radius-row) */
