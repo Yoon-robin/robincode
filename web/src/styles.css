@@ -37,12 +37,12 @@
   --line: rgb(255 255 255 / 6%);        /* card and panel edges, the top bar's and the sidebar's rules */
   --line-strong: rgb(255 255 255 / 10%); /* around controls */
   --line-weak: rgb(255 255 255 / 6%);   /* between rows inside a card */
-  --accent: #4e7dff;      /* on, chosen, focus, links; 4.9:1 on the content */
+  --accent: #4b7dfe;      /* on, chosen, focus, links; 4.9:1 on the content */
   --accent-fill: #3d6af0; /* white text on it: 5.0:1 */
-  --accent-hover: #4e7dff;
-  --accent-soft: rgb(78 125 255 / 14%);
-  --amber: #fbbf24;
-  --red: #fca5a5;
+  --accent-hover: #4b7dfe;
+  --accent-soft: rgb(75 125 254 / 14%);
+  --amber: #c27463;
+  --red: #e5475a;
   --green: #5fd08a; /* a diff's added lines only */
   /* the inset dark of code and command output, below the content panel
      (not --side: on the glass window that one is see-through) */
@@ -77,7 +77,7 @@
   --t-move: 220ms;
   --t-slow: 240ms;
   --t-reveal: 400ms;
-  --ring: rgb(78 125 255 / 60%);
+  --ring: rgb(75 125 254 / 60%);
   --side-w: 272px; /* wider than the original's 170: conversation titles are read here */
   --col: 780px;
   color-scheme: dark;
@@ -96,11 +96,11 @@ body {
   /* Korean breaks between words, not inside one ("써져/요") */
   word-break: keep-all;
 }
-::selection { color: inherit; background: rgb(78 125 255 / 25%); }
+::selection { color: inherit; background: rgb(75 125 254 / 25%); }
 button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; }
-a { color: var(--accent); text-underline-offset: 3px; text-decoration-color: rgb(78 125 255 / 45%); }
+a { color: var(--accent); text-underline-offset: 3px; text-decoration-color: rgb(75 125 254 / 45%); }
 a:hover { text-decoration-color: currentColor; }
 :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .mono { font-family: var(--mono); }
@@ -113,7 +113,7 @@ a:hover { text-decoration-color: currentColor; }
   height: 0.8em;
   margin-left: 0.4em;
   vertical-align: -0.08em;
-  border: 1.5px solid rgb(78 125 255 / 25%);
+  border: 1.5px solid rgb(75 125 254 / 25%);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -171,8 +171,8 @@ a:hover { text-decoration-color: currentColor; }
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.chip-state.warn, .shell-tag { border-color: rgb(251 191 36 / 30%); background: rgb(251 191 36 / 12%); color: var(--amber); }
-.chip-state.bad { border-color: rgb(252 165 165 / 30%); background: rgb(252 165 165 / 12%); color: var(--red); }
+.chip-state.warn, .shell-tag { border-color: rgb(194 116 99 / 30%); background: rgb(194 116 99 / 12%); color: var(--amber); }
+.chip-state.bad { border-color: rgb(229 71 90 / 30%); background: rgb(229 71 90 / 12%); color: var(--red); }
 .chip-state .lamp { width: 6px; height: 6px; }
 .chip-state .tag, .chip-state .tag .ico { width: 11px; height: 11px; }
 .chip-state .spin { width: 9px; height: 9px; }
@@ -187,11 +187,11 @@ a:hover { text-decoration-color: currentColor; }
 /* ---- a switch (Neverlose's toggles): off grey, on blue ---- */
 .toggle { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: var(--text); }
 /* 32x20, a 16px knob 2px in, 12px across (docs/brand.md 컨트롤) */
-.switch { position: relative; flex: none; width: 32px; height: 20px; border-radius: 10px; background: var(--sunk); box-shadow: 0 0 0 0 rgb(78 125 255 / 0%); transition: background-color 0.165s cubic-bezier(0, 0, 0.58, 1), box-shadow 0.165s cubic-bezier(0, 0, 0.58, 1); }
+.switch { position: relative; flex: none; width: 32px; height: 20px; border-radius: 10px; background: var(--sunk); box-shadow: 0 0 0 0 rgb(75 125 254 / 0%); transition: background-color 0.165s cubic-bezier(0, 0, 0.58, 1), box-shadow 0.165s cubic-bezier(0, 0, 0.58, 1); }
 .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #84909c; transition: transform 0.165s cubic-bezier(0, 0, 0.58, 1), background-color 0.165s cubic-bezier(0, 0, 0.58, 1); }
 .toggle.on .switch, .toggle[aria-pressed="true"] .switch { background: var(--accent); }
 .toggle.on .switch::after, .toggle[aria-pressed="true"] .switch::after { background: #fff; transform: translateX(12px); }
-.toggle:hover:not(:disabled) .switch, .toggle:focus-visible .switch { box-shadow: 0 0 0 1px rgb(78 125 255 / 22%); }
+.toggle:hover:not(:disabled) .switch, .toggle:focus-visible .switch { box-shadow: 0 0 0 1px rgb(75 125 254 / 22%); }
 .toggle:disabled { cursor: not-allowed; }
 .toggle:disabled .switch { opacity: 0.45; }
 .toggle-word { font-size: 12px; color: var(--amber); }
@@ -262,7 +262,7 @@ a:hover { text-decoration-color: currentColor; }
 }
 .mini-btn::after { content: ""; position: absolute; inset: -2px -1px; }
 .act::after { content: ""; position: absolute; inset: -4px -1px; }
-.mini-btn:hover:not(:disabled), .act:hover:not(:disabled) { border-color: rgb(78 125 255 / 22%); color: var(--head); }
+.mini-btn:hover:not(:disabled), .act:hover:not(:disabled) { border-color: rgb(75 125 254 / 22%); color: var(--head); }
 .mini-btn:disabled { opacity: 0.45; }
 .mini-btn .ico, .act .ico { width: 13px; height: 13px; }
 kbd { font: 500 0.95em var(--mono); color: var(--soft); }
@@ -345,7 +345,7 @@ html.glass .conv:hover, html.glass .conv:focus-within { --conv-bg: var(--press);
 html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb(255 255 255 / 11%); }
 .app { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); height: 100%; background: var(--side); }
 .main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; border: 1px solid var(--line); border-right: 0; border-radius: var(--radius-win) 0 0 var(--radius-win); background: var(--page); }
-.lost { margin: 10px 20px 0; padding: 9px 12px; border: 1px solid rgb(252 165 165 / 40%); border-radius: var(--radius); background: rgb(252 165 165 / 7%); color: var(--red); font-size: 14px; }
+.lost { margin: 10px 20px 0; padding: 9px 12px; border: 1px solid rgb(229 71 90 / 40%); border-radius: var(--radius); background: rgb(229 71 90 / 7%); color: var(--red); font-size: 14px; }
 
 /* ---- conversation ---- */
 .thread {
@@ -500,7 +500,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   font-size: 14px;
   transition: background-color 0.15s, border-color 0.15s, transform 0.12s var(--ease);
 }
-.place-btn:hover, .place-btn[aria-expanded="true"] { border-color: rgb(78 125 255 / 55%); }
+.place-btn:hover, .place-btn[aria-expanded="true"] { border-color: rgb(75 125 254 / 55%); }
 .place-btn:disabled { color: var(--soft); }
 .place-btn .ico { flex: none; width: 15px; height: 15px; color: var(--soft); }
 .place-name { flex: none; font-weight: 600; }
@@ -704,7 +704,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   overflow-wrap: anywhere;
   scrollbar-width: thin;
 }
-.step.fail .step-out { border-color: rgb(252 165 165 / 35%); }
+.step.fail .step-out { border-color: rgb(229 71 90 / 35%); }
 .out { position: relative; }
 .out-copy { position: absolute; top: 6px; right: 6px; background: var(--card); opacity: 0; transition: opacity 0.15s, background-color 0.15s, color 0.15s; }
 .out:hover .out-copy, .out-copy:focus-visible { opacity: 1; }
@@ -787,7 +787,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .diff-sign { flex: none; width: 2.2em; padding-left: 0.8em; color: var(--soft); user-select: none; }
 .diff-text { flex: 1; padding-right: 12px; white-space: pre; }
 .diff-row.same .diff-text { color: var(--soft); }
-.diff-row.del { background: rgb(252 165 165 / 10%); }
+.diff-row.del { background: rgb(229 71 90 / 10%); }
 .diff-row.del .diff-sign, .diff-row.del .diff-text { color: #f7a3a5; }
 .diff-row.add { background: rgb(95 208 138 / 9%); }
 .diff-row.add .diff-sign, .diff-row.add .diff-text { color: #a6e8bd; }
@@ -796,7 +796,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .ask {
   margin: 8px 0 12px;
   padding: 14px 14px 14px;
-  border: 1px solid rgb(251 191 36 / 40%);
+  border: 1px solid rgb(194 116 99 / 40%);
   border-radius: var(--radius-card);
   background: var(--card);
   box-shadow: var(--shadow);
@@ -807,9 +807,9 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .ask-risk svg { width: 14px; height: 14px; flex: none; }
 .ask-note { display: block; width: 100%; margin-top: 10px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--raise); color: var(--head); font: inherit; font-size: 13px; outline: 0; }
 .ask-note::placeholder { color: var(--faint); }
-.ask-note:focus { border-color: rgb(78 125 255 / 55%); }
-.ask-note:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px rgb(78 125 255 / 40%); }
-.ask.risky { border-color: rgb(252 165 165 / 50%); }
+.ask-note:focus { border-color: rgb(75 125 254 / 55%); }
+.ask-note:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px rgb(75 125 254 / 40%); }
+.ask.risky { border-color: rgb(229 71 90 / 50%); }
 .ask.risky .ask-title .ico, .ask.risky .ask-risk { color: var(--red); }
 .ask-cmd {
   margin: 0 0 12px;
@@ -875,7 +875,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
-.composer-box:focus-within { border-color: rgb(78 125 255 / 55%); box-shadow: 0 8px 24px rgb(0 0 0 / 30%), 0 0 0 3px rgb(78 125 255 / 12%); }
+.composer-box:focus-within { border-color: rgb(75 125 254 / 55%); box-shadow: 0 8px 24px rgb(0 0 0 / 30%), 0 0 0 3px rgb(75 125 254 / 12%); }
 .composer textarea {
   flex: 1;
   min-width: 0;
@@ -975,7 +975,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   color: var(--text);
   transition: background-color 0.15s, border-color 0.15s;
 }
-.mode:hover { border-color: rgb(78 125 255 / 55%); color: var(--head); }
+.mode:hover { border-color: rgb(75 125 254 / 55%); color: var(--head); }
 .mode.on { color: var(--head); }
 .mode:disabled { cursor: default; color: var(--faint); background: transparent; }
 .mode + .mode { margin-left: -8px; }
@@ -990,10 +990,10 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 /* the four modes: one button, Shift+Tab goes on */
 .composer-foot .mode { flex: none; white-space: nowrap; }
 .mode.mode-edits { color: var(--head); }
-.mode.mode-auto { border-color: rgb(251 191 36 / 45%); color: var(--amber); }
-.mode.mode-auto:hover { border-color: rgb(251 191 36 / 70%); }
+.mode.mode-auto { border-color: rgb(194 116 99 / 45%); color: var(--amber); }
+.mode.mode-auto:hover { border-color: rgb(194 116 99 / 70%); }
 /* plan: only reads and writes a plan */
-.mode.mode-plan { border-color: rgb(78 125 255 / 50%); background: var(--accent-soft); color: var(--head); }
+.mode.mode-plan { border-color: rgb(75 125 254 / 50%); background: var(--accent-soft); color: var(--head); }
 .lamp.plan { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
 
 /* ---- the `/` list ---- */
@@ -1005,11 +1005,11 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .cmd-kind { flex: none; } /* a status chip */
 
 /* ---- `!명령`: the box says it goes to PowerShell ---- */
-.composer-box.shell-mode { border-color: rgb(251 191 36 / 45%); }
+.composer-box.shell-mode { border-color: rgb(194 116 99 / 45%); }
 .composer-box.shell-mode textarea { font-family: var(--mono); }
 .shell-tag { align-self: center; flex: none; margin-right: -2px; font-family: var(--mono); } /* an amber status chip */
 .shell-run { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--card); overflow: hidden; }
-.shell-run.fail { border-color: rgb(252 165 165 / 35%); }
+.shell-run.fail { border-color: rgb(229 71 90 / 35%); }
 .shell-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font: 400 12.5px var(--mono); color: var(--text); }
 .shell-run.fail .step-tag { color: var(--red); }
 .shell-cmd { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--head); }
@@ -1020,7 +1020,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 
 /* ---- what waits: when each goes in ---- */
 .queued-bubble { position: relative; padding-right: 38px; }
-.queued-bubble.held { border-color: rgb(78 125 255 / 45%); }
+.queued-bubble.held { border-color: rgb(75 125 254 / 45%); }
 .queued-when { display: block; margin-bottom: 3px; font-size: 11px; color: var(--faint); }
 .queued-bubble.steer .queued-when { color: var(--text); }
 .queued-pics { color: var(--faint); }
@@ -1073,7 +1073,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .find-bar .icon-btn { position: relative; width: 24px; height: 24px; }
 .find-bar .icon-btn::after { content: ""; position: absolute; inset: -4px -2px; }
 .find-bar .icon-btn .ico { width: 15px; height: 15px; }
-::highlight(find) { background-color: rgb(78 125 255 / 30%); color: inherit; }
+::highlight(find) { background-color: rgb(75 125 254 / 30%); color: inherit; }
 ::highlight(find-now) { background-color: var(--accent); color: #fff; }
 
 /* ---- a dialog (docs/brand.md 부품 더): /memory, /help, /changes, /version,
@@ -1127,7 +1127,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .chg-dir { color: var(--faint); }
 .chg-badge { flex: none; } /* a status chip */
 .chg-done { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--soft); }
-.mini-btn.sure, .mini-btn.sure:hover:not(:disabled) { color: var(--red); border-color: rgb(252 165 165 / 40%); }
+.mini-btn.sure, .mini-btn.sure:hover:not(:disabled) { color: var(--red); border-color: rgb(229 71 90 / 40%); }
 .chg-diff { max-height: 420px; overflow: auto; font: 400 12px/1.6 var(--mono); scrollbar-width: thin; }
 .chg-hunk + .chg-hunk { border-top: 1px dashed var(--line-weak); }
 .chg-at { padding: 2px 12px; color: var(--faint); font-size: 11.5px; background: rgb(255 255 255 / 2%); }
@@ -1137,7 +1137,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .chg-text { padding-right: 16px; white-space: pre; color: var(--soft); }
 .chg-row.add { background: rgb(95 208 138 / 9%); }
 .chg-row.add .chg-sign, .chg-row.add .chg-text { color: #a6e8bd; }
-.chg-row.del { background: rgb(252 165 165 / 10%); }
+.chg-row.del { background: rgb(229 71 90 / 10%); }
 .chg-row.del .chg-sign, .chg-row.del .chg-text { color: #f7a3a5; }
 .chg-none { padding: 10px 12px; font-size: 12.5px; color: var(--faint); }
 .mem-files { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
@@ -1149,7 +1149,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .mem-add-row { display: flex; gap: 8px; }
 .mem-add-row .btn { border-radius: var(--radius); }
 .mem-add-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--raise); color: var(--head); font: inherit; font-size: 13.5px; outline: 0; }
-.mem-add-row input:focus { border-color: rgb(78 125 255 / 55%); }
+.mem-add-row input:focus { border-color: rgb(75 125 254 / 55%); }
 /* a list's rows: 32 r8 on --raise, 4 apart */
 .rule-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .rule { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 3px 4px 3px 10px; border-radius: var(--radius-item); background: var(--raise); font-size: 13px; }
@@ -1220,7 +1220,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   color: var(--faint);
   transition: border-color 0.15s;
 }
-.conv-search:focus-within { border-color: rgb(78 125 255 / 60%); }
+.conv-search:focus-within { border-color: rgb(75 125 254 / 60%); }
 .conv-search > .ico { flex: none; width: 14px; height: 14px; }
 .conv-search input { flex: 1; min-width: 0; padding: 0; border: 0; outline: 0; background: none; color: var(--head); font-size: 13px; }
 .conv-search input::placeholder { color: var(--faint); }
@@ -1269,7 +1269,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   height: 26px;
   margin: 3px;
   padding: 0 8px;
-  border: 1px solid rgb(78 125 255 / 60%);
+  border: 1px solid rgb(75 125 254 / 60%);
   border-radius: var(--radius-sm);
   outline: 0;
   background: var(--raise);
@@ -1457,7 +1457,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
   font-size: 13px;
   transition: border-color 0.13s;
 }
-.set-select:hover:not(:disabled), .set-select[aria-expanded="true"] { border-color: rgb(78 125 255 / 55%); }
+.set-select:hover:not(:disabled), .set-select[aria-expanded="true"] { border-color: rgb(75 125 254 / 55%); }
 .set-select:disabled { cursor: not-allowed; }
 .sel-text { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-align: left; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent); }
 /* the kit's dropdown menu (as .place-menu) */
@@ -1507,7 +1507,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .toast { gap: 4px 10px; padding: 8px 8px 8px 12px; }
 .toast-ico { flex: none; display: grid; color: var(--accent); }
 .toast-ico .ico { width: 16px; height: 16px; stroke-width: 1.8; }
-.toast[data-kind="ok"] .toast-ico { color: #6ee7b7; }
+.toast[data-kind="ok"] .toast-ico { color: #4b7dfe; }
 .toast[data-kind="err"] .toast-ico { color: var(--red); }
 .toast-x { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--soft); transition: background-color var(--t-hover), color var(--t-hover); }
 .toast-x:hover { background: rgb(255 255 255 / 7.5%); color: var(--text); }
@@ -1525,7 +1525,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
   z-index: 30;
   display: grid;
   place-items: center;
-  border: 1.5px dashed rgb(78 125 255 / 60%);
+  border: 1.5px dashed rgb(75 125 254 / 60%);
   border-radius: var(--radius-win);
   background: rgb(13 15 20 / 86%);
   pointer-events: none;
@@ -1594,7 +1594,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .folder-line .mono { flex: 1; min-width: 0; }
 .folder-line .mini-btn { flex: none; text-decoration: none; }
 .folder-line .mini-btn[aria-disabled] { opacity: 0.4; cursor: default; }
-.mini-btn.working, .mini-btn.working:hover:not(:disabled) { color: var(--amber); border-color: rgb(251 191 36 / 35%); }
+.mini-btn.working, .mini-btn.working:hover:not(:disabled) { color: var(--amber); border-color: rgb(194 116 99 / 35%); }
 
 /* ---- the GPU window: on and off, the places to rent ---- */
 .modal-back {
@@ -1644,11 +1644,11 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .gpu-offer-side { justify-items: end; text-align: right; flex: none; }
 .gpu-offer-side b { font-size: 14px; color: var(--head); }
 /* what the second press will do: said in the body, its buttons in the foot */
-.gpu-confirm { display: grid; gap: 12px; padding: 12px 14px; border: 1px solid rgb(251 191 36 / 30%); border-radius: var(--radius-item); background: rgb(251 191 36 / 6%); }
+.gpu-confirm { display: grid; gap: 12px; padding: 12px 14px; border: 1px solid rgb(194 116 99 / 30%); border-radius: var(--radius-item); background: rgb(194 116 99 / 6%); }
 .gpu-confirm p { font-size: 13.5px; line-height: 1.6; color: var(--text); }
 .gpu-confirm b { color: var(--amber); }
-.btn-danger { border-color: rgb(252 165 165 / 50%); color: var(--red); font-weight: 600; }
-.btn-danger:hover { background: rgb(252 165 165 / 12%); color: var(--red); }
+.btn-danger { border-color: rgb(229 71 90 / 50%); color: var(--red); font-weight: 600; }
+.btn-danger:hover { background: rgb(229 71 90 / 12%); color: var(--red); }
 .gpu-note { font-size: 12.5px; color: var(--soft); }
 .gpu-warn { font-size: 12.5px; color: var(--amber); }
 .gpu-job { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); }
@@ -1663,7 +1663,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .gpu-progress-when { font-size: 12px; color: var(--soft); font-variant-numeric: tabular-nums; }
 .gpu-segs { display: grid; gap: 4px; }
 .gpu-seg { position: relative; display: block; height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
-.gpu-seg.done { background: rgb(78 125 255 / 55%); }
+.gpu-seg.done { background: rgb(75 125 254 / 55%); }
 .gpu-seg.now i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--accent); transition: width 0.6s var(--ease); }
 .gpu-steps { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 11.5px; line-height: 1.35; color: var(--faint); }
 .gpu-steps li { min-width: 0; overflow-wrap: anywhere; }
@@ -1676,7 +1676,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .gpu-mini .gpu-seg { height: 4px; }
 .gpu-mini-text { font-size: 11.5px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 /* the server deletes an unused GPU: the bar 3 minutes before, and the GPU window's line */
-.gpu-soon { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 20px 0; padding: 9px 12px; border: 1px solid rgb(251 191 36 / 35%); border-radius: var(--radius); background: rgb(251 191 36 / 7%); color: var(--amber); font-size: 14px; }
+.gpu-soon { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 20px 0; padding: 9px 12px; border: 1px solid rgb(194 116 99 / 35%); border-radius: var(--radius); background: rgb(194 116 99 / 7%); color: var(--amber); font-size: 14px; }
 .gpu-soon > span { flex: 1 1 18em; }
 .gpu-autooff-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .gpu-autooff-row .gpu-note { flex: 1 1 16em; }
@@ -1691,9 +1691,9 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .ver-sub > * + *::before { content: "·"; margin: 0 0.5em; color: var(--faint); }
 .ver-sub .mono { font-size: 12px; color: var(--text); }
 .ver-state { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raise); }
-.ver-state.new { border-color: rgb(78 125 255 / 45%); background: var(--accent-soft); }
-.ver-state.warn { border-color: rgb(251 191 36 / 32%); }
-.ver-state.bad { border-color: rgb(252 165 165 / 35%); }
+.ver-state.new { border-color: rgb(75 125 254 / 45%); background: var(--accent-soft); }
+.ver-state.warn { border-color: rgb(194 116 99 / 32%); }
+.ver-state.bad { border-color: rgb(229 71 90 / 35%); }
 .ver-mark { flex: none; display: inline-flex; padding-top: 3px; }
 .ver-state-text { font-size: 14px; font-weight: 600; line-height: 1.6; color: var(--head); }
 .ver-detail { margin-top: 2px !important; font-size: 12.5px; line-height: 1.55; color: var(--soft); overflow-wrap: anywhere; }
@@ -1722,7 +1722,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 
 /* a long path in an error line does not run out of the window */
 .line > span:last-child { min-width: 0; }
-.find-bar:focus-within { border-color: rgb(78 125 255 / 55%); }
+.find-bar:focus-within { border-color: rgb(75 125 254 / 55%); }
 
 .ask-whole { margin-top: 6px; }
 /* sent, the model being checked: the bubble as it will be, faint, and a note */
@@ -1772,7 +1772,7 @@ html.glass .main { background: rgb(11 11 13 / 96%); }
 html.glass .conv { --conv-bg: #0d0d10; }
 
 body { font-weight: 450; }
-::selection { color: inherit; background: rgb(78 125 255 / 25%); }
+::selection { color: inherit; background: rgb(75 125 254 / 25%); }
 .brand-name, .top-title, .sheet-head h2, .sheet h2 { font-weight: 650; }
 
 /* buttons: pills */
@@ -1780,7 +1780,7 @@ body { font-weight: 450; }
 .btn:hover { background: rgb(255 255 255 / 10%); color: var(--head); }
 .btn-primary, .btn-primary:hover { border-color: transparent; color: #fff; font-weight: 550; }
 .btn-primary { background: #3d6af0; }
-.btn-primary:hover { background: #4e7dff; }
+.btn-primary:hover { background: #4b7dfe; }
 .btn-primary:active { background: #3562e0; }
 .icon-btn { border-radius: 9999px; }
 .send { border-radius: 9999px; }
@@ -1789,7 +1789,7 @@ body { font-weight: 450; }
 /* the side column: a search pill, rows of 10px corners */
 .conv-search { border-color: transparent; border-radius: 9999px; padding-left: 14px; }
 .conv-search:hover { border-color: rgb(255 255 255 / 10%); }
-.conv-search:focus-within { border-color: rgb(78 125 255 / 60%); }
+.conv-search:focus-within { border-color: rgb(75 125 254 / 60%); }
 .side-label { font-size: 12.8px; font-weight: 450; }
 .conv-open { font-weight: 450; }
 .conv[aria-current="true"] .conv-open { font-weight: 550; }
@@ -1797,7 +1797,7 @@ body { font-weight: 450; }
 /* the thread: robin's words on a glass pill, the composer a glass box */
 .bubble { border-color: transparent; border-radius: 18px; background: rgb(80 80 80 / 18%); }
 .composer-box { border-color: rgb(255 255 255 / 6.7%); border-radius: 22px; background: rgb(18 18 21 / 92%); box-shadow: 0 8px 40px rgb(10 10 10 / 40%); }
-.composer-box:focus-within { border-color: rgb(78 125 255 / 60%); box-shadow: 0 8px 40px rgb(10 10 10 / 40%); }
+.composer-box:focus-within { border-color: rgb(75 125 254 / 60%); box-shadow: 0 8px 40px rgb(10 10 10 / 40%); }
 .code { border-color: transparent; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 10%); }
 .code-head { background: rgb(255 255 255 / 3%); }
 
@@ -1825,7 +1825,7 @@ body { font-weight: 450; }
 /* states in their colours (2026-11-22, the fifth look at neverlose.cc): a good state is green
    (the GPU on, a talk that finished), work under way is the site's pale blue; both on 10% of
    the colour with a 20% edge, as its badges are. They were the same grey as "확인 중". */
-.chip-state.ok { border-color: rgb(110 231 183 / 20%); background: rgb(110 231 183 / 10%); color: #6ee7b7; }
+.chip-state.ok { border-color: rgb(75 125 254 / 20%); background: rgb(75 125 254 / 10%); color: #4b7dfe; }
 .chip-state.run { border-color: rgb(158 184 255 / 20%); background: rgb(158 184 255 / 10%); color: #9eb8ff; }
 .chip-state.ok .lamp.on, .chip-state.ok.conv-done::before, .chip-state.run .lamp.on { background: currentColor; }
 .chip-state.run .tag { color: currentColor; }
@@ -1904,4 +1904,12 @@ html.glass .conv { --conv-bg: #0c1013; }
   html:not(.glass) .conv { --conv-bg: var(--side); }
   html:not(.glass) .main { border-left: 1px solid #17191b; }
 }
+/* second pass (2026-11-23): the switch is the menu's (34x19, a 14px knob: grey-blue when off, white when on) */
+.switch { width: 34px; height: 19px; }
+.switch::after { top: 2.5px; left: 2.5px; width: 14px; height: 14px; background: #798895; }
+.toggle.on .switch::after, .toggle[aria-pressed="true"] .switch::after { transform: translateX(15px); }
+/* the icon tile sits on the control face (it was V4's neutral black) */
+.app-mark { background: #14151c; box-shadow: inset 0 0 0 1px #26272d; }
+/* a note with a button stays on one line on a wide window (it broke into three: the icon, the words, the close) */
+@media (min-width: 521px) { .toast { flex-wrap: nowrap; } .toast > span { flex: 0 1 auto; } }
 /* ==== end of V5 ==== */
