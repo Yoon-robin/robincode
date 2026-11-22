@@ -1815,3 +1815,9 @@ body { font-weight: 450; }
   html:not(.glass) .main { border: 0; border-radius: 0; }
 }
 /* ==== end of V4 ==== */
+
+/* motion (2026-11-22): a talk's row gives 1% under the finger, as the site's side rows do */
+.conv { transition: background-color 0.15s ease-out; }
+.conv-open { transition: transform 0.12s ease-out; }
+.conv-open:active { transform: scale(0.99); }
+@media (prefers-reduced-motion: reduce) { .conv, .conv-open { transition: none; } .conv-open:active { transform: none; } }
