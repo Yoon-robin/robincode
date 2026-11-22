@@ -1,4 +1,5 @@
-/* The folder window: Tailwind v4 with the RobinX V3 tokens (docs/brand.md,
+/* V5 (Recurrence, 2026-11-23): the values below are that menu's (docs/brand.md "V5").
+   The folder window: Tailwind v4 with the RobinX V3 tokens (docs/brand.md,
    the same values as the RobinCode window's web/src/styles.css, V3.2): nearly
    black navy, one blue for the chosen row, amber only for "not there",
    Pretendard (Robin Term for paths). V3.4 (부품 더): the folders are a list
@@ -11,23 +12,23 @@
 @font-face { font-family: "Pretendard"; src: url("../../../assets/pretendard-latin.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 @theme {
-  --color-page: #0b0b0d;
-  --color-card: #0e0e11;
-  --color-hover: #161618;
-  --color-press: #232325;
-  --color-text: #dadadb;
-  --color-head: #ffffff;
-  --color-soft: #8b8b8c;
-  --color-faint: #858586;
-  --color-dim: #858586;
-  --color-line: #232325;  /* --line-strong: around controls */
-  --color-line-weak: #1a1a1b;  /* --line */
-  --color-accent: #4e7dff;
+  --color-page: #0e1012;
+  --color-card: #0f1115;
+  --color-hover: #15181b;
+  --color-press: #222629;
+  --color-text: #e6e7e9;
+  --color-head: #f0f0f0;
+  --color-soft: #8a8e94;
+  --color-faint: #7d8187;
+  --color-dim: #7d8187;
+  --color-line: #26272d;  /* --line-strong: around controls */
+  --color-line-weak: #181a1d;  /* --line */
+  --color-accent: #4b7dfe;
   --color-accent-fill: #3d6af0;
-  --color-accent-hover: #4e7dff;
-  --color-raise: #171719;
-  --color-amber: #fbbf24;
-  --radius-box: 10px;  /* a row (--radius-row) */
+  --color-accent-hover: #4b7dfe;
+  --color-raise: #14151c;
+  --color-amber: #c27463;
+  --radius-box: 7px;  /* a row (--radius-row) */
   /* B-456: Pretendard one notch heavier (robin "Pretandard 볼드체") */
   --font-weight-normal: 500;
   --font-weight-medium: 500;
@@ -51,7 +52,7 @@
     user-select: none;
     color-scheme: dark;
   }
-  ::selection { background: rgb(78 125 255 / 32%); }
+  ::selection { background: rgb(75 125 254 / 28%); }
   /* the list's scrollbar: 4 wide, r2, --line-strong, no track */
   [cmdk-list] { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
   @supports selector(::-webkit-scrollbar) {
