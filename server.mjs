@@ -32,6 +32,7 @@ import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { maskOld, recallText } from "./context.mjs";
 import { addRecent, allFolders, cleanPath, folderExists, hideRecent, rows as folderRows, unhideRecent } from "./folders.mjs";
 import { danger, dropSecretLines, toolPath } from "./guard.mjs";
 import { hint as nearHint, nearest } from "./near.mjs";
@@ -1087,12 +1088,34 @@ const approvalsFor = (conv) => ({
     pi.on("before_agent_start", () => {
       conv.changed = false;
       conv.testRounds = 0;
-      if (conv.mode !== "plan") return undefined;
-      if (!conv.review) return { message: { customType: "robincode-plan", content: PLAN_NOTE, display: false } };
+      // after a summary: the task list, the last plan and the files changed lately, once (B-422)
+      const recall = conv.recall || "";
+      conv.recall = "";
+      const said = (customType, content) => ({ message: { customType, content: [content, recall].filter(Boolean).join("\n\n"), display: false } });
+      if (conv.mode !== "plan") return recall ? said("robincode-recall", "") : undefined;
+      if (!conv.review) return said("robincode-plan", PLAN_NOTE);
       // the changes themselves once, with the first turn; after that only what a review is
       const changes = conv.reviewText ? `\n\n${conv.reviewText}` : "";
       conv.reviewText = "";
-      return { message: { customType: "robincode-review", content: REVIEW_NOTE + changes, display: false } };
+      return said("robincode-review", REVIEW_NOTE + changes);
+    });
+    // a summary was made: what it may have dropped goes to the model with robin's next turn,
+    // and the results masked so far are gone with the messages they were in
+    pi.on("session_compact", () => {
+      conv.recall = recallText({ todo: conv.todo, plan: conv.planText, files: conv.recent });
+      conv.masked?.clear();
+      if (conv.recall) log("요약 뒤 다시 넣을 것:", `${conv.recall.length}자`);
+    });
+    // old, long tool results give way to a line once the context is half full (B-421):
+    // many at once and then the same ones every call, so the model's cache breaks once
+    pi.on("context", (event) => {
+      let percent = 0;
+      try { const u = conv.session?.getContextUsage(); if (u?.tokens && u.contextWindow) percent = (u.tokens / u.contextWindow) * 100; } catch { /* no count yet */ }
+      conv.masked ||= new Set();
+      const before = conv.masked.size;
+      const messages = maskOld(event.messages, conv.masked, { percent });
+      if (conv.masked.size > before) log(`오래된 도구 결과 ${conv.masked.size - before}개를 가렸어요 (맥락 ${Math.round(percent)}%)`);
+      return messages ? { messages } : undefined;
     });
     // the turn is about to end: the folder's test first, and one more go when it fails
     pi.on("agent_before_settle", async (event) => {
@@ -1142,6 +1165,7 @@ const approvalsFor = (conv) => ({
       if (event.isError && event.toolName === "edit") { const h = editMiss(conv, event); if (h) notes.push(h); }
       if (!event.isError && FILE_TOOLS.has(event.toolName)) {
         conv.changed = true;
+        if (event.input?.path) conv.recent = [...(conv.recent || []).filter((p) => p !== String(event.input.path)), String(event.input.path)].slice(-12);
         if (checksOf(conv.cwd).after) {
           try { const bad = await checkAfter(conv, event.input?.path); if (bad) notes.push(bad); } catch (err) { log("고친 뒤 검사를 하지 못했어요:", err.message); }
         }
@@ -1175,6 +1199,8 @@ const approvalsFor = (conv) => ({
           ? `같은 도구를 같은 값으로 ${CYCLE_TIMES}번 연달아 불렀고 결과도 매번 같았어요. 다시 불러도 바뀌지 않아요. 다른 방법을 쓰거나, 지금까지 알아낸 것으로 답하세요.`
           : `도구 호출 ${k}개를 같은 순서로 ${CYCLE_TIMES}번 되풀이했고 결과도 매번 같았어요. 다른 방법을 쓰거나, 지금까지 알아낸 것으로 답하세요.`);
       }
+      // the newest task list, for after a summary (B-422)
+      if (event.toolName === "todo" && Array.isArray(event.input?.items)) conv.todo = event.input.items.slice(0, 30).map((x) => ({ text: String(x?.text || "").slice(0, 200), status: x?.status }));
       // a question for robin: asked in every mode (바로 실행 too — it is not a permission)
       if (event.toolName === "ask") {
         const question = String(event.input?.question || "").trim().slice(0, 500);
@@ -1783,6 +1809,8 @@ function onEvent(conv, e) {
           turn.genMs += Date.now() - gen.first;
         }
         conv.gen = null;
+        // a plan written in plan mode (not a review): kept for after a summary (B-422)
+        if (conv.live?.planned && !conv.review && m.stopReason !== "error") { const plan = wordsOf(m.content); if (plan.trim().length > 40) conv.planText = plan; }
         conv.live = null;
         // a stop by robin ends as "aborted" and gets its own [SKIP] line on settle
         if (m.stopReason === "error") broadcast({ t: "error", message: m.errorMessage || "모델이 오류로 끝났어요." });

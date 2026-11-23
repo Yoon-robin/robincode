@@ -459,6 +459,25 @@ ok((await call("/api/checks", { test: "" })).data.test === "", "시험 명령 �
   }
 }
 
+// ---- after a summary the model is told again what it may have lost (B-422)
+{
+  await box.click();
+  await box.evaluate((el, t) => { const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set; set.call(el, t); el.dispatchEvent(new Event("input", { bubbles: true })); }, `긴 글이에요. ${"가나다라마바사 아자차카타파하 ".repeat(7000)}`);
+  await box.press("Enter");
+  await page.waitForTimeout(800);
+  await idle(40000);
+  await say("/compact");
+  await page.waitForFunction(() => /요약하는 중/.test(document.querySelector("[aria-label='메시지']")?.placeholder || ""), null, { timeout: 5000 }).catch(() => {});
+  await page.waitForFunction(() => !/요약하는 중/.test(document.querySelector("[aria-label='메시지']")?.placeholder || ""), null, { timeout: 40000 }).catch(() => {});
+  await idle(40000);
+  await say("요약 뒤 확인");
+  await page.waitForFunction(() => /요약 뒤 쪽지/.test(document.querySelector(".msgs")?.innerText || ""), null, { timeout: 30000 }).catch(() => {});
+  await idle();
+  const said = ((await page.locator(".msgs").innerText()).match(/요약 뒤 쪽지[^\n]*/) || [""])[0];
+  ok(/요약 뒤 쪽지 받음/.test(said) && /최근에 고친 파일: .*(broken\.js|state\.txt)/.test(said), `요약 뒤 고친 파일이 모델에 다시 감 (${said.slice(0, 90)})`);
+  ok(!/앞부분을 요약했어요\. 요약에서 빠졌을/.test(await page.locator(".msgs").innerText()), "그 쪽지는 창에 안 보임");
+}
+
 // ---- /review (B-429): a new conversation that reads the uncommitted changes and only looks
 {
   const titleBefore = await page.title();

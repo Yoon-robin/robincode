@@ -186,6 +186,12 @@ createServer(async (req, res) => {
   const robinSaid = robinAt < 0 ? "" : textOf(messages[robinAt].content);
   const after = messages.slice(robinAt + 1);
   const results = after.filter((m) => m.role === "tool").map((m) => textOf(m.content));
+  // "요약 뒤 확인": says whether RobinCode's note after a summary came, and its files line (B-422)
+  if (/요약 뒤 확인/.test(robinSaid)) {
+    const note = messages.map((m) => textOf(m.content)).find((t) => /\(RobinCode 알림\) 앞부분을 요약했어요/.test(t));
+    await streamText(res, `요약 뒤 쪽지 ${note ? "받음" : "없음"} · ${(note?.match(/최근에 고친 파일: [^\n]*/) || ["고친 파일 줄 없음"])[0]}`, usage);
+    return;
+  }
   // "물어봐": asks robin to choose with the ask tool (B-426), then says what came back
   if (/물어봐/.test(robinSaid) && tools.includes("ask")) {
     if (!results.length) await streamToolCall(res, "ask", { question: "어느 쪽으로 할까요?", options: ["빠르게", "꼼꼼하게", "둘 다"] }, usage);
