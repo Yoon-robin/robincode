@@ -181,6 +181,28 @@ createServer(async (req, res) => {
   }
   const tools = (request.tools || []).map((t) => t.function?.name);
   const lastUser = textOf([...messages].reverse().find((m) => m.role === "user")?.content);
+  // robin's newest message and what came after it (a note RobinCode put there is not robin's)
+  const robinAt = messages.findLastIndex((m) => m.role === "user" && !/^\(RobinCode|^\[/.test(textOf(m.content)));
+  const robinSaid = robinAt < 0 ? "" : textOf(messages[robinAt].content);
+  const after = messages.slice(robinAt + 1);
+  const results = after.filter((m) => m.role === "tool").map((m) => textOf(m.content));
+  // "문법 깨": writes a .js that does not parse. RobinCode's look at the file says so in the
+  // result (B-420), and the next write mends it
+  if (/문법 깨/.test(robinSaid) && tools.includes("write")) {
+    if (!results.length) await streamToolCall(res, "write", { path: "src/broken.js", content: "console.log(\"hi\"\n" }, usage);
+    else if (results.length === 1 && /\(RobinCode 검사\)/.test(results[0])) await streamToolCall(res, "write", { path: "src/broken.js", content: "console.log(\"hi\");\n" }, usage);
+    else await streamText(res, results.length === 1 ? "검사 알림이 없었어요." : "문법 오류를 고쳤어요.", usage);
+    return;
+  }
+  // "시험 깨": writes state.txt "broken". The folder's test fails on it, RobinCode sends the
+  // end of its output back (B-420), and the next write mends it
+  if (/시험 깨/.test(robinSaid) && tools.includes("write")) {
+    const told = after.some((m) => m.role !== "tool" && /\(RobinCode 시험\)/.test(textOf(m.content)));
+    const want = told ? 2 : 1;
+    if (results.length < want) await streamToolCall(res, "write", { path: "state.txt", content: told ? "fixed\n" : "broken\n" }, usage);
+    else await streamText(res, told ? "시험이 통과하게 고쳤어요." : "state.txt를 썼어요.", usage);
+    return;
+  }
   if (request.chat_template_kwargs?.enable_thinking) {
     res.thought = last.role === "tool"
       ? "결과를 받았어요.\n이걸로 충분한지 보고, 모자라면 하나 더 보고, 아니면 robin에게 짧게 정리해 주면 되겠어요."

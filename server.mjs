@@ -550,6 +550,113 @@ function removeRule(dir, key) {
   if (!settings.allow[k].length) delete settings.allow[k];
   saveSettings();
 }
+// ---- checks: a look at a file right after it was changed, a test before the turn ends ----
+// (B-420; Aider's --auto-lint/--auto-test, Claude Code's Stop hook.) Both are the folder's
+// own, kept with its rules in robincode.json — not in the folder, where the model could
+// write them.
+//   after: on unless robin turns it off. A changed .js/.mjs/.cjs gets `node --check`, a .json
+//          is parsed, a .py is parsed by Python (nothing is run). Only a failure is told to
+//          the model, with the lines that say where.
+//   test:  robin's command (`npm test`). Run when a turn that changed files is about to end;
+//          a failure goes back to the model once, with the end of the output. A second
+//          failure is told to robin and the turn ends.
+const CHECK_MS = 8000;
+const TEST_MS = 5 * 60000;
+const TEST_TAIL = 4000;
+const checksOf = (dir) => ({ after: true, test: "", ...(settings.checks?.[keyOf(dir || "")] || {}) });
+function setChecks(dir, change) {
+  const next = { ...checksOf(dir), ...change };
+  settings.checks ||= {};
+  if (next.after && !next.test) delete settings.checks[keyOf(dir || "")];
+  else settings.checks[keyOf(dir || "")] = next;
+  saveSettings();
+  return checksOf(dir);
+}
+// one program, its output, and whether it ended well; `off()` ends it early
+function runFor(file, argv, { cwd: at, ms }) {
+  let child;
+  const done = new Promise((resolve) => {
+    let out = "";
+    try { child = spawn(file, argv, { cwd: at, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }); } catch (e) { resolve({ missing: true, out: e.message }); return; }
+    const keep = (b) => { out += b; if (out.length > 400000) out = out.slice(-200000); };
+    child.stdout.on("data", keep);
+    child.stderr.on("data", keep);
+    const timer = setTimeout(() => { out += `\n(${Math.round(ms / 1000)}초가 넘어 끊었어요)`; endTree(child); }, ms);
+    child.on("error", (e) => { clearTimeout(timer); resolve({ missing: e.code === "ENOENT", ok: false, out: out || e.message }); });
+    child.on("close", (code) => { clearTimeout(timer); resolve({ ok: code === 0, code, out }); });
+  });
+  return { done, off: () => endTree(child) };
+}
+// the program and what it started (npm starts node; killing npm alone leaves it)
+function endTree(child) {
+  if (!child?.pid) return;
+  try {
+    if (process.platform === "win32") spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+    else child.kill("SIGKILL");
+  } catch { /* gone already */ }
+}
+const NO_JSON = /(^|[\\/])(tsconfig[^\\/]*|jsconfig[^\\/]*|\.eslintrc|[^\\/]*\.code-workspace)\.json$|[\\/]\.vscode[\\/]/i; // these allow comments
+// null when the file is fine or is not one this looks at; else the words for the model
+async function checkAfter(conv, path) {
+  const abs = absPath(path, conv.cwd);
+  const ext = extname(abs).toLowerCase();
+  let said = null;
+  if (ext === ".json") {
+    if (NO_JSON.test(abs)) return null;
+    try { JSON.parse(readFileSync(abs, "utf8").replace(/^\uFEFF/, "")); } catch (e) { if (e instanceof SyntaxError) said = e.message; }
+  } else if (ext === ".js" || ext === ".mjs" || ext === ".cjs") {
+    const r = await runFor(process.execPath, ["--check", abs], { cwd: conv.cwd, ms: CHECK_MS }).done;
+    if (!r.ok && !r.missing) said = plain(r.out);
+    // JSX in a .js file (a bundler reads it, node does not): not an error of this change
+    if (said && /Unexpected token '<'/.test(said)) {
+      let src = "";
+      try { src = readFileSync(abs, "utf8"); } catch { /* gone */ }
+      if (/<\/?[A-Za-z][\w.]*(\s[^<>]*)?\/?>/.test(src)) said = null;
+    }
+  } else if (ext === ".py") {
+    const code = "import ast,sys\np=sys.argv[1]\ntry:\n ast.parse(open(p,encoding='utf-8-sig').read(),p)\nexcept SyntaxError as e:\n print(f'{e.filename}:{e.lineno}: {e.msg}\\n{(e.text or \"\").rstrip()}');sys.exit(1)";
+    const r = await runFor("python", ["-I", "-c", code, abs], { cwd: conv.cwd, ms: CHECK_MS }).done;
+    if (!r.ok && !r.missing && r.code === 1) said = plain(r.out);
+  }
+  if (!said) return null;
+  const lines = said.trim().split(/\r?\n/).filter((l) => l.trim() && !/^\s+at |^Node\.js v/.test(l)).slice(0, 12).join("\n");
+  log(`고친 뒤 검사: ${shown(abs)} 문법 오류`);
+  return `(RobinCode 검사) 방금 고친 ${shown(abs)}에 문법 오류가 있어요:\n${lines}\n다음으로 넘어가기 전에 고치세요.`;
+}
+// the folder's test, when a turn that changed files is about to end
+async function testBeforeEnd(conv) {
+  const { test } = checksOf(conv.cwd);
+  if (!test || conv.chat || conv.mode === "plan" || !conv.changed || conv.stopWhy || conv.manualStop) return null;
+  const again = (conv.testRounds || 0) > 0;
+  noteLoop(conv, `끝내기 전 시험: ${test}`, "run");
+  const started = Date.now();
+  const job = process.platform === "win32"
+    ? runFor("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", test], { cwd: conv.cwd, ms: TEST_MS })
+    : runFor("bash", ["-lc", test], { cwd: conv.cwd, ms: TEST_MS });
+  conv.testJob = job;
+  conv.testStopped = false;
+  const r = await job.done;
+  conv.testJob = null;
+  if (conv.testStopped) { conv.testStopped = false; conv.changed = false; log("끝내기 전 시험을 robin이 멈춤"); noteLoop(conv, "시험을 멈췄어요"); return null; }
+  const took = `${Math.max(1, Math.round((Date.now() - started) / 1000))}초`;
+  // robin stopped it while it ran: nothing more is said or asked
+  if (conv.manualStop || conv.stopWhy) return null;
+  conv.changed = false;
+  if (r.ok) { log(`끝내기 전 시험 통과 (${took})`); noteLoop(conv, `시험 통과 · ${took}`, "ok"); return null; }
+  const out = plain(r.out || "").trim();
+  const end = out.length > TEST_TAIL ? `…\n${out.slice(-TEST_TAIL)}` : out;
+  if (r.missing) { noteLoop(conv, `시험을 돌리지 못했어요: ${test}`, "fail"); return null; }
+  if (again) {
+    log(`끝내기 전 시험 다시 실패 (${took})`);
+    noteLoop(conv, `시험이 아직 실패해요 · ${took}`, "fail");
+    return null;
+  }
+  conv.testRounds = 1;
+  log(`끝내기 전 시험 실패 (${took}) — 모델에게 돌려보냄`);
+  noteLoop(conv, `시험 실패 · ${took} · 모델이 이어서 고쳐요`, "skip");
+  return `(RobinCode 시험) 이 차례에 파일을 고쳐서, 끝내기 전에 이 폴더의 시험 \`${test}\`를 돌렸는데 실패했어요(${r.code == null ? "끊김" : `종료 코드 ${r.code}`}). 출력의 끝:\n${end || "(출력 없음)"}\n\n원인을 고친 뒤 끝내세요. 이번에 고친 것 때문이 아니면 고치지 말고 그 까닭을 robin에게 말하세요.`;
+}
+
 // ---- a tool result too big for a 27B's context --------------------------------
 // Pi cuts a result at 2000 lines or 50KB (~12k tokens, a tenth of the window,
 // read again on every request after). RobinCode cuts it again near 16KB: the
@@ -702,9 +809,9 @@ function sawLoop(conv, live, hit, inThinking) {
   } else stopLoop(conv, LOOP_SAY);
 }
 // a [SKIP] line in the window (and kept in the conversation's file)
-function noteLoop(conv, text) {
-  try { conv.session.sessionManager.appendCustomEntry(NOTE, { text, tone: "skip" }); } catch (err) { log("알림을 남기지 못했어요:", err.message); }
-  if (conv === cur) sendAll({ t: "loop_retry", text });
+function noteLoop(conv, text, tone = "skip") {
+  try { conv.session.sessionManager.appendCustomEntry(NOTE, { text, tone }); } catch (err) { log("알림을 남기지 못했어요:", err.message); }
+  if (conv === cur) sendAll({ t: "loop_retry", text, tone });
 }
 const LOOP_SAY = "같은 말을 되풀이해서 멈췄어요. 다시 보내거나 말을 바꿔 물어봐 주세요.";
 const LOOP_CALLS = "같은 도구 호출을 계속 되풀이해서 멈췄어요. 다시 보내거나 말을 바꿔 물어봐 주세요.";
@@ -902,13 +1009,25 @@ const approvalsFor = (conv) => ({
     });
     pi.on("provider_stream_event", (event) => { if (event.data?.id && !conv.reqId) conv.reqId = event.data.id; });
     // plan mode: said to the model at the start of each of robin's turns (not shown)
-    pi.on("before_agent_start", () => (conv.mode === "plan"
-      ? { message: { customType: "robincode-plan", content: PLAN_NOTE, display: false } } : undefined));
+    pi.on("before_agent_start", () => {
+      conv.changed = false;
+      conv.testRounds = 0;
+      return conv.mode === "plan" ? { message: { customType: "robincode-plan", content: PLAN_NOTE, display: false } } : undefined;
+    });
+    // the turn is about to end: the folder's test first, and one more go when it fails
+    pi.on("agent_before_settle", async (event) => {
+      // only a turn that ended by itself: not one cut by an error (a dropped GPU) or a stop
+      if (event.outcome && event.outcome !== "completed") return undefined;
+      let said = null;
+      try { said = await testBeforeEnd(conv); } catch (err) { log("끝내기 전 시험을 돌리지 못했어요:", err.message); }
+      if (!said) return undefined;
+      return { entries: [...(event.entries || []), { type: "custom_message", customType: "robincode-test", content: said, display: false }], continue: true };
+    });
     registerTools(pi, conv);
     // failures in a row: a note in the result first, then it stops
     // a call RobinCode or robin refused is not a failure of the model's
     const refused = (event, reason) => { (conv.refused ||= new Set()).add(event.toolCallId); return { block: true, reason }; };
-    pi.on("tool_result", (event) => {
+    pi.on("tool_result", async (event) => {
       // what the call gave, for telling a loop from a look that found something new
       const step = conv.trail?.findLast((x) => x.id === event.toolCallId);
       if (step) step.out = sha(`${event.isError ? 1 : 0}\n${textOf(event.content)}`);
@@ -941,6 +1060,12 @@ const approvalsFor = (conv) => ({
       }
       if (event.isError && /Command timed out after \d+ seconds/.test(textOf(event.content))) notes.push(TIMED_OUT);
       if (event.isError && event.toolName === "edit") { const h = editMiss(conv, event); if (h) notes.push(h); }
+      if (!event.isError && FILE_TOOLS.has(event.toolName)) {
+        conv.changed = true;
+        if (checksOf(conv.cwd).after) {
+          try { const bad = await checkAfter(conv, event.input?.path); if (bad) notes.push(bad); } catch (err) { log("고친 뒤 검사를 하지 못했어요:", err.message); }
+        }
+      }
       let content = Array.isArray(event.content) ? event.content : [];
       let cleaned = false;
       if (event.toolName === "grep" && !event.isError && !danger(conv.cwd, "grep", event.input)) {
@@ -2212,6 +2337,7 @@ const server = createServer(async (req, res) => {
           if (items.length) sendAll({ t: "unsent", items, why: "멈춰서 보내지 않았어요." });
         }
         refuse(conv);
+        if (conv.testJob) { conv.testStopped = true; conv.testJob.off(); }
         if (conv.session.isBashRunning) conv.session.abortBash();
         if (conv.session.isCompacting) conv.session.abortCompaction();
         await conv.session.abort();
@@ -2381,6 +2507,19 @@ const server = createServer(async (req, res) => {
         // what "늘 허용" let through without asking, in this folder; remove: one of them
         if (body.remove) removeRule(cur.cwd, String(body.remove));
         send(res, 200, { rules: rulesOf(cur.cwd).map((key) => ({ key, kind: key.startsWith("web:") ? "web" : key.startsWith("exact:") ? "exact" : "cmd", label: key.replace(/^(cmd|web|exact):/, "") })) });
+        return;
+      }
+      case "/api/checks": {
+        // this folder's look after a change (on/off) and its test before a turn ends
+        const change = {};
+        if (typeof body.after === "boolean") change.after = body.after;
+        if (typeof body.test === "string") {
+          const test = body.test.trim();
+          if (test.length > 300 || /[\r\n]/.test(test)) { send(res, 400, { error: "시험 명령은 한 줄, 300자까지예요." }); return; }
+          change.test = test;
+        }
+        if (cur.chat && Object.keys(change).length) { send(res, 409, { error: "일반 대화에는 폴더가 없어요." }); return; }
+        send(res, 200, Object.keys(change).length ? setChecks(cur.cwd, change) : checksOf(cur.cwd));
         return;
       }
       case "/api/open-file": {

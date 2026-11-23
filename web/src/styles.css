@@ -1915,3 +1915,7 @@ html.glass .conv { --conv-bg: #0c1013; }
 /* a note with a button stays on one line on a wide window (it broke into three: the icon, the words, the close) */
 @media (min-width: 521px) { .toast { flex-wrap: nowrap; } .toast > span { flex: 0 1 auto; } }
 /* ==== end of V5 ==== */
+/* 검사와 시험 (B-420): the test's command under the card, in the fixed-width face */
+.checks-test { margin-top: 14px; }
+.checks-test input.mono { font-size: 12.5px; }
+

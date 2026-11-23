@@ -1076,6 +1076,7 @@ function Settings({ state, notify, shellU, onNotify, onMode, onThink, onGpu, onP
           </div>
           <h2 className="set-head">규칙과 지시</h2>
           <div className="set-card">
+            <SubRow name="검사와 시험" off={chat} tip={noFolder} onClick={() => onPanel("checks")} title="고친 파일의 문법 검사, 끝내기 전 시험" />
             <SubRow name="늘 허용한 것" onClick={() => onPanel("rules")} title="&quot;늘 허용&quot;한 명령과 사이트를 보고 지워요 (/permissions)" />
             <SubRow name="지시 파일" off={chat} tip={noFolder} onClick={() => onPanel("memory")} title="모델이 읽는 지시 파일 (/memory)" />
             <SubRow name="명령과 단축키" onClick={() => onPanel("help")} title="/help" />
@@ -1757,6 +1758,40 @@ function MemoryPanel({ name, onClose, onError }) {
             <button type="submit" className="btn btn-primary" disabled={!line.trim() || saving}>{saving ? "더하는 중…" : "더하기"}</button>
           </div>
         </form>
+      )}
+    </Sheet>
+  );
+}
+// this folder's look at a changed file and its test before a turn ends (B-420)
+function ChecksPanel({ name, onClose, onError }) {
+  const [c, setC] = useState(null);
+  const [test, setTest] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { api("/api/checks", {}).then((r) => { setC(r); setTest(r.test || ""); }).catch((e) => onError(`읽지 못했어요: ${e.message}`)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const change = (body) => {
+    setSaving(true);
+    return api("/api/checks", body).then((r) => { setC(r); setTest(r.test || ""); }).catch((e) => onError(`바꾸지 못했어요: ${e.message}`)).finally(() => setSaving(false));
+  };
+  return (
+    <Sheet label="검사와 시험" name={name} onClose={onClose}>
+      {c === null ? <p className="gpu-note">읽는 중<span className="cursor" aria-hidden="true" /></p> : (
+        <>
+          <div className="set-card">
+            <SetRow name="고친 파일 문법 검사">
+              <button type="button" className={`toggle${c.after ? " on" : ""}`} aria-pressed={!!c.after} aria-label="고친 파일 문법 검사" disabled={saving}
+                title=".js·.mjs·.cjs·.json·.py를 고친 직후에 봐요. 오류가 있으면 모델에게 알려요."
+                onClick={() => change({ after: !c.after })}><span className="switch" /></button>
+            </SetRow>
+          </div>
+          <form className="mem-add checks-test" onSubmit={(e) => { e.preventDefault(); change({ test }); }}>
+            <label className="side-label" htmlFor="checks-test">끝내기 전 시험 명령</label>
+            <div className="mem-add-row">
+              <input id="checks-test" className="mono" value={test} onChange={(e) => setTest(e.target.value)} placeholder="npm test" spellCheck={false} maxLength={300} autoComplete="off" />
+              <button type="submit" className="btn btn-primary" disabled={saving || test.trim() === (c.test || "")}>저장</button>
+            </div>
+            {c.test && <p className="gpu-note">파일을 고친 차례가 끝날 때 돌려요. 실패하면 모델이 한 번 더 고쳐요.</p>}
+          </form>
+        </>
       )}
     </Sheet>
   );
@@ -2451,6 +2486,7 @@ export default function App() {
         {panel === "memory" && <MemoryPanel name={folderName} onClose={on.closePanel} onError={on.say} />}
         {panel === "help" && <HelpPanel commands={commands} onClose={on.closePanel} />}
         {panel === "rules" && <RulesPanel name={folderName} onClose={on.closePanel} onError={on.say} />}
+        {panel === "checks" && <ChecksPanel name={folderName} onClose={on.closePanel} onError={on.say} />}
         {panel === "version" && <VersionPanel version={state.version} shellU={shellU} running={state.running} onClose={on.closePanel} onError={on.say} />}
         {panel === "changes" && <ChangesPanel busy={state.busy} conv={state.sessionFile || null} name={state.title || undefined} onClose={on.closePanel} onError={on.say} />}
         {gpuOpen &&<GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); if (panel !== "settings") focusBox(); }} />}

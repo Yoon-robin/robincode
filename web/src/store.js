@@ -96,8 +96,9 @@ function fromHistory(history, still = false) {
       items.push({ kind: "line", id: id("c", m), tag: "[ OK ]", tone: "",
         text: m.faded ? "앞부분을 요약했어요. 흐린 부분은 모델이 요약으로만 기억해요." : "앞부분을 요약해서 줄였어요.", ...(still && { still }) });
     } else if (m.role === "note") {
-      const skip = m.tone === "skip";
-      items.push({ kind: "line", id: id("n", m), tag: skip ? "[SKIP]" : "[FAIL]", text: m.text, tone: skip ? "skip" : "fail", ...flags(m) });
+      // a note's tone: skipped, done (a test that passed), a step that ran (the test's own line), failed
+      const [tag, tone] = NOTE_TONES[m.tone] || NOTE_TONES.fail;
+      items.push({ kind: "line", id: id("n", m), tag, text: m.text, tone, ...flags(m) });
     } else if (m.role === "stats") {
       // under the last answer of its turn
       for (let i = items.length - 1; i >= 0 && items[i].kind !== "user"; i--) {
@@ -108,6 +109,7 @@ function fromHistory(history, still = false) {
   return items;
 }
 
+const NOTE_TONES = { skip: ["[SKIP]", "skip"], ok: ["[ OK ]", ""], run: ["[ ·· ]", ""], fail: ["[FAIL]", "fail"] };
 const line = (tag, text, tone = "") => ({ kind: "line", id: nid(), tag, text, tone });
 
 // the thinking step ends once anything else comes from the model
@@ -299,7 +301,8 @@ function onEvent(state, e) {
     // a loop was cut and the turn goes on (still busy)
     case "loop_retry": {
       state = endThink(state);
-      return { ...state, items: [...state.items, line("[SKIP]", e.text, "skip")], current: null, phase: "think" };
+      const [tag, tone] = NOTE_TONES[e.tone] || NOTE_TONES.skip;
+      return { ...state, items: [...state.items, line(tag, e.text, tone)], current: null, phase: "think" };
     }
     case "error": return { ...state, items: [...state.items, line("[FAIL]", e.message, "fail")] };
     case "retry": {

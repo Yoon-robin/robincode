@@ -357,6 +357,57 @@ await page.locator(".conv-open", { hasText: "할 일 해 줘" }).first().click()
 await page.waitForTimeout(600);
 ok(firstDay === "고정" && firstTitle === otherTitle && (await page.locator(".conv-done").count()) === 0, `고정은 맨 위(${firstDay}: ${firstTitle}), 열면 끝났어요 표시가 사라짐`);
 
+// ---- checks (B-420): a look at a changed file, and the folder's test before the turn ends
+await page.locator(".side").getByRole("button", { name: "새 대화" }).first().click();
+await page.waitForTimeout(1000);
+// says yes to every question until the turn is over (a write asks; the test's round asks again)
+const through = async (t = 90000) => {
+  await page.waitForFunction(() => /^(도는 중|허락을 기다려요) · /.test(document.title), null, { timeout: 8000 }).catch(() => {});
+  for (let i = 0; i < 8; i++) {
+    const now = await Promise.race([asks(t).then(() => "ask", () => "late"), idle(t).then(() => "idle", () => "late")]);
+    if (now !== "ask") return now;
+    await page.waitForTimeout(1100);
+    await box.click();
+    await page.keyboard.press("1");
+    await page.waitForFunction(() => !document.title.startsWith("허락을 기다려요 · "), null, { timeout: 8000 }).catch(() => {});
+  }
+  return "many";
+};
+const call = (path, body) => page.evaluate(async ([at, what]) => {
+  const res = await fetch(at, { method: "POST", headers: { "content-type": "application/json", "x-robincode-token": sessionStorage.getItem("robincode-token") || "" }, body: JSON.stringify(what) });
+  return { status: res.status, data: await res.json().catch(() => ({})) };
+}, [path, body]);
+await say("문법 깨는 수정 해 줘");
+ok(await through() === "idle", "문법 깨: 차례가 끝남");
+ok(readFileSync(join(work, "src", "broken.js"), "utf8").trim() === 'console.log("hi");', "고친 뒤 검사: 문법 오류를 알려 모델이 다시 고침");
+ok(await page.locator(".msg", { hasText: "문법 오류를 고쳤어요" }).count() >= 1, "고친 뒤 검사: 모델의 마지막 말");
+// off: the same broken write is not told about
+ok((await call("/api/checks", { after: false })).data.after === false, "검사 끄기");
+await say("문법 깨는 수정 다시 해 줘");
+ok(await through() === "idle", "검사 끔: 차례가 끝남");
+ok(readFileSync(join(work, "src", "broken.js"), "utf8").trim() === 'console.log("hi"', "검사 끔: 깨진 채로 둠(알리지 않음)");
+ok((await call("/api/checks", { after: true })).data.after === true, "검사 다시 켜기");
+// the folder's test: fails on state.txt "broken", the model gets one more go, then it passes
+writeFileSync(join(work, "check.mjs"), 'import { readFileSync } from "node:fs";\nlet s = ""; try { s = readFileSync("state.txt", "utf8").trim(); } catch {}\nif (s === "broken") { console.error("state.txt is broken"); process.exit(1); }\n');
+const errsBefore = errs.length;
+ok((await call("/api/checks", { test: "node check.mjs\nrm x" })).status === 400, "시험 명령은 한 줄만");
+await page.waitForTimeout(100);
+errs.splice(errsBefore); // the browser logs that 400 as an error: it is the answer this asks for
+ok((await call("/api/checks", { test: "node check.mjs" })).data.test === "node check.mjs", "시험 명령 저장");
+await say("시험 깨는 수정 해 줘");
+ok(await through(120000) === "idle", "시험 깨: 차례가 끝남");
+const lines = await page.locator(".line").allInnerTexts();
+ok(lines.some((t) => t.includes("시험 실패")) && lines.some((t) => t.includes("시험 통과")), `끝내기 전 시험: 실패 → 다시 → 통과 (${lines.filter((t) => t.includes("시험")).map((t) => t.replace(/\s+/g, " ").trim()).join(" / ")})`);
+ok(readFileSync(join(work, "state.txt"), "utf8").trim() === "fixed", "끝내기 전 시험: 모델이 고침");
+// a turn that changed nothing does not run it
+const testsBefore = (await page.locator(".line").allInnerTexts()).filter((t) => t.includes("끝내기 전 시험")).length;
+await say("목록 보여 줘");
+await through();
+ok((await page.locator(".line").allInnerTexts()).filter((t) => t.includes("끝내기 전 시험")).length === testsBefore, "고친 것이 없는 차례엔 시험을 안 돌림");
+// the settings page shows both
+await say("/help"); await page.waitForTimeout(300); await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+ok((await call("/api/checks", { test: "" })).data.test === "", "시험 명령 지움");
+
 ok(errs.length === 0, `콘솔 오류 ${errs.length}개 ${errs.slice(0, 3).join(" | ")}`);
 if (process.env.ROBINCODE_UI_SHOT) await page.screenshot({ path: process.env.ROBINCODE_UI_SHOT });
 await browser.close();
