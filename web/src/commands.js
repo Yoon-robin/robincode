@@ -14,6 +14,7 @@ export const BUILTIN = [
   { name: "changes", hint: "이 대화가 바꾼 파일을 한곳에서 보고, 파일마다 되돌려요" },
   { name: "diff", hint: "이 대화가 바꾼 파일을 봐요 (/changes와 같아요)" },
   { name: "review", hint: "마지막 커밋 뒤에 바뀐 것을 새 대화에서 검토해요(읽기만). 뒤에 특히 볼 것을 적어도 돼요", arg: "특히 볼 것" },
+  { name: "usage", hint: "모델이 일한 시간과 그 시간의 GPU 값을 봐요" },
   { name: "export", hint: "이 대화를 Markdown 파일로 저장해요" },
   { name: "version", hint: "RobinCode 판과 바뀐 것을 봐요. 새 판도 확인해요" },
   { name: "help", hint: "명령과 단축키를 봐요" },

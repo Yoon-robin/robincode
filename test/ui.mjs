@@ -517,6 +517,22 @@ ok((await call("/api/checks", { test: "" })).data.test === "", "시험 명령 �
   ok(noToken === 401, `토큰 없이는 그림을 안 줌 (${noToken})`);
 }
 
+// ---- /usage (B-428): how long the model worked, this conversation / today / this month
+{
+  const before = (await call("/api/usage", {})).data;
+  await say("목록 보여 줘");
+  await through();
+  const after = (await call("/api/usage", {})).data;
+  ok(after.conv.turns === before.conv.turns + 1 && after.conv.ms > before.conv.ms, `한 차례가 이 대화에 더해짐 (${before.conv.turns} → ${after.conv.turns}차례, ${after.conv.ms}ms)`);
+  ok(after.today.turns >= after.conv.turns && after.month.ms >= after.today.ms, `오늘·이번 달이 그 이상 (${after.today.turns}차례 / ${after.month.turns}차례)`);
+  await say("/usage");
+  await page.waitForSelector(".use", { timeout: 5000 }).catch(() => {});
+  const rows = await page.locator(".use tbody tr").allInnerTexts();
+  ok(rows.length === 3 && /^이 대화/.test(rows[0]) && /(초|분)/.test(rows[0]) && /^오늘/.test(rows[1]) && /^이번 달/.test(rows[2]), `/usage 창 (${rows.map((r) => r.replace(/\s+/g, " ")).join(" | ")})`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(200);
+}
+
 // ---- the foot's keys between 420 and 860: one stays (it was gone whole, B-440)
 {
   const size = page.viewportSize();

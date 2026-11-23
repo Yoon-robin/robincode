@@ -1169,6 +1169,12 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .mem-add-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--raise); color: var(--head); font: inherit; font-size: 13.5px; outline: 0; }
 .mem-add-row input:focus { border-color: rgb(75 125 254 / 55%); }
 /* a list's rows: 32 r8 on --raise, 4 apart */
+.use { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.use th, .use td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--line-weak); }
+.use thead th { font-size: 12px; font-weight: 500; color: var(--faint); }
+.use tbody th { text-align: left; font-weight: 500; color: var(--soft); }
+.use td { color: var(--head); }
+.use tbody tr:last-child th, .use tbody tr:last-child td { border-bottom: 0; }
 .rule-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .rule { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 3px 4px 3px 10px; border-radius: var(--radius-item); background: var(--raise); font-size: 13px; }
 .rule-kind { flex: none; width: 44px; font-size: 12px; color: var(--faint); }

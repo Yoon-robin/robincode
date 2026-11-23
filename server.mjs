@@ -437,6 +437,44 @@ const settingsFile = join(appDir, "robincode.json");
 let settings = {};
 try { settings = JSON.parse(readFileSync(settingsFile, "utf8")) || {}; } catch { /* first run */ }
 const saveSettings = () => { try { writeFileSync(settingsFile, JSON.stringify(settings, null, 2)); } catch (e) { log("설정을 저장하지 못했어요:", e.message); } };
+// ---- how long the model worked (B-428) ---------------------------------------
+// The GPU is paid by the hour, not by the token: each turn's time is added up per
+// day (Seoul's) and per conversation, with what that time cost at the hourly rate
+// the GPU had then (0 when the rate is not known: the fake model, a GPU not ours).
+// usage.json beside the settings; days older than 400 and all but the 300 newest
+// conversations are dropped.
+const usageFile = join(appDir, "usage.json");
+let usage = { days: {}, convs: {} };
+try { const u = JSON.parse(readFileSync(usageFile, "utf8")); if (u?.days && u?.convs) usage = u; } catch { /* none yet */ }
+const seoulDay = (at = Date.now()) => new Date(at + 9 * 3600000).toISOString().slice(0, 10);
+function addUsage(conv, ms) {
+  if (!(ms > 0)) return;
+  const rate = gpu.state === "on" ? Number(gpu.rate) || 0 : 0;
+  const cost = (ms / 3600000) * rate;
+  const put = (row) => { row.ms = (row.ms || 0) + ms; row.cost = (row.cost || 0) + cost; row.turns = (row.turns || 0) + 1; return row; };
+  usage.days[seoulDay()] = put(usage.days[seoulDay()] || {});
+  const key = conv.session?.sessionFile;
+  if (key) usage.convs[key] = { ...put(usage.convs[key] || {}), at: Date.now() };
+  const oldest = seoulDay(Date.now() - 400 * 86400000);
+  for (const d of Object.keys(usage.days)) if (d < oldest) delete usage.days[d];
+  const convs = Object.entries(usage.convs);
+  if (convs.length > 300) for (const [k] of convs.sort((a, b) => (a[1].at || 0) - (b[1].at || 0)).slice(0, convs.length - 300)) delete usage.convs[k];
+  try { writeFileSync(`${usageFile}.new`, JSON.stringify(usage)); renameSync(`${usageFile}.new`, usageFile); } catch (e) { log("사용량을 저장하지 못했어요:", e.message); }
+}
+function usageNow(conv) {
+  const none = { ms: 0, cost: 0, turns: 0 };
+  const sum = (rows) => rows.reduce((t, r) => ({ ms: t.ms + (r.ms || 0), cost: t.cost + (r.cost || 0), turns: t.turns + (r.turns || 0) }), { ...none });
+  const today = seoulDay();
+  const days = Object.entries(usage.days);
+  const pick = ({ ms = 0, cost = 0, turns = 0 }) => ({ ms, cost, turns });
+  return {
+    conv: pick(usage.convs[conv?.session?.sessionFile] || none),
+    today: pick(usage.days[today] || none),
+    month: sum(days.filter(([d]) => d.slice(0, 7) === today.slice(0, 7)).map(([, r]) => r)),
+    rate: gpu.state === "on" ? Number(gpu.rate) || null : null,
+  };
+}
+
 // Qwen thinks before it answers (Pi sends chat_template_kwargs.enable_thinking):
 // slower, better on hard work. Off unless robin turns it on
 const THINK_LEVEL = "medium";
@@ -1786,6 +1824,7 @@ function onEvent(conv, e) {
       };
       conv.turn = null;
       conv.live = null;
+      if (stats) addUsage(conv, stats.ms);
       // robin's own stop is a plain [SKIP], whatever RobinCode was doing
       const why = e.aborted && !conv.manualStop ? conv.stopWhy || undefined : undefined;
       conv.stopWhy = null;
@@ -2740,6 +2779,10 @@ const server = createServer(async (req, res) => {
         send(res, r.ok ? 200 : r.status, r.ok ? { ok: true, files: found.files } : { error: r.error, gpuOff: r.gpuOff, stopped: r.stopped });
         return;
       }
+      case "/api/usage":
+        // how long the model worked: this conversation, today, this month (Seoul's days)
+        send(res, 200, usageNow(cur));
+        return;
       case "/api/places":
         // the folder chip's list: the folders robin opened lately
         send(res, 200, { folders: folderRows(folderList(), String(body.q || ""), 8).rows || [] });

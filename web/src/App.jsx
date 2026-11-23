@@ -1081,6 +1081,7 @@ function Settings({ state, notify, shellU, onNotify, onMode, onThink, onGpu, onP
             <SubRow name="검사와 시험" off={chat} tip={noFolder} onClick={() => onPanel("checks")} title="고친 파일의 문법 검사, 끝내기 전 시험" />
             <SubRow name="늘 허용한 것" onClick={() => onPanel("rules")} title="&quot;늘 허용&quot;한 명령과 사이트를 보고 지워요 (/permissions)" />
             <SubRow name="지시 파일" off={chat} tip={noFolder} onClick={() => onPanel("memory")} title="모델이 읽는 지시 파일 (/memory)" />
+            <SubRow name="사용량" onClick={() => onPanel("usage")} title="모델이 일한 시간과 GPU 값 (/usage)" />
             <SubRow name="명령과 단축키" onClick={() => onPanel("help")} title="/help" />
           </div>
         </div>
@@ -1918,6 +1919,41 @@ const KEYS = [
   ["@", "이 폴더의 파일 넣기"],
   ["!명령", "PowerShell로 바로 실행 (결과는 대화에 남아요)"],
 ];
+// 3725000 -> "1시간 2분", 42000 -> "42초"
+const spanWords = (ms) => {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}분` : `${Math.floor(m / 60)}시간${m % 60 ? ` ${m % 60}분` : ""}`;
+};
+const costWords = (c) => (c > 0 ? `$${c < 0.995 ? c.toFixed(2) : c.toFixed(1)}` : "");
+function UsagePanel({ onClose, onError }) {
+  const [u, setU] = useState(null);
+  useEffect(() => { api("/api/usage").then(setU).catch((e) => { onError(`읽지 못했어요: ${e.message}`); onClose(); }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const rows = u ? [["이 대화", u.conv], ["오늘", u.today], ["이번 달", u.month]] : [];
+  return (
+    <Sheet label="사용량" onClose={onClose}>
+      {u === null ? <p className="gpu-note">읽는 중<span className="cursor" aria-hidden="true" /></p> : (
+        <>
+          <table className="use">
+            <thead><tr><th scope="col" /><th scope="col">모델이 일한 시간</th><th scope="col">차례</th><th scope="col">GPU 값</th></tr></thead>
+            <tbody>
+              {rows.map(([name, r]) => (
+                <tr key={name}>
+                  <th scope="row">{name}</th>
+                  <td>{r.turns ? spanWords(r.ms) : "—"}</td>
+                  <td>{r.turns || "—"}</td>
+                  <td>{costWords(r.cost) || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="gpu-note">{u.rate ? `지금 GPU 시간당 $${u.rate}` : "GPU 꺼짐"}</p>
+        </>
+      )}
+    </Sheet>
+  );
+}
 function HelpPanel({ commands, onClose }) {
   return (
     <Sheet label="명령과 단축키" onClose={onClose}>
@@ -2308,6 +2344,7 @@ export default function App() {
       return;
     }
     if (name === "help") setPanel("help");
+    if (name === "usage") setPanel("usage");
     if (name === "version") setPanel("version");
   };
   // robin's own `!명령` (true once it started)
@@ -2575,6 +2612,7 @@ export default function App() {
           onGpu={() => setGpuOpen(true)} onPanel={on.sheet} onClose={on.closeSettings} />}
         {panel === "memory" && <MemoryPanel name={folderName} onClose={on.closePanel} onError={on.say} />}
         {panel === "help" && <HelpPanel commands={commands} onClose={on.closePanel} />}
+        {panel === "usage" && <UsagePanel onClose={on.closePanel} onError={on.say} />}
         {panel === "rules" && <RulesPanel name={folderName} onClose={on.closePanel} onError={on.say} />}
         {panel === "checks" && <ChecksPanel name={folderName} onClose={on.closePanel} onError={on.say} />}
         {panel === "version" && <VersionPanel version={state.version} shellU={shellU} running={state.running} onClose={on.closePanel} onError={on.say} />}
