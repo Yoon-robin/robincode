@@ -186,6 +186,12 @@ createServer(async (req, res) => {
   const robinSaid = robinAt < 0 ? "" : textOf(messages[robinAt].content);
   const after = messages.slice(robinAt + 1);
   const results = after.filter((m) => m.role === "tool").map((m) => textOf(m.content));
+  // "물어봐": asks robin to choose with the ask tool (B-426), then says what came back
+  if (/물어봐/.test(robinSaid) && tools.includes("ask")) {
+    if (!results.length) await streamToolCall(res, "ask", { question: "어느 쪽으로 할까요?", options: ["빠르게", "꼼꼼하게", "둘 다"] }, usage);
+    else await streamText(res, `받은 답: ${results[0]}`, usage);
+    return;
+  }
   // `/review` (B-429): says what it was given, so the test can see the changes arrived
   // unseen and that only the looking tools came with them
   const reviewNote = messages.map((m) => textOf(m.content)).find((t) => t.startsWith("(RobinCode 알림) 지금은 검토예요"));

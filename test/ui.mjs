@@ -517,6 +517,32 @@ ok((await call("/api/checks", { test: "" })).data.test === "", "시험 명령 �
   ok(noToken === 401, `토큰 없이는 그림을 안 줌 (${noToken})`);
 }
 
+// ---- the model's own question (B-426): choices by number, or robin's own words
+{
+  await say("/mode auto");
+  await page.waitForTimeout(400);
+  await say("하나 물어봐");
+  await asks();
+  const card = page.locator(".ask").last();
+  ok(/어느 쪽으로 할까요\?/.test(await card.innerText()) && (await card.locator(".ask-buttons .btn").count()) === 3, `바로 실행 모드에서도 물음 (${(await card.innerText()).replace(/\s+/g, " ").slice(0, 60)})`);
+  await page.waitForTimeout(1100);
+  await box.click();
+  await page.keyboard.press("4");                 // no fourth choice: nothing happens
+  await page.waitForTimeout(300);
+  ok((await page.title()).startsWith("허락을 기다려요"), "없는 번호는 답이 아님");
+  await page.keyboard.press("2");
+  await idle();
+  ok(/받은 답: robin의 답: 꼼꼼하게/.test(await page.locator(".msgs").innerText()), "2를 누르면 둘째 선택지가 모델에 감");
+  await say("다시 물어봐");
+  await asks();
+  await page.locator(".ask").last().locator(".ask-note").fill("셋 다 말고 문서만");
+  await page.keyboard.press("Enter");
+  await idle();
+  ok(/받은 답: robin의 답: 셋 다 말고 문서만/.test(await page.locator(".msgs").innerText()), "직접 쓴 말이 답으로 감");
+  await say("/mode ask");
+  await page.waitForTimeout(400);
+}
+
 // ---- /usage (B-428): how long the model worked, this conversation / today / this month
 {
   const before = (await call("/api/usage", {})).data;

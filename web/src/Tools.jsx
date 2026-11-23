@@ -28,6 +28,7 @@ export function describe(name, args = {}) {
       return `${items.filter((x) => x.status === "completed").length}/${items.length}${now ? ` · ${now.text}` : ""}`;
     }
     case "webfetch": return args.url ?? "";
+    case "ask": return args.question ?? "";
     case "read": return `${args.path ?? ""}${args.offset ? ` · ${args.offset}줄부터` : ""}`;
     case "ls": return args.path || ".";
     case "find": case "grep": return [args.pattern, args.path].filter(Boolean).join("  ·  ");
@@ -96,7 +97,41 @@ function ThoughtLive({ text, idle }) {
 }
 const firstLine = (text) => (text || "").trim().split("\n")[0];
 
+// the model's own question (the ask tool): its choices by number, or robin's own words
+function Question({ tool, onDecide }) {
+  const first = useRef(null);
+  const [note, setNote] = useState("");
+  const options = Array.isArray(tool.args?.options) ? tool.args.options : [];
+  useEffect(() => {
+    const id = setTimeout(() => { if (!document.querySelector(".to-bottom")) first.current?.scrollIntoView({ block: "nearest", behavior: glide() }); }, 150);
+    return () => clearTimeout(id);
+  }, []);
+  return (
+    <div className="ask" role="group" aria-label={String(tool.args?.question ?? "질문")} tabIndex={-1}>
+      <p className="ask-title"><Icon name="ask" /> {String(tool.args?.question ?? "")}</p>
+      <div className="ask-buttons">
+        {options.map((o, k) => (
+          <button key={k} ref={k ? null : first} type="button" className={`btn${k ? "" : " btn-primary"}`} onClick={() => onDecide(tool.id, `pick${k}`)}>
+            <kbd className="key">{k + 1}</kbd>{o}
+          </button>
+        ))}
+      </div>
+      <input className="ask-note" value={note} spellCheck={false} maxLength={500}
+        placeholder="직접 답하기 (Enter)" aria-label="직접 답하기"
+        onChange={(e) => setNote(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === "Enter" && note.trim()) { e.preventDefault(); onDecide(tool.id, "no", note); }
+        }} />
+    </div>
+  );
+}
+
 function Approval({ tool, onDecide }) {
+  if (tool.name === "ask") return <Question tool={tool} onDecide={onDecide} />;
+  return <Permission tool={tool} onDecide={onDecide} />;
+}
+function Permission({ tool, onDecide }) {
   const yes = useRef(null);
   const { name, args } = tool;
   const isFile = name === "edit" || name === "write";

@@ -493,8 +493,8 @@ const refuse = (conv) => { for (const [id, a] of asking) if (a.conv === conv) pe
 // go at once, the rest asks; auto: nothing asks; plan: only looking (read, find,
 // the web) and a plan for robin, nothing changed
 const MODES = new Set(["ask", "edits", "auto", "plan"]);
-const TOOLS = ["read", "edit", "write", "grep", "find", "ls", "powershell", "todo", "webfetch"];
-const LOOK_TOOLS = ["read", "grep", "find", "ls", "todo", "webfetch"];
+const TOOLS = ["read", "edit", "write", "grep", "find", "ls", "powershell", "todo", "webfetch", "ask"];
+const LOOK_TOOLS = ["read", "grep", "find", "ls", "todo", "webfetch", "ask"];
 const PLAN_NOTE = "(RobinCode 알림) 지금은 계획 모드예요. 파일을 고치거나 명령을 실행하지 말고(그런 도구는 없어요), 읽고 찾아본 뒤 무엇을 어떤 순서로 바꿀지 단계별 계획만 써요. 계획 끝에 robin이 정해야 할 것이 있으면 물어봐요. robin이 \"이 계획대로 하기\"를 누르면 그때 고쳐요.";
 // `/review` (B-429): a new conversation that only looks. The folder's uncommitted
 // changes (git diff against the last commit, and the names of new files) go to the
@@ -521,7 +521,7 @@ function reviewDiff(dir) {
 const CHAT_DIR = join(appDir, "chat");
 mkdirSync(CHAT_DIR, { recursive: true });
 const isChatDir = (p) => !!p && keyOf(resolve(p)) === keyOf(CHAT_DIR);
-const CHAT_TOOLS = ["webfetch"];
+const CHAT_TOOLS = ["webfetch", "ask"];
 const CHAT_PROMPT = `너는 RobinCode의 일반 대화 상대야. robin과 이야기하고, 묻는 것에 답하고, 글을 쓰고 다듬고, 생각을 정리하는 걸 도와.
 - 이 대화에는 작업 폴더가 없어. 파일을 읽거나 고치거나 명령을 실행할 수 없어. 그런 일이 필요하면 왼쪽 위 "새 대화"에서 폴더를 골라 열면 된다고 알려 줘.
 - webfetch 도구로 웹 페이지를 읽을 수 있어(robin이 허락하면). 최신 정보가 필요하고 주소를 알 때만 써.
@@ -937,6 +937,24 @@ function registerTools(pi, conv) {
       return { content: [{ type: "text", text: `할 일 ${items.length}개, ${done}개 끝${now ? `. 지금: ${now.text}` : ""}` }], details: { items } };
     },
   });
+  // the model asks robin to choose (B-426): the question waits as the approval card does
+  // (tool_call below), and what robin picked or wrote is this tool's result
+  pi.registerTool({
+    name: "ask",
+    label: "질문",
+    description: "Ask robin to choose between 2 to 4 options and wait for the answer. Use it only when the request is ambiguous and the choice changes what you do; not for what you can find in the files or decide by a sensible default. robin may answer in his own words instead.",
+    promptSnippet: "ask: ask robin to choose between a few options",
+    promptGuidelines: ["Use the ask tool only when you cannot decide from the request, the files or a sensible default; give 2 to 4 short options in Korean, the one you recommend first."],
+    parameters: Type.Object({
+      question: Type.String({ description: "the question, one short sentence in Korean" }),
+      options: Type.Array(Type.String({ description: "one choice, a few words in Korean" }), { description: "2 to 4 choices, the recommended one first" }),
+    }),
+    async execute(id) {
+      const answer = conv.answers?.get(id);
+      conv.answers?.delete(id);
+      return { content: [{ type: "text", text: answer ? `robin의 답: ${answer}` : "robin이 답하지 않았어요." }], details: undefined };
+    },
+  });
   pi.registerTool({
     name: "webfetch",
     label: "웹 페이지",
@@ -1156,6 +1174,25 @@ const approvalsFor = (conv) => ({
         return refused(event, k === 1
           ? `같은 도구를 같은 값으로 ${CYCLE_TIMES}번 연달아 불렀고 결과도 매번 같았어요. 다시 불러도 바뀌지 않아요. 다른 방법을 쓰거나, 지금까지 알아낸 것으로 답하세요.`
           : `도구 호출 ${k}개를 같은 순서로 ${CYCLE_TIMES}번 되풀이했고 결과도 매번 같았어요. 다른 방법을 쓰거나, 지금까지 알아낸 것으로 답하세요.`);
+      }
+      // a question for robin: asked in every mode (바로 실행 too — it is not a permission)
+      if (event.toolName === "ask") {
+        const question = String(event.input?.question || "").trim().slice(0, 500);
+        const options = (Array.isArray(event.input?.options) ? event.input.options : []).map((o) => String(o || "").trim().slice(0, 120)).filter(Boolean).slice(0, 4);
+        if (!question || options.length < 2) return refused(event, "ask에는 질문 하나와 선택지 2~4개가 있어야 해요.");
+        asking.set(event.toolCallId, { id: event.toolCallId, name: "ask", args: { question, options }, conv, rule: null, risk: null });
+        if (conv === cur) broadcast({ t: "approve", id: event.toolCallId, name: "ask", args: { question, options }, rule: null, risk: null });
+        sayRunning();
+        wakeSlots();
+        const got = await new Promise((r) => pending.set(event.toolCallId, r));
+        pending.delete(event.toolCallId);
+        asking.delete(event.toolCallId);
+        sayRunning();
+        const { decision, note, pick } = typeof got === "string" ? { decision: got } : got;
+        const said = decision === "pick" && options[pick] ? options[pick] : note;
+        if (!said) return refused(event, "robin이 고르지 않았어요. 다시 묻지 말고, 가장 무난한 쪽으로 하거나 멈추세요.");
+        (conv.answers ||= new Map()).set(event.toolCallId, said);
+        return undefined;
       }
       // the file as it is right before the change runs (after robin said yes)
       const going = () => { if (FILE_TOOLS.has(event.toolName)) beforeChange(conv, event.toolCallId, event.input?.path); return undefined; };
@@ -2435,9 +2472,11 @@ const server = createServer(async (req, res) => {
         const decide = pending.get(String(body.id));
         // "rule" for a call that cannot have one (a chained command, an interpreter) is not an answer: it still waits
         const noRule = body.decision === "rule" && !asking.get(String(body.id))?.rule;
-        const decision = ["yes", "no", "always", "rule"].includes(body.decision) ? body.decision : "no";
+        // "pick0".."pick3": the choice robin took for the model's own question (the ask tool)
+        const pick = /^pick[0-3]$/.test(String(body.decision)) ? Number(String(body.decision).slice(4)) : -1;
+        const decision = pick >= 0 ? "pick" : ["yes", "no", "always", "rule"].includes(body.decision) ? body.decision : "no";
         const note = decision === "no" && typeof body.note === "string" ? body.note.trim().slice(0, 500) : "";
-        if (decide && !noRule) decide(note ? { decision, note } : decision);
+        if (decide && !noRule) decide(pick >= 0 ? { decision, pick } : note ? { decision, note } : decision);
         send(res, 200, { ok: !!decide && !noRule });
         return;
       }
@@ -2543,7 +2582,7 @@ const server = createServer(async (req, res) => {
         cur.mode = mode;
         applyMode(cur);
         // "바로 실행" asks nothing: a question waiting now goes ahead too
-        if (mode === "auto") for (const [id, a] of asking) if (a.conv === cur) pending.get(id)?.("yes");
+        if (mode === "auto") for (const [id, a] of asking) if (a.conv === cur && a.name !== "ask") pending.get(id)?.("yes");
         broadcast({ t: "mode", mode: cur.mode, planFrom: cur.planFrom || "ask" });
         send(res, 200, { mode: cur.mode });
         return;

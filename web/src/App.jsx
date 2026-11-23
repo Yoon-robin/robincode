@@ -449,7 +449,7 @@ function turnEnds(items, busy) {
 // where robin was reading in each conversation (this window, the 30 last):
 // coming back to one put robin at its bottom (codex B9 / B-438)
 const readAt = new Map();
-const ASK_WHAT = { powershell: "명령 실행", bash: "명령 실행", edit: "파일 고치기", write: "파일 쓰기", read: "파일 읽기", grep: "파일 안 찾기", webfetch: "웹 페이지 읽기" };
+const ASK_WHAT = { powershell: "명령 실행", bash: "명령 실행", edit: "파일 고치기", write: "파일 쓰기", read: "파일 읽기", grep: "파일 안 찾기", webfetch: "웹 페이지 읽기", ask: "질문" };
 const Conversation = memo(function Conversation({ state, outbox = [], asking, onDecide, onPick, onPlace, onRewind, onRetry, onBranch, onGpu, onUnqueue, onPlanGo }) {
   const scroller = useRef(null);
   const content = useRef(null);
@@ -2223,6 +2223,8 @@ export default function App() {
     const tool = askingRef.current;
     // "늘 허용" for a call that has no rule (a chained command, an interpreter): nothing to answer
     if (decision === "rule" && !(tool?.id === id && tool.rule)) return;
+    // a number past the question's choices does nothing (and is not typed into the box)
+    if (/^pick\d$/.test(decision) && tool?.id === id && Number(decision.slice(4)) >= (tool.args?.options?.length || 0)) return;
     // a risky one has no "모두 허용" (the key 2 does nothing there)
     if (decision === "always" && tool?.id === id && tool.risk) return;
     dispatch({ type: "decided", id, decision, rule: tool?.id === id ? tool.rule : null });
@@ -2471,7 +2473,10 @@ export default function App() {
       }
       // 1 / 2 / 3 answer the question on screen, unless something is being
       // typed (anything in the message box, or any other field at all)
-      const answer = ANSWER_KEYS[e.key];
+      // the model's own question: its choices by number (as many as it gave)
+      const answer = asking?.name === "ask"
+        ? (/^[1-4]$/.test(e.key) ? `pick${Number(e.key) - 1}` : null)
+        : ANSWER_KEYS[e.key];
       if (!asking || !answer || e.ctrlKey || e.altKey || e.metaKey) return;
       // a key held down repeats: its repeats do not answer the next question
       // that comes up before robin has read it
