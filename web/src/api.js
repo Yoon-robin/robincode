@@ -32,9 +32,34 @@ export async function api(path, body = {}) {
 export function connect(onEvent, onLink) {
   const source = new EventSource(`/api/events?t=${encodeURIComponent(token || "")}`);
   source.onopen = () => onLink(true);
-  source.onmessage = (m) => onEvent(JSON.parse(m.data));
+  // The model writes 120-140 tokens a second, each its own event: every one copied the
+  // list of messages and drew the answer again (its Markdown parsed from the start). The
+  // deltas of one kind that come within a frame go to the window as one (B-439); any
+  // other event sends what waits first, so the order is the server's.
+  let waiting = null;
+  let timer = 0;
+  const flush = () => {
+    clearTimeout(timer);
+    timer = 0;
+    if (!waiting) return;
+    const e = waiting;
+    waiting = null;
+    onEvent(e);
+  };
+  source.onmessage = (m) => {
+    const e = JSON.parse(m.data);
+    if ((e.t === "text" || e.t === "thinking") && typeof e.delta === "string") {
+      if (waiting && waiting.t === e.t) waiting.delta += e.delta;
+      else { flush(); waiting = { ...e }; }
+      // a hidden window is drawn by nobody: ten times a second is enough there
+      timer ||= setTimeout(flush, document.hidden ? 100 : 16);
+      return;
+    }
+    flush();
+    onEvent(e);
+  };
   source.onerror = () => onLink(source.readyState === EventSource.OPEN);
-  return () => source.close();
+  return () => { flush(); source.close(); };
 }
 
 // "smooth" unless the system asks for less motion (CSS does not reach scrollTo)
