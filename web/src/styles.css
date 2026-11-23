@@ -1130,7 +1130,23 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .mini-btn.sure, .mini-btn.sure:hover:not(:disabled) { color: var(--red); border-color: rgb(229 71 90 / 40%); }
 .chg-diff { max-height: 420px; overflow: auto; font: 400 12px/1.6 var(--mono); scrollbar-width: thin; }
 .chg-hunk + .chg-hunk { border-top: 1px dashed var(--line-weak); }
-.chg-at { padding: 2px 12px; color: var(--faint); font-size: 11.5px; background: rgb(255 255 255 / 2%); }
+.chg-at { display: flex; align-items: center; gap: 12px; padding: 2px 12px; color: var(--faint); font-size: 11.5px; background: rgb(255 255 255 / 2%); position: sticky; left: 0; }
+.chg-at > span { margin-right: auto; }
+.chg-act { padding: 0 2px; border: 0; background: none; font: 500 11.5px/1.6 var(--sans); color: var(--soft); cursor: pointer; }
+.chg-act:hover:not(:disabled) { color: var(--head); }
+.chg-act:disabled { color: var(--faint); cursor: default; }
+.chg-act.sure, .chg-act.sure:hover:not(:disabled) { color: var(--red); }
+.chg-say { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--raise); position: sticky; left: 0; font-family: var(--sans); }
+.chg-say-at { flex: none; font-size: 11.5px; color: var(--faint); }
+.chg-say-box { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-item); background: var(--page); color: var(--head); font: 400 13px var(--sans); }
+.chg-no-btn { border: 0; background: none; font: inherit; cursor: pointer; }
+.chg-no-btn:hover { color: var(--accent); }
+.chg-notes { display: grid; gap: 8px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); }
+.chg-notes ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.chg-notes li { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+.chg-notes-at { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--soft); }
+.chg-notes-words { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--head); }
+.chg-notes .btn { justify-self: end; }
 .chg-row { display: flex; min-width: max-content; }
 .chg-no { flex: none; width: 3.6em; padding-right: 8px; text-align: right; color: var(--faint); user-select: none; }
 .chg-sign { flex: none; width: 1.4em; text-align: center; color: var(--faint); user-select: none; }

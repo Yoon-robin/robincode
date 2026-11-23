@@ -1630,17 +1630,61 @@ function Sheet({ label, name, wide, foot, onClose, children }) {
 }
 // ---- /changes: what this conversation changed, file by file, each can be put back
 const STATE_WORD = { added: "새 파일", deleted: "지워짐", big: "너무 커서 못 보여요" };
-function FileDiff({ before, now }) {
+// the lines of a part as they are now, where they start, and as they were
+const hunkSides = (h) => ({
+  find: h.rows.filter((r) => r[0] !== "-").map((r) => r[1]),
+  put: h.rows.filter((r) => r[0] !== "+").map((r) => r[1]),
+  at: h.newStart ?? 1,
+});
+// "12" or "12-18": the part's lines in the file as it is now (as it was, for a part only removed)
+const hunkLines = (h) => {
+  const now = h.rows.filter((r) => r[0] === "+").map((r) => r[3]);
+  const was = h.rows.filter((r) => r[0] === "-").map((r) => r[2]);
+  const ns = now.length ? now : was;
+  return ns.length > 1 ? `${ns[0]}-${ns.at(-1)}` : String(ns[0] ?? h.newStart ?? 1);
+};
+function FileDiff({ before, now, busy, onHunk, onNote }) {
   const d = useMemo(() => fileHunks(before, now), [before, now]);
+  const [sure, setSure] = useState(-1);
+  const [noteAt, setNoteAt] = useState(null); // { k: the part, lines: "12-18" }
+  const [words, setWords] = useState("");
+  useEffect(() => { if (sure < 0) return undefined; const t = setTimeout(() => setSure(-1), 4000); return () => clearTimeout(t); }, [sure]);
   if (!d.hunks.length) return <p className="chg-none">바뀐 줄이 없어요.</p>;
+  const add = () => {
+    if (!words.trim()) return;
+    onNote(noteAt.lines, words.trim());
+    setWords("");
+    setNoteAt(null);
+  };
   return (
     <div className="chg-diff" role="table">
       {d.hunks.map((h, k) => (
         <div key={k} className="chg-hunk">
-          <div className="chg-at" role="row"><span>@@ {h.oldStart ?? 0} → {h.newStart ?? 0}</span></div>
+          <div className="chg-at" role="row">
+            <span>@@ {h.oldStart ?? 0} → {h.newStart ?? 0}</span>
+            {onNote && <button type="button" className="chg-act" onClick={() => { setNoteAt({ k, lines: hunkLines(h) }); setWords(""); }}>이 부분에 말하기</button>}
+            {onHunk && d.hunks.length > 1 && (
+              <button type="button" className={`chg-act${sure === k ? " sure" : ""}`} disabled={busy} title={busy ? "도는 동안에는 되돌리지 않아요" : "이 부분만 고치기 전으로"}
+                onClick={() => { if (sure === k) { setSure(-1); onHunk(hunkSides(h)); } else setSure(k); }}>
+                {sure === k ? "정말 되돌릴까요?" : "이 부분 되돌리기"}
+              </button>
+            )}
+          </div>
+          {noteAt?.k === k && (
+            <div className="chg-say" role="row">
+              <span className="chg-say-at mono">{noteAt.lines}줄</span>
+              <input className="chg-say-box" autoFocus value={words} placeholder="무엇을 어떻게" aria-label={`${noteAt.lines}줄에 할 말`}
+                onChange={(e) => setWords(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); add(); } if (e.key === "Escape") { e.stopPropagation(); setNoteAt(null); } }} />
+              <button type="button" className="mini-btn" disabled={!words.trim()} onClick={add}>더하기</button>
+            </div>
+          )}
           {h.rows.map(([sign, text, a, b], i) => (
             <div key={i} className={`chg-row ${sign === "+" ? "add" : sign === "-" ? "del" : "same"}`} role="row">
-              <span className="chg-no">{a ?? ""}</span><span className="chg-no">{b ?? ""}</span>
+              <span className="chg-no">{a ?? ""}</span>
+              {onNote && b != null
+                ? <button type="button" className="chg-no chg-no-btn" title={`${b}줄에 말하기`} aria-label={`${b}줄에 말하기`} onClick={() => { setNoteAt({ k, lines: String(b) }); setWords(""); }}>{b}</button>
+                : <span className="chg-no">{b ?? ""}</span>}
               <span className="chg-sign" aria-hidden="true">{sign}</span><span className="chg-text">{text || " "}</span>
             </div>
           ))}
@@ -1649,7 +1693,7 @@ function FileDiff({ before, now }) {
     </div>
   );
 }
-function ChangeFile({ f, busy, open, onToggle, onRevert, onPut }) {
+function ChangeFile({ f, busy, open, onToggle, onRevert, onPut, onHunk, onNote }) {
   const [sure, setSure] = useState(false);
   useEffect(() => { if (!sure) return undefined; const t = setTimeout(() => setSure(false), 4000); return () => clearTimeout(t); }, [sure]);
   const stat = useMemo(() => (f.state === "big" ? null : fileHunks(f.before, f.now)), [f]);
@@ -1672,11 +1716,13 @@ function ChangeFile({ f, busy, open, onToggle, onRevert, onPut }) {
           </button>
         ) : null}
       </div>
-      {open && !f.reverted && f.state !== "big" && <FileDiff before={f.before} now={f.now} />}
+      {open && !f.reverted && f.state !== "big" && <FileDiff before={f.before} now={f.now} busy={busy}
+        onHunk={f.undo && f.state === "changed" ? onHunk : null} onNote={onNote} />}
     </li>
   );
 }
-function ChangesPanel({ busy, conv, name, onClose, onError }) {
+function ChangesPanel({ busy, conv, name, onClose, onError, onNotes }) {
+  const [notes, setNotes] = useState([]); // what robin said about parts: { path, lines, words }
   const [files, setFiles] = useState(null);
   const [others, setOthers] = useState(null);
   const [open, setOpen] = useState(() => new Set());
@@ -1691,6 +1737,9 @@ function ChangesPanel({ busy, conv, name, onClose, onError }) {
   const swap = (path, change) => setFiles((all) => all.map((f) => (f.path === path ? { ...f, ...change } : f)));
   const revert = (f) => api("/api/changes", { revert: f.path, conv })
     .then((r) => swap(f.path, { reverted: true, undo: r.undo }))
+    .catch((e) => onError(`되돌리지 못했어요: ${e.message}`));
+  const hunk = (f, part) => api("/api/changes", { hunk: f.path, ...part, conv })
+    .then((r) => swap(f.path, { ...r.file }))
     .catch((e) => onError(`되돌리지 못했어요: ${e.message}`));
   const put = (f) => api("/api/changes", { put: f.path, hash: f.undo, conv })
     .then((r) => swap(f.path, { ...r.file, reverted: false }))
@@ -1714,9 +1763,26 @@ function ChangesPanel({ busy, conv, name, onClose, onError }) {
           <ul className="chg-files">
             {files.map((f) => (
               <ChangeFile key={f.path} f={f} busy={busy} open={open.has(f.path)} onToggle={() => toggle(f.path)}
-                onRevert={() => revert(f)} onPut={() => put(f)} />
+                onRevert={() => revert(f)} onPut={() => put(f)} onHunk={(part) => hunk(f, part)}
+                onNote={onNotes ? (lines, words) => setNotes((all) => [...all, { path: f.path, lines, words }]) : null} />
             ))}
           </ul>
+          {notes.length > 0 && (
+            <div className="chg-notes">
+              <ul>
+                {notes.map((n, k) => (
+                  <li key={k}>
+                    <span className="mono chg-notes-at">{n.path}:{n.lines}</span>
+                    <span className="chg-notes-words">{n.words}</span>
+                    <button type="button" className="mini-btn" aria-label={`${n.path}:${n.lines}에 한 말 빼기`} onClick={() => setNotes((all) => all.filter((_, i) => i !== k))}>빼기</button>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" className="btn btn-primary" onClick={() => onNotes(notes.map((n) => `${n.path}:${n.lines} — ${n.words}`).join("\n"))}>
+                입력 칸에 넣기 ({notes.length})
+              </button>
+            </div>
+          )}
         </>
       )}
       {others?.length > 0 && (
@@ -2410,6 +2476,8 @@ export default function App() {
     shell: useStable(shell),
     say: useStable(say),
     closePanel: useStable(() => { const back = backTo.current; backTo.current = null; setPanel(back); if (!back) focusBox(); }),
+    // what was said about parts of the changed files goes into the message box, under what is there
+    notes: useStable((text) => { setDraft((d) => (d.trim() ? `${d.replace(/\s+$/, "")}\n${text}\n` : `${text}\n`)); backTo.current = null; setPanel(null); focusBox(); }),
     settings: useStable(() => { closeSide(false); setPanel((p) => (p === "settings" ? null : "settings")); }),
     closeSettings: useStable(() => { setPanel(null); focusBox(); }),
     sheet: useStable((name) => { backTo.current = "settings"; setPanel(name); }),
@@ -2508,7 +2576,7 @@ export default function App() {
         {panel === "rules" && <RulesPanel name={folderName} onClose={on.closePanel} onError={on.say} />}
         {panel === "checks" && <ChecksPanel name={folderName} onClose={on.closePanel} onError={on.say} />}
         {panel === "version" && <VersionPanel version={state.version} shellU={shellU} running={state.running} onClose={on.closePanel} onError={on.say} />}
-        {panel === "changes" && <ChangesPanel busy={state.busy} conv={state.sessionFile || null} name={state.title || undefined} onClose={on.closePanel} onError={on.say} />}
+        {panel === "changes" && <ChangesPanel busy={state.busy} conv={state.sessionFile || null} name={state.title || undefined} onClose={on.closePanel} onError={on.say} onNotes={on.notes} />}
         {gpuOpen &&<GpuPanel gpu={state.gpu} job={state.gpuJob} onKeep={keepGpu} keeping={keeping} onClose={() => { setGpuOpen(false); if (panel !== "settings") focusBox(); }} />}
         {drag && (
           <div className="drop" aria-hidden="true">

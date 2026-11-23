@@ -2589,6 +2589,34 @@ const server = createServer(async (req, res) => {
         // it was, { put: path, hash } puts back what a revert took away
         const files = reviewFiles();
         const which = (p) => files.find((f) => shown(f.path) === String(p || ""));
+        if (body.hunk != null) {
+          // one part of a file put back (B-423): the lines the window showed there now
+          // (`find`, from line `at`) become the lines that were there before (`put`).
+          // What is on disk is kept on the shelf first, as a whole-file revert does
+          if (body.conv !== undefined && (body.conv || null) !== (session?.sessionFile || null)) { send(res, 409, { error: "다른 대화가 열렸어요. 바뀐 파일을 다시 열어 주세요." }); return; }
+          if (busyNow()) { send(res, 409, { error: "도는 동안에는 되돌리지 않아요. 끝난 뒤에 해 주세요." }); return; }
+          const f = which(body.hunk);
+          const find = Array.isArray(body.find) ? body.find.map(String) : null;
+          const put = Array.isArray(body.put) ? body.put.map(String) : null;
+          const at = Number(body.at);
+          if (!f) { send(res, 404, { error: "이 대화가 바꾼 파일이 아니에요." }); return; }
+          if (!find || !put || !Number.isInteger(at) || at < 1 || find.length + put.length > 20000) { send(res, 400, { error: "되돌릴 부분을 알 수 없어요." }); return; }
+          try {
+            let text;
+            try { text = readFileSync(f.path, "utf8"); } catch (e) { if (e.code !== "ENOENT") throw e; text = ""; }
+            const eol = text.includes("\r\n") ? "\r\n" : "\n";
+            const lines = text.replace(/\r\n/g, "\n").split("\n");
+            const there = lines.slice(at - 1, at - 1 + find.length);
+            if (there.length !== find.length || there.some((l, k) => l !== find[k])) { send(res, 409, { error: "그 사이 파일이 바뀌었어요. 바뀐 파일을 다시 열어 주세요." }); return; }
+            const was = take(f.path);
+            if (!keepable(was ?? "")) { send(res, 409, { error: "지금 파일이 너무 크거나 읽을 수 없어서, 되돌리면 다시 살릴 수 없어요. 되돌리지 않았어요." }); return; }
+            lines.splice(at - 1, find.length, ...put);
+            writeFileSync(f.path, lines.join(eol));
+            log(`한 부분 되돌림: ${shown(f.path)} ${at}줄부터`);
+            send(res, 200, { ok: true, file: reviewOne(f) });
+          } catch (e) { send(res, e.status || 500, { error: e.status ? e.message : `파일을 쓰지 못했어요: ${e.message}` }); }
+          return;
+        }
         if (body.revert != null || body.put != null) {
           // the files the window showed are another conversation's
           if (body.conv !== undefined && (body.conv || null) !== (session?.sessionFile || null)) { send(res, 409, { error: "다른 대화가 열렸어요. 바뀐 파일을 다시 열어 주세요." }); return; }

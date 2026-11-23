@@ -179,7 +179,7 @@ await page.waitForSelector(".chg-file", { timeout: 5000 }).catch(() => {});
 const sheet = page.locator(".chg-file", { hasText: "README.md" });
 ok(/계획대로 고쳤어요/.test(await sheet.locator(".chg-row.add").allInnerTexts().then((t) => t.join(" "))), "검토 창: README의 더한 줄");
 const fixed = readFileSync(join(work, "README.md"), "utf8");
-await sheet.getByRole("button", { name: "되돌리기" }).click();
+await sheet.getByRole("button", { name: "되돌리기", exact: true }).click();
 ok(readFileSync(join(work, "README.md"), "utf8") === fixed, "한 번 눌러서는 안 되돌림");
 await sheet.getByRole("button", { name: /정말/ }).click();
 await page.waitForTimeout(500);
@@ -420,6 +420,44 @@ ok((await page.locator(".line").allInnerTexts()).filter((t) => t.includes("끝�
 // the settings page shows both
 await say("/help"); await page.waitForTimeout(300); await page.keyboard.press("Escape"); await page.waitForTimeout(200);
 ok((await call("/api/checks", { test: "" })).data.test === "", "시험 명령 지움");
+
+// ---- the review sheet's parts (B-423, B-435): one part put back, words about a part into the message box
+{
+  const list = await call("/api/changes", {});
+  const f = (list.data.files || []).find((x) => x.state === "changed" || x.state === "added");
+  ok(!!f, `이 대화가 바꾼 파일이 있음 (${(list.data.files || []).map((x) => x.path).join(", ")})`);
+  if (f) {
+    const full = join(work, f.path);
+    const disk = readFileSync(full, "utf8");
+    const lines = disk.replace(/\r\n/g, "\n").split("\n");
+    const errsBefore = errs.length;   // the refused call below is meant
+    const stale = await call("/api/changes", { hunk: f.path, find: ["이런 줄은 없어요"], put: [], at: 1 });
+    await page.waitForTimeout(200);
+    errs.splice(errsBefore);
+    ok(stale.status === 409 && readFileSync(full, "utf8") === disk, `한 부분 되돌리기: 파일이 다르면 안 건드림 (${stale.status})`);
+    const part = await call("/api/changes", { hunk: f.path, find: [lines[0]], put: ["// 되돌린 줄", lines[0]], at: 1 });
+    ok(part.status === 200 && readFileSync(full, "utf8").replace(/\r\n/g, "\n") === ["// 되돌린 줄", ...lines].join("\n"), `한 부분 되돌리기: 그 줄들만 바뀜 (${part.status})`);
+    writeFileSync(full, disk);
+    // words about a part: under the part's head, then into the message box
+    await say("/changes");
+    await page.waitForSelector(".chg-file", { timeout: 5000 }).catch(() => {});
+    const first = page.locator(".chg-file").first();
+    if (!(await first.locator(".chg-diff").count())) await first.locator(".chg-toggle").click();
+    await first.getByRole("button", { name: "이 부분에 말하기" }).first().click();
+    await page.locator(".chg-say-box").fill("이름을 더 알기 쉽게");
+    await page.keyboard.press("Enter");
+    ok(await page.locator(".chg-notes li").count() === 1, "말한 것이 아래 목록에");
+    await first.locator(".chg-no-btn").first().click();
+    await page.locator(".chg-say-box").fill("이 줄은 빼 줘");
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: /입력 칸에 넣기 \(2\)/ }).click();
+    await page.waitForTimeout(300);
+    const draft = await box.inputValue();
+    ok(/^\S+:\d+(-\d+)? — 이름을 더 알기 쉽게\n\S+:\d+ — 이 줄은 빼 줘\n$/.test(draft), `입력 칸에 경로·줄과 함께 들어감 (${JSON.stringify(draft).slice(0, 90)})`);
+    ok(await page.locator(".sheet").count() === 0, "검토 창은 닫힘");
+    await box.fill("");
+  }
+}
 
 // ---- /review (B-429): a new conversation that reads the uncommitted changes and only looks
 {
