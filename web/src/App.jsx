@@ -2,7 +2,7 @@
 // the GPU on the left, the conversation and the composer on the right. On a
 // narrow window the left side becomes a drawer behind the menu button.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
-import { api, connect, pickerUrl, glide } from "./api.js";
+import { api, connect, pickerUrl, picUrl, glide } from "./api.js";
 import { askingTool, initial, reducer } from "./store.js";
 import { fileHunks } from "./hunks.js";
 import { Composer, PICTURE_TYPES } from "./Composer.jsx";
@@ -314,7 +314,7 @@ const BubblePics = memo(function BubblePics({ images, big, onBig }) {
       {images.map((im, k) => (
         <button key={k} type="button" className={`bubble-pic${big === k ? " big" : ""}`} aria-pressed={big === k}
           title={big === k ? "작게" : "크게"} onClick={() => onBig((v) => (v === k ? -1 : k))}>
-          <img src={`data:${im.mimeType};base64,${im.data}`} alt={`보낸 그림 ${k + 1}`} decoding="async" />
+          <img src={im.pic ? picUrl(im.pic) : `data:${im.mimeType};base64,${im.data}`} alt={`보낸 그림 ${k + 1}`} decoding="async" />
         </button>
       ))}
     </div>

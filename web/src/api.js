@@ -10,6 +10,9 @@ try {
 // opened first without the token (a plain address), then given it after the #
 window.addEventListener("hashchange", () => location.reload());
 
+// a sent picture, by its id (the list of messages carries the id, not the picture)
+export const picUrl = (id) => `/api/pic/${id}?t=${encodeURIComponent(token || "")}`;
+
 // the folder screen (web/picker, served at /picker/), in this same window
 export const pickerUrl = () => `/picker/?t=${encodeURIComponent(token || "")}`;
 

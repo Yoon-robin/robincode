@@ -421,6 +421,32 @@ ok((await page.locator(".line").allInnerTexts()).filter((t) => t.includes("끝�
 await say("/help"); await page.waitForTimeout(300); await page.keyboard.press("Escape"); await page.waitForTimeout(200);
 ok((await call("/api/checks", { test: "" })).data.test === "", "시험 명령 지움");
 
+// ---- a sent picture: the list of messages carries its address, not its base64 (B-382)
+{
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  const sent = await call("/api/prompt", { text: "이 그림 봐 줘", images: [{ mimeType: "image/png", data: png }] });
+  ok(sent.status === 200, `그림과 함께 보냄 (${sent.status})`);
+  await through();
+  const pic = () => page.evaluate(async () => {
+    const img = [...document.querySelectorAll(".bubble-pic img")].at(-1);
+    if (!img) return null;
+    if (!img.complete) await new Promise((r) => { img.onload = img.onerror = r; });
+    return { src: img.getAttribute("src"), w: img.naturalWidth };
+  });
+  const live = await pic();
+  ok(!!live && live.src.startsWith("/api/pic/") && live.w === 1, `보낸 그림이 주소로 옴 (${live?.src?.slice(0, 22)} ${live?.w}px)`);
+  // a redraw: the page asks for everything again
+  await page.reload();
+  await page.waitForSelector(".bubble-pic img", { timeout: 15000 });
+  const again = await pic();
+  ok(!!again && again.src === live?.src && again.w === 1, "다시 그려도 같은 주소의 그림");
+  const errsBefore = errs.length;   // the refused call below is meant
+  const noToken = await page.evaluate(async (src) => (await fetch(src.split("?")[0])).status, again?.src || "/api/pic/x");
+  await page.waitForTimeout(200);
+  errs.splice(errsBefore);
+  ok(noToken === 401, `토큰 없이는 그림을 안 줌 (${noToken})`);
+}
+
 // ---- the foot's keys between 420 and 860: one stays (it was gone whole, B-440)
 {
   const size = page.viewportSize();

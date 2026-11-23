@@ -1611,6 +1611,21 @@ const wordsOf = (content) => (typeof content === "string" ? content
   : (content || []).filter((p) => p.type === "text").map((p) => p.text).join(""));
 const imagesOf = (content) => (Array.isArray(content)
   ? content.filter((p) => p.type === "image").map((p) => ({ mimeType: p.mimeType, data: p.data })) : []);
+// For the page's list of messages, a picture goes as an address (/api/pic/<id>), not as its
+// base64: a redraw (another conversation opened, the stream reconnecting) sent every picture
+// of the conversation again, tens of MB in a long one (B-382). The id is the picture's hash,
+// so the page keeps it for good. The newest PIC_KEEP stay here; one that fell out is found
+// again when its conversation is drawn the next time.
+const PIC_KEEP = 300;
+const PIC_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+const pics = new Map();
+const picsOf = (content) => imagesOf(content).filter((im) => PIC_TYPES.has(im.mimeType) && typeof im.data === "string").map((im) => {
+  const id = createHash("sha256").update(im.data).digest("hex").slice(0, 32);
+  pics.delete(id);
+  pics.set(id, im);
+  while (pics.size > PIC_KEEP) pics.delete(pics.keys().next().value);
+  return { mimeType: im.mimeType, pic: id };
+});
 
 // a turn (robin's message until the agent settles): how long it took, and the
 // model's speed, from each answer's first token to its end (conv.turn, conv.gen).
@@ -1633,7 +1648,7 @@ function onEvent(conv, e) {
             ending: false, reqId: null, manualStop: false, calls: 0, checkpoints: 0 });
           setTimeout(sayRunning, 0);
         }
-        broadcast({ t: "user", text: wordsOf(e.message.content), images: imagesOf(e.message.content) });
+        broadcast({ t: "user", text: wordsOf(e.message.content), images: picsOf(e.message.content) });
         // what robin sent while the model was checked goes into this turn
         if (conv.held.length) setTimeout(() => flushHeld(conv), 0);
       }
@@ -1873,7 +1888,7 @@ function history() {
     if (entry.type === "custom" && entry.customType === NOTE) { out.push({ role: "note", key, text: entry.data?.text || "", tone: entry.data?.tone || "fail" }); return; }
     if (entry.type !== "message") return;
     const m = entry.message;
-    if (m.role === "user") out.push({ role: "user", key, old, id: entry.id, text: wordsOf(m.content), images: imagesOf(m.content), alt: side.get(entry.id) ?? null });
+    if (m.role === "user") out.push({ role: "user", key, old, id: entry.id, text: wordsOf(m.content), images: picsOf(m.content), alt: side.get(entry.id) ?? null });
     else if (m.role === "assistant") {
       out.push({ role: "assistant", key, old, planned: planning,
         thinking: (m.content || []).filter((p) => p.type === "thinking" && !p.redacted).map((p) => p.thinking).join("").trim(),
@@ -2221,6 +2236,15 @@ const server = createServer(async (req, res) => {
         // folder screen asks for its list)
         leaveSoon();
       });
+      return;
+    }
+    if (req.method === "GET" && url.pathname.startsWith("/api/pic/")) {
+      const im = pics.get(url.pathname.slice("/api/pic/".length));
+      if (!im) { send(res, 404, {}); return; }
+      const bytes = Buffer.from(im.data, "base64");
+      res.writeHead(200, { "content-type": im.mimeType, "content-length": bytes.length, "x-content-type-options": "nosniff",
+        "cache-control": "private, max-age=31536000, immutable" });
+      res.end(bytes);
       return;
     }
     if (req.method !== "POST") { send(res, 405, {}); return; }
