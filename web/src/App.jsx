@@ -1363,9 +1363,20 @@ function GpuPanel({ gpu, job, onKeep, keeping, onClose }) {
               </div>
               {offers === null && loading && <p className="gpu-note">자리 목록을 받는 중<span className="cursor" aria-hidden="true" /></p>}
               {offers && (
-                <div className="gpu-offers" role="radiogroup" aria-label="빌릴 자리">
-                  {offers.map((o) => (
-                    <button key={o.offer} type="button" role="radio" aria-checked={pick === o.offer}
+                <div className="gpu-offers" role="radiogroup" aria-label="빌릴 자리"
+                  onKeyDown={(e) => {
+                    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+                    if (!step || !offers.length) return;
+                    e.preventDefault();
+                    const at = offers.findIndex((o) => o.offer === pick);
+                    const next = offers[((at < 0 ? (step > 0 ? -1 : 0) : at) + step + offers.length) % offers.length];
+                    setPick(next.offer);
+                    setSure(null);
+                    e.currentTarget.querySelector(`[data-offer="${next.offer}"]`)?.focus();
+                  }}>
+                  {offers.map((o, i) => (
+                    <button key={o.offer} type="button" role="radio" aria-checked={pick === o.offer} data-offer={o.offer}
+                      tabIndex={pick === o.offer || (pick == null && i === 0) || (!offers.some((x) => x.offer === pick) && i === 0) ? 0 : -1}
                       className={`gpu-offer${pick === o.offer ? " on" : ""}`} onClick={() => { setPick(o.offer); setSure(null); }}>
                       <span className="gpu-offer-main">
                         <b>{o.place.replace(/, [A-Z]{2}$/, "")}</b>
@@ -1798,21 +1809,29 @@ function ChecksPanel({ name, onClose, onError }) {
 }
 function RulesPanel({ name, onClose, onError }) {
   const [rules, setRules] = useState(null);
+  const [gone, setGone] = useState(null); // the rule just removed: it can be put back
   const load = (body) => api("/api/rules", body).then((r) => setRules(r.rules)).catch((e) => onError(`읽지 못했어요: ${e.message}`));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Sheet label="늘 허용한 것" name={name} onClose={onClose}>
       <p className="gpu-note">물을 때 "늘 허용"(4)을 누른 것은 이 폴더에서 다시 묻지 않아요. 명령은 시작이 같거나(… 붙은 것) 똑같을 때만 그래요. 이어 붙이거나(<span className="mono">; && |</span>) 넘기거나(<span className="mono">&gt;</span>) 괄호·<span className="mono">$</span>·줄 바꿈이 들어가면 다시 물어요. node·python·powershell처럼 무엇이든 돌릴 수 있는 명령은 늘 허용할 수 없어요.</p>
       {rules === null ? <p className="gpu-note">읽는 중<span className="cursor" aria-hidden="true" /></p>
-        : rules.length === 0 ? <p className="gpu-note">아직 없어요.</p> : (
+        : rules.length === 0 && !gone ? <p className="gpu-note">아직 없어요.</p> : (
           <ul className="rule-list">
             {rules.map((r) => (
               <li key={r.key} className="rule">
                 <span className="rule-kind">{r.kind === "web" ? "사이트" : r.kind === "exact" ? "이 명령만" : "명령"}</span>
                 <span className="mono rule-label">{r.label}{r.kind === "cmd" ? " …" : ""}</span>
-                <button type="button" className="mini-btn" onClick={() => load({ remove: r.key })}>지우기</button>
+                <button type="button" className="mini-btn" onClick={() => load({ remove: r.key }).then(() => setGone(r))}>지우기</button>
               </li>
             ))}
+            {gone && (
+              <li className="rule rule-gone" role="status">
+                <span className="rule-kind">지움</span>
+                <span className="mono rule-label">{gone.label}{gone.kind === "cmd" ? " …" : ""}</span>
+                <button type="button" className="mini-btn" onClick={() => load({ restore: gone.key }).then(() => setGone(null))}>되돌리기</button>
+              </li>
+            )}
           </ul>
         )}
     </Sheet>

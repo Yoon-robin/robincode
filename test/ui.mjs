@@ -79,8 +79,8 @@ await page.waitForTimeout(1000);
 await say("/permissions");
 await page.waitForSelector(".sheet", { timeout: 5000 });
 await page.waitForTimeout(400);
-while (await page.locator(".rule button").count()) { await page.locator(".rule button").first().click(); await page.waitForTimeout(250); }
-ok(await page.locator(".sheet", { hasText: "아직 없어요" }).count() === 1, "/permissions: 다 지움");
+while (await page.locator(".rule:not(.rule-gone) button").count()) { await page.locator(".rule:not(.rule-gone) button").first().click(); await page.waitForTimeout(250); }
+ok(await page.locator(".rule:not(.rule-gone)").count() === 0, "/permissions: 다 지움");
 await page.keyboard.press("Escape");
 await page.waitForTimeout(200);
 
@@ -244,7 +244,20 @@ await page.waitForSelector(".rule", { timeout: 5000 }).catch(() => {});
 ok((await page.locator(".rule").allInnerTexts()).some((t) => t.includes("127.0.0.1")), "/permissions에 그 사이트");
 await page.locator(".rule button").first().click();
 await page.waitForTimeout(300);
-ok(await page.locator(".rule").count() === 0, "지우기");
+ok(await page.locator(".rule:not(.rule-gone)").count() === 0, "지우기");
+// the one just removed stays as a struck-out line that puts it back (B-440)
+ok(/127\.0\.0\.1/.test(await page.locator(".rule-gone").innerText()), "지운 것이 되돌리기 줄로 남음");
+await page.locator(".rule-gone button").click();
+await page.waitForTimeout(300);
+ok(await page.locator(".rule-gone").count() === 0 && (await page.locator(".rule").allInnerTexts()).some((t) => t.includes("127.0.0.1")), "되돌리기");
+await page.locator(".rule button").first().click();
+await page.waitForTimeout(300);
+await page.keyboard.press("Escape");
+await page.waitForTimeout(200);
+await say("/permissions");
+await page.waitForSelector(".sheet", { timeout: 5000 });
+await page.waitForTimeout(400);
+ok(await page.locator(".sheet", { hasText: "아직 없어요" }).count() === 1, "다시 열면 비어 있음");
 await page.keyboard.press("Escape");
 await page.waitForTimeout(200);
 
@@ -407,6 +420,20 @@ ok((await page.locator(".line").allInnerTexts()).filter((t) => t.includes("끝�
 // the settings page shows both
 await say("/help"); await page.waitForTimeout(300); await page.keyboard.press("Escape"); await page.waitForTimeout(200);
 ok((await call("/api/checks", { test: "" })).data.test === "", "시험 명령 지움");
+
+// ---- the foot's keys between 420 and 860: one stays (it was gone whole, B-440)
+{
+  const size = page.viewportSize();
+  await page.setViewportSize({ width: 700, height: 800 });
+  await page.waitForTimeout(300);
+  const shown = await page.evaluate(() => [...document.querySelectorAll(".keys .key")].filter((k) => k.getClientRects().length).map((k) => k.textContent));
+  ok(shown.length === 1 && /Enter/.test(shown[0]), `700px: 안내 한 줄 (${shown.join(" / ")})`);
+  await page.setViewportSize({ width: 400, height: 800 });
+  await page.waitForTimeout(300);
+  ok(await page.evaluate(() => getComputedStyle(document.querySelector(".keys")).display) === "none", "400px: 안내 없음");
+  await page.setViewportSize(size);
+  await page.waitForTimeout(300);
+}
 
 ok(errs.length === 0, `콘솔 오류 ${errs.length}개 ${errs.slice(0, 3).join(" | ")}`);
 if (process.env.ROBINCODE_UI_SHOT) await page.screenshot({ path: process.env.ROBINCODE_UI_SHOT });

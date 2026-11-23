@@ -2506,6 +2506,8 @@ const server = createServer(async (req, res) => {
       case "/api/rules": {
         // what "늘 허용" let through without asking, in this folder; remove: one of them
         if (body.remove) removeRule(cur.cwd, String(body.remove));
+        // "되돌리기" right after a remove: only something shaped like a rule goes back on
+        if (body.restore && /^(cmd|web|exact):.{1,2000}$/s.test(String(body.restore))) addRule(cur.cwd, String(body.restore));
         send(res, 200, { rules: rulesOf(cur.cwd).map((key) => ({ key, kind: key.startsWith("web:") ? "web" : key.startsWith("exact:") ? "exact" : "cmd", label: key.replace(/^(cmd|web|exact):/, "") })) });
         return;
       }

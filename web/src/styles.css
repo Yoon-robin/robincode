@@ -1154,6 +1154,8 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .rule-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .rule { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 3px 4px 3px 10px; border-radius: var(--radius-item); background: var(--raise); font-size: 13px; }
 .rule-kind { flex: none; width: 44px; font-size: 12px; color: var(--faint); }
+.rule-gone { background: none; box-shadow: inset 0 0 0 1px var(--line); }
+.rule-gone .rule-label { color: var(--faint); text-decoration: line-through; }
 .rule-label { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--head); }
 .help-list { display: grid; gap: 2px; margin: 0 0 6px; }
 .help-row { display: flex; gap: 14px; padding: 4px 0; font-size: 13px; }
@@ -1563,10 +1565,11 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
   }
   .app[data-side="open"] .scrim { opacity: 1; visibility: visible; transition: opacity 0.2s var(--ease); }
   .menu-btn { display: inline-grid; }
-  .keys { display: none; }
+  .keys .key:not(:first-child) { display: none; }
   .set-grid { grid-template-columns: minmax(0, 1fr); }
   .set-col + .set-col { margin-top: 21px; }
 }
+@media (max-width: 420px) { .keys { display: none; } }
 @media (max-width: 560px) {
   .head-changes { padding: 0 9px; }
   .head-place .git-row, .head-gpu .hg-word { display: none; }

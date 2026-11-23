@@ -4,7 +4,9 @@
 // and the ones taken off the list with Del) and the folders Claude Code knows
 // (the project keys of ~/.claude.json, with the time of their newest
 // conversation file in ~/.claude/projects), newest first. Folders that are gone
-// and any under %TEMP% (test runs) are left out. Typing narrows
+// are left out, and so are test runs: under %TEMP%, Claude Code's projects and
+// what a test made (robincode-…); a folder there that robin opened in RobinCode
+// stays (B-444). Typing narrows
 // it down; a typed C:\, ~\ or \\ is a path, its folders listed under it.
 // ROBINCODE_RECENT and ROBINCODE_CLAUDE_HOME point elsewhere for tests.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -19,6 +21,9 @@ const claudeHome = process.env.ROBINCODE_CLAUDE_HOME || homedir();
 const userHome = (process.env.USERPROFILE || homedir()).replace(/\\+$/, "");
 const tempRoot = `${resolve(process.env.TEMP || join(local, "Temp")).replace(/\\+$/, "")}\\`.toLowerCase();
 const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+const underTemp = (p) => `${p}\\`.toLowerCase().startsWith(tempRoot);
+// a test's work folder: %TEMP%\robincode-ui-x1y2\… (the tests' mkdtemp names)
+const testRun = (p) => underTemp(p) && /^robincode-/i.test(p.slice(tempRoot.length).split("\\")[0]);
 
 // C:\a\b\ -> C:\a\b, C: -> C:\
 // (elsewhere, as on the Linux server where the tests also run, "\" is not a
@@ -115,7 +120,7 @@ export function allFolders(def) {
     const projects = join(claudeHome, ".claude", "projects");
     for (const m of text.matchAll(/"([A-Za-z]:[/\\][^"]*)"\s*:\s*\{/g)) {
       const p = cleanPath(m[1].replace(/\\\\/g, "\\"));
-      if (`${p}\\`.toLowerCase().startsWith(tempRoot)) continue;
+      if (underTemp(p)) continue;
       // Claude Code's folder for the project: each character but a-z 0-9 as -
       const conv = join(projects, p.replace(/[^A-Za-z0-9]/g, "-"));
       let t = 0;
@@ -129,8 +134,8 @@ export function allFolders(def) {
   const hidden = [...r.hidden].map((h) => h.toLowerCase());
   const list = [];
   for (const [path, t] of at) {
-    // and nothing under %TEMP% (test runs that got on the list before)
-    if (hidden.includes(path.toLowerCase()) || `${path}\\`.toLowerCase().startsWith(tempRoot) || !isDir(path)) continue;
+    // and no test run that got on the list before
+    if (hidden.includes(path.toLowerCase()) || testRun(path) || !isDir(path)) continue;
     list.push({ kind: "folder", path, name: basename(path) || path, at: t });
   }
   return list.sort((a, b) => b.at - a.at || (same(a.path, def || "") ? -1 : same(b.path, def || "") ? 1 : a.name.localeCompare(b.name)));
