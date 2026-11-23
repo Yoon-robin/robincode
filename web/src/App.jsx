@@ -552,6 +552,7 @@ const Conversation = memo(function Conversation({ state, outbox = [], asking, on
             if (item.kind === "user") {
               return (
                 <div key={item.id} className={`msg msg-user${marks(item)}`}>
+                  <h3 className="sr">보낸 말</h3>
                   {item.entryId && !state.busy && (
                     <button type="button" className="icon-btn msg-edit" aria-label="이 말 고쳐서 다시 보내기"
                       title="고쳐서 다시 보내기 (이 말 앞으로 돌아가요)" onClick={() => onRewind(item)}><Icon name="edit" /></button>
@@ -564,6 +565,7 @@ const Conversation = memo(function Conversation({ state, outbox = [], asking, on
             if (item.kind === "assistant") {
               return (
                 <div key={item.id} className={`msg msg-ai${marks(item)}`}>
+                  <h3 className="sr">RobinCode</h3>
                   <Markdown text={item.text} streaming={item.streaming} />
                   {ends.has(item.id) && item.text.trim() && (
                     <div className="msg-foot">

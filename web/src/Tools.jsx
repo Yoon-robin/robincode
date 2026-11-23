@@ -73,6 +73,7 @@ const thoughtTail = (text) => {
 // whole run, so it does not fold shut and open again at every tool call.
 function ThoughtLive({ text, idle }) {
   const box = useRef(null);
+  const capRef = useRef(null);
   const [least, setLeast] = useState(0);
   const [full, setFull] = useState(false);
   const tail = text ? thoughtTail(text) : "";
@@ -80,7 +81,9 @@ function ThoughtLive({ text, idle }) {
     const el = box.current;
     const p = el?.firstChild;
     if (!p) return;
-    const cap = parseFloat(getComputedStyle(el).maxHeight) || Infinity;
+    // the box's cap is asked for once: this runs on every token of a thought
+    capRef.current ??= parseFloat(getComputedStyle(el).maxHeight) || Infinity;
+    const cap = capRef.current;
     if (!full && p.offsetHeight > cap + 1) setFull(true);
     const h = Math.min(p.offsetHeight, cap);
     if (h > least + 0.5) setLeast(h);

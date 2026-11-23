@@ -338,6 +338,8 @@ export function Composer({ state, convKey, meter, notice, box, draft, setDraft, 
           placeholder={offline ? "서버와 연결이 끊겼어요" : state.compacting ? "앞부분을 요약하는 중이에요. 보내면 요약이 끝난 뒤에 보내요"
             : state.busy ? "이어서 할 말 (Enter: 다음 단계 전에 · Ctrl+Enter: 다 끝나면)" : state.info.chat ? "무엇이든 물어보세요 (/ 명령 · 그림 붙여넣기)" : "무엇을 할까요? (@ 파일 · / 명령 · ! PowerShell · 그림 붙여넣기)"}
           aria-label="메시지"
+          role="combobox"
+          aria-haspopup="listbox"
           aria-autocomplete="list"
           aria-expanded={open || cmdOpen}
           aria-controls={open ? "mention-list" : cmdOpen ? "command-list" : undefined}

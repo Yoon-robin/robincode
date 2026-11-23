@@ -394,8 +394,10 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 /* drawn again in place (after going back, or a compaction): no coming up again */
 .still, .still .step::before, .still .line { animation: none !important; }
 /* what the model now has only as a summary */
-.msg.old, .line.old { opacity: 0.62; transition: opacity 0.2s; }
-.msg.old:hover { opacity: 0.85; }
+/* its words in the soft grey, not the whole message at 62% (that took small text under 4.5:1) */
+.msg.old, .line.old { --head: var(--soft); --text: var(--soft); color: var(--soft); }
+.msg.old:hover { --head: inherit; --text: inherit; color: inherit; }
+.msg.old .bubble-pics { opacity: 0.7; }
 .bubble {
   display: flex;
   flex-direction: column;
