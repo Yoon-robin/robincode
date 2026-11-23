@@ -13,6 +13,7 @@ export const BUILTIN = [
   { name: "think", hint: "모델이 답하기 전에 생각하기를 켜고 꺼요" },
   { name: "changes", hint: "이 대화가 바꾼 파일을 한곳에서 보고, 파일마다 되돌려요" },
   { name: "diff", hint: "이 대화가 바꾼 파일을 봐요 (/changes와 같아요)" },
+  { name: "review", hint: "마지막 커밋 뒤에 바뀐 것을 새 대화에서 검토해요(읽기만). 뒤에 특히 볼 것을 적어도 돼요", arg: "특히 볼 것" },
   { name: "export", hint: "이 대화를 Markdown 파일로 저장해요" },
   { name: "version", hint: "RobinCode 판과 바뀐 것을 봐요. 새 판도 확인해요" },
   { name: "help", hint: "명령과 단축키를 봐요" },
@@ -20,7 +21,7 @@ export const BUILTIN = [
 const NAMES = new Set(BUILTIN.map((c) => c.name));
 // what needs a folder: not in a plain conversation's list (it has no files,
 // commands or modes)
-export const FOLDER_ONLY = new Set(["init", "memory", "mode", "plan", "changes", "diff"]);
+export const FOLDER_ONLY = new Set(["init", "memory", "mode", "plan", "changes", "diff", "review"]);
 // "/compact 무엇을" -> { name: "compact", arg: "무엇을" } for the window's own; null otherwise
 export function ownCommand(text) {
   const m = text.match(/^\/([a-z]+)(?:\s+([^]*))?$/i);

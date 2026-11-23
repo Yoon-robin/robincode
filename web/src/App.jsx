@@ -2227,6 +2227,7 @@ export default function App() {
       return;
     }
     if (name === "plan") { setMode("plan"); return; }
+    if (name === "review") { once(() => api("/api/review", { about: arg })); return; }
     if (name === "permissions") { setPanel("rules"); return; }
     if (name === "changes" || name === "diff") { setPanel("changes"); return; }
     if (name === "think") {

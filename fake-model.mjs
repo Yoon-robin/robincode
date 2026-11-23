@@ -186,6 +186,15 @@ createServer(async (req, res) => {
   const robinSaid = robinAt < 0 ? "" : textOf(messages[robinAt].content);
   const after = messages.slice(robinAt + 1);
   const results = after.filter((m) => m.role === "tool").map((m) => textOf(m.content));
+  // `/review` (B-429): says what it was given, so the test can see the changes arrived
+  // unseen and that only the looking tools came with them
+  const reviewNote = messages.map((m) => textOf(m.content)).find((t) => t.startsWith("(RobinCode 알림) 지금은 검토예요"));
+  if (/^바뀐 것을 검토해 줘/.test(robinSaid)) {
+    const names = [...(reviewNote || "").matchAll(/^diff --git a\/(\S+)/gm)].map((m) => m[1]);
+    const fresh = /새 파일\(git이 아직 모르는 것/.test(reviewNote || "");
+    await streamText(res, `검토 쪽지 ${reviewNote ? "받음" : "없음"} · diff ${names.join(", ") || "없음"} · 새 파일 ${fresh ? "있음" : "없음"} · 도구 ${tools.includes("write") || tools.includes("powershell") || tools.includes("bash") ? "고치기 있음" : "보기만"}`, usage);
+    return;
+  }
   // "문법 깨": writes a .js that does not parse. RobinCode's look at the file says so in the
   // result (B-420), and the next write mends it
   if (/문법 깨/.test(robinSaid) && tools.includes("write")) {

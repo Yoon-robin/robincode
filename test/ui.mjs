@@ -421,6 +421,38 @@ ok((await page.locator(".line").allInnerTexts()).filter((t) => t.includes("끝�
 await say("/help"); await page.waitForTimeout(300); await page.keyboard.press("Escape"); await page.waitForTimeout(200);
 ok((await call("/api/checks", { test: "" })).data.test === "", "시험 명령 지움");
 
+// ---- /review (B-429): a new conversation that reads the uncommitted changes and only looks
+{
+  const titleBefore = await page.title();
+  writeFileSync(join(work, "review-me.js"), "export const added = 1;\n");
+  const tracked = readFileSync(join(work, "README.md"), "utf8");
+  writeFileSync(join(work, "README.md"), `${tracked}\n검토할 줄\n`);
+  await say("/review 숫자 계산");
+  await page.waitForFunction(() => /검토 쪽지/.test(document.querySelector(".msgs")?.innerText || ""), null, { timeout: 30000 }).catch(() => {});
+  await idle();
+  const talk = await page.locator(".msgs").innerText();
+  ok(/바뀐 것을 검토해 줘 \(파일 \d+개\)/.test(talk) && /특히: 숫자 계산/.test(talk), "/review: 새 대화에 검토 부탁 한 줄");
+  ok(/검토 쪽지 받음/.test(talk) && /diff [^·]*README\.md/.test(talk) && /새 파일 있음/.test(talk), `/review: 바뀐 것이 모델에 감 (${(talk.match(/검토 쪽지[^\n]*/) || [""])[0].slice(0, 90)})`);
+  ok(/도구 보기만/.test(talk), "/review: 고치는 도구 없이");
+  ok(!/diff --git/.test(talk), "/review: diff는 창에 안 보임");
+  ok(/계획만/.test(await modeText()), `/review: 읽기만 하는 모드 (${await modeText()})`);
+  ok(await page.title() !== titleBefore, "/review: 새 대화");
+  // nothing changed: said so, no conversation opened
+  writeFileSync(join(work, "README.md"), tracked);
+  rmSync(join(work, "review-me.js"));
+  const clean = execFileSync("git", ["-C", work, "status", "--porcelain"], { encoding: "utf8" }).trim();
+  if (!clean) {
+    const errsBefore = errs.length;   // the refused call below is meant
+    const none = await call("/api/review", {});
+    await page.waitForTimeout(200);
+    errs.splice(errsBefore);
+    ok(none.status === 400 && /바뀐 것이 없어요/.test(none.data.error || ""), `/review: 바뀐 것이 없으면 그렇게 말함 (${none.status})`);
+  }
+  // back to an ordinary conversation for what follows
+  await say("/new");
+  await page.waitForTimeout(800);
+}
+
 // ---- a sent picture: the list of messages carries its address, not its base64 (B-382)
 {
   const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";

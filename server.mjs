@@ -458,6 +458,25 @@ const MODES = new Set(["ask", "edits", "auto", "plan"]);
 const TOOLS = ["read", "edit", "write", "grep", "find", "ls", "powershell", "todo", "webfetch"];
 const LOOK_TOOLS = ["read", "grep", "find", "ls", "todo", "webfetch"];
 const PLAN_NOTE = "(RobinCode 알림) 지금은 계획 모드예요. 파일을 고치거나 명령을 실행하지 말고(그런 도구는 없어요), 읽고 찾아본 뒤 무엇을 어떤 순서로 바꿀지 단계별 계획만 써요. 계획 끝에 robin이 정해야 할 것이 있으면 물어봐요. robin이 \"이 계획대로 하기\"를 누르면 그때 고쳐요.";
+// `/review` (B-429): a new conversation that only looks. The folder's uncommitted
+// changes (git diff against the last commit, and the names of new files) go to the
+// model with its first turn, unseen in the window; its tools are the looking ones.
+const REVIEW_NOTE = "(RobinCode 알림) 지금은 검토예요. 파일을 고치거나 명령을 실행하지 말고(그런 도구는 없어요), 아래 바뀐 것만 보고 검토해요. 필요하면 둘레 코드를 읽어 확인해요. 답은 찾은 문제를 심한 것부터: 파일:줄, 무엇이 잘못됐는지, 어떤 입력에서 어떻게 깨지는지, 고칠 방향. 확인하지 못한 것은 추측이라고 적고, 문제가 없으면 없다고 해요. 스타일·이름 취향은 빼요.";
+const REVIEW_DIFF_MAX = 60000;
+function reviewDiff(dir) {
+  const git = (...args) => spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", windowsHide: true, maxBuffer: 32 * 1024 * 1024, timeout: 20000 });
+  if (git("rev-parse", "--is-inside-work-tree").stdout?.trim() !== "true") return { error: "이 폴더는 git 저장소가 아니에요. /review는 마지막 커밋 뒤에 바뀐 것을 봐요." };
+  const hasHead = git("rev-parse", "--verify", "-q", "HEAD").status === 0;
+  const diff = (hasHead ? git("diff", "HEAD", "--no-color", "--no-ext-diff", "--no-textconv") : git("diff", "--no-color", "--no-ext-diff", "--no-textconv")).stdout || "";
+  const fresh = (git("ls-files", "--others", "--exclude-standard").stdout || "").split("\n").filter(Boolean);
+  if (!diff.trim() && !fresh.length) return { error: "마지막 커밋 뒤에 바뀐 것이 없어요." };
+  const stat = (hasHead ? git("diff", "HEAD", "--stat", "--no-color") : git("diff", "--stat", "--no-color")).stdout || "";
+  let text = `바뀐 것 (git diff${hasHead ? " HEAD" : ""}):\n${stat}\n${diff}`;
+  if (text.length > REVIEW_DIFF_MAX) text = `${text.slice(0, REVIEW_DIFF_MAX)}\n… (여기서 잘렸어요. 나머지는 파일을 읽어서 보세요.)`;
+  if (fresh.length) text += `\n\n새 파일(git이 아직 모르는 것, 읽어서 보세요):\n${fresh.slice(0, 200).join("\n")}`;
+  return { text, files: (stat.match(/\|/g) || []).length + fresh.length };
+}
+
 // a plain conversation (robin 2026-11-19 "왜 일반채팅은 없어"): no folder, no
 // files, no commands — only the web, asked for as everywhere. Pi needs a
 // folder: an empty one of RobinCode's own, which marks these conversations
@@ -1012,7 +1031,12 @@ const approvalsFor = (conv) => ({
     pi.on("before_agent_start", () => {
       conv.changed = false;
       conv.testRounds = 0;
-      return conv.mode === "plan" ? { message: { customType: "robincode-plan", content: PLAN_NOTE, display: false } } : undefined;
+      if (conv.mode !== "plan") return undefined;
+      if (!conv.review) return { message: { customType: "robincode-plan", content: PLAN_NOTE, display: false } };
+      // the changes themselves once, with the first turn; after that only what a review is
+      const changes = conv.reviewText ? `\n\n${conv.reviewText}` : "";
+      conv.reviewText = "";
+      return { message: { customType: "robincode-review", content: REVIEW_NOTE + changes, display: false } };
     });
     // the turn is about to end: the folder's test first, and one more go when it fails
     pi.on("agent_before_settle", async (event) => {
@@ -2476,6 +2500,7 @@ const server = createServer(async (req, res) => {
         const mode = MODES.has(body.mode) ? body.mode : "ask";
         if (cur.chat) { send(res, 409, { error: "일반 대화에는 모드가 없어요. 웹 페이지는 늘 물어봐요." }); return; }
         if (mode === "plan" && cur.mode !== "plan") cur.planFrom = cur.mode;
+        if (mode !== "plan") cur.review = false;   // out of the review: an ordinary conversation from here
         cur.mode = mode;
         applyMode(cur);
         // "바로 실행" asks nothing: a question waiting now goes ahead too
@@ -2666,6 +2691,25 @@ const server = createServer(async (req, res) => {
         if (!isChatDir(folder)) { addRecent(folder); folders = null; }
         await startSession(SessionManager.create(folder, sessionDir), folder);
         send(res, 200, { ok: true });
+        return;
+      }
+      case "/api/review": {
+        // a new conversation in this folder that reads the uncommitted changes and says what is wrong
+        if (cur.chat) { send(res, 409, { error: "일반 대화에는 폴더가 없어요." }); return; }
+        const found = reviewDiff(cwd);
+        if (found.error) { send(res, 400, { error: found.error }); return; }
+        await startSession(SessionManager.create(cwd, sessionDir), cwd);
+        const conv = cur;
+        conv.planFrom = "ask";
+        conv.mode = "plan";
+        conv.review = true;
+        conv.reviewText = found.text;
+        applyMode(conv);
+        broadcast({ t: "mode", mode: conv.mode, planFrom: conv.planFrom });
+        const about = String(body.about || "").trim().slice(0, 2000);
+        const said = `바뀐 것을 검토해 줘 (파일 ${found.files}개)${about ? `\n특히: ${about}` : ""}`;
+        const r = await begin(conv, said, [], said);
+        send(res, r.ok ? 200 : r.status, r.ok ? { ok: true, files: found.files } : { error: r.error, gpuOff: r.gpuOff, stopped: r.stopped });
         return;
       }
       case "/api/places":
