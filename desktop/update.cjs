@@ -48,13 +48,13 @@ function updater({ mine, home, log, tell, host = process.env.ROBINCODE_UPDATE_HO
       // another Electron: this exe cannot run it, the whole zip has to come again
       if (latest.electron && latest.electron !== process.versions.electron) {
         set({ checking: false, checkedAt: Date.now(), shell: latest.version });
-        log(`새 판 ${latest.version}은 Electron ${latest.electron}이 필요해서 ai.yoonrobin.xyz에서 다시 받아야 해요.\n`);
+        log(`새 버전 ${latest.version}은 Electron ${latest.electron}이 필요해서 ai.yoonrobin.xyz에서 다시 받아야 해요.\n`);
         return state;
       }
       const to = join(versions, latest.version);
       if (existsSync(join(to, "bad"))) {
         // it was downloaded and did not start: not again (a newer one will come)
-        set({ checking: false, checkedAt: Date.now(), error: `새 판 ${latest.version}이 켜지지 않아서 쓰지 않아요` });
+        set({ checking: false, checkedAt: Date.now(), error: `새 버전 ${latest.version}이 켜지지 않아서 쓰지 않아요` });
         return state;
       }
       if (!existsSync(join(to, "version.json"))) {
@@ -63,9 +63,9 @@ function updater({ mine, home, log, tell, host = process.env.ROBINCODE_UPDATE_HO
         const zip = join(versions, `${latest.version}.zip.part`);
         const tmp = join(versions, `${latest.version}.tmp`);
         rmSync(tmp, { recursive: true, force: true });
-        log(`새 판 ${latest.version}을 받는 중이에요.\n`);
+        log(`새 버전 ${latest.version}을 받는 중이에요.\n`);
         const got = await run("scp", ["-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", `${host}:${DIST}/${latest.app.file}`, zip], 15 * 60000);
-        if (!got.ok) throw new Error(`새 판을 받지 못했어요: ${got.err.trim().slice(0, 160)}`);
+        if (!got.ok) throw new Error(`새 버전을 받지 못했어요: ${got.err.trim().slice(0, 160)}`);
         if ((await sha256(zip)) !== latest.app.sha256) { rmSync(zip, { force: true }); throw new Error("받은 파일이 깨졌어요(sha256이 달라요)"); }
         mkdirSync(tmp, { recursive: true });
         // tar.exe (Windows 10+) opens zip files
@@ -73,23 +73,23 @@ function updater({ mine, home, log, tell, host = process.env.ROBINCODE_UPDATE_HO
         rmSync(zip, { force: true });
         if (!x.ok || !existsSync(join(tmp, "version.json")) || !existsSync(join(tmp, "desktop", "main.cjs"))) {
           rmSync(tmp, { recursive: true, force: true });
-          throw new Error(`새 판을 풀지 못했어요: ${x.err.trim().slice(0, 160)}`);
+          throw new Error(`새 버전을 풀지 못했어요: ${x.err.trim().slice(0, 160)}`);
         }
         // what came is the version latest.json named
         let inside = null;
         try { inside = JSON.parse(readFileSync(join(tmp, "version.json"), "utf8")); } catch { /* checked below */ }
         if (inside?.version !== latest.version || String(inside?.build) !== String(latest.build)) {
           rmSync(tmp, { recursive: true, force: true });
-          throw new Error("받은 판의 version.json이 latest.json과 달라요");
+          throw new Error("받은 버전의 version.json이 latest.json과 달라요");
         }
         rmSync(to, { recursive: true, force: true });
         renameSync(tmp, to);
-        log(`새 판 ${latest.version}을 받아 뒀어요. 다음에 켤 때 바뀌어요.\n`);
+        log(`새 버전 ${latest.version}을 받아 뒀어요. 다음에 켤 때 바뀌어요.\n`);
       }
       set({ checking: false, downloading: null, checkedAt: Date.now(), ready: latest.version });
       tidy(latest.version);
     } catch (e) {
-      log(`새 판 확인: ${e.message}\n`);
+      log(`새 버전 확인: ${e.message}\n`);
       set({ checking: false, downloading: null, checkedAt: Date.now(), error: e.message });
     } finally {
       busy = false;

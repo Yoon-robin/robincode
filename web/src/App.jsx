@@ -884,22 +884,22 @@ const shortDate = (iso) => { const d = new Date(iso); return Number.isNaN(d.getT
 function updateStatus(v, u, now = Date.now()) {
   const checked = (at) => (at ? ` · ${ago(at, now)} 확인` : "");
   if (u) {
-    if (u.downloading) return { kind: "downloading", mark: "[ .. ]", text: `새 판 ${verLabel(u.downloading).when}을 받는 중이에요`, detail: "다 받으면 여기서 다시 켤 수 있어요. 받는 동안에도 그대로 써요." };
-    if (u.ready && u.ready !== u.version) return { kind: "ready", mark: "[NEW]", tone: "new", text: `새 판 ${verLabel(u.ready).when}을 받아 뒀어요`, detail: "지금 다시 켜거나, 다음에 켤 때 바뀌어요.", relaunch: true };
-    if (u.shell) return { kind: "shell", mark: "[ !! ]", tone: "warn", text: `새 판 ${verLabel(u.shell).when}은 ai.yoonrobin.xyz에서 다시 받아야 해요`, detail: "앱 껍데기(Electron)가 바뀐 판이라 알아서 받지 못해요." };
-    if (u.checking) return { kind: "checking", mark: "[ .. ]", text: "새 판이 있는지 보는 중이에요" };
-    if (u.error) return { kind: "error", mark: "[FAIL]", tone: "bad", text: "새 판을 확인하지 못했어요", detail: `${u.error}${checked(u.checkedAt)}` };
-    if (u.checkedAt) return { kind: "ok", mark: "[ OK ]", text: `최신 판이에요${checked(u.checkedAt)}` };
-    return { kind: "none", mark: "[ .. ]", text: "켜고 조금 뒤에 새 판을 확인해요" };
+    if (u.downloading) return { kind: "downloading", mark: "[ .. ]", text: `새 버전 ${verLabel(u.downloading).when}을 받는 중이에요`, detail: "다 받으면 여기서 다시 켤 수 있어요. 받는 동안에도 그대로 써요." };
+    if (u.ready && u.ready !== u.version) return { kind: "ready", mark: "[NEW]", tone: "new", text: `새 버전 ${verLabel(u.ready).when}을 받아 뒀어요`, detail: "지금 다시 켜거나, 다음에 켤 때 바뀌어요.", relaunch: true };
+    if (u.shell) return { kind: "shell", mark: "[ !! ]", tone: "warn", text: `새 버전 ${verLabel(u.shell).when}은 ai.yoonrobin.xyz에서 다시 받아야 해요`, detail: "앱 껍데기(Electron)가 바뀐 버전이라 알아서 받지 못해요." };
+    if (u.checking) return { kind: "checking", mark: "[ .. ]", text: "새 버전이 있는지 보는 중이에요" };
+    if (u.error) return { kind: "error", mark: "[FAIL]", tone: "bad", text: "새 버전을 확인하지 못했어요", detail: `${u.error}${checked(u.checkedAt)}` };
+    if (u.checkedAt) return { kind: "ok", mark: "[ OK ]", text: `최신 버전이에요${checked(u.checkedAt)}` };
+    return { kind: "none", mark: "[ .. ]", text: "켜고 조금 뒤에 새 버전을 확인해요" };
   }
   const p = v?.pending;
-  if (p && p.blocked) return { kind: "blocked", mark: "[ !! ]", tone: "warn", text: `새 판이 GitHub에 있어요 (바뀐 것 ${p.count}개)`, detail: p.blocked };
-  if (p) return { kind: "pending", mark: "[NEW]", tone: "new", text: `새 판이 GitHub에 있어요 (바뀐 것 ${p.count}개)`, detail: "다시 켜면 받아서 바뀌어요.", relaunch: true };
-  if (v?.checking) return { kind: "checking", mark: "[ .. ]", text: "새 판이 있는지 보는 중이에요" };
-  if (v?.error) return { kind: "error", mark: "[FAIL]", tone: "bad", text: "새 판을 확인하지 못했어요", detail: `${v.error}${checked(v.checkedAt)}` };
-  if (v?.checkedAt) return { kind: "ok", mark: "[ OK ]", text: `최신 판이에요${checked(v.checkedAt)}` };
-  if (v?.canCheck) return { kind: "none", mark: "[ .. ]", text: "켜고 조금 뒤에 새 판을 확인해요" };
-  return { kind: "none", mark: "[ -- ]", text: "저장소에서 켠 판이에요", detail: "바탕화면 바로가기로 켜면 새 판을 알아서 받아요." };
+  if (p && p.blocked) return { kind: "blocked", mark: "[ !! ]", tone: "warn", text: `새 버전이 GitHub에 있어요 (바뀐 것 ${p.count}개)`, detail: p.blocked };
+  if (p) return { kind: "pending", mark: "[NEW]", tone: "new", text: `새 버전이 GitHub에 있어요 (바뀐 것 ${p.count}개)`, detail: "다시 켜면 받아서 바뀌어요.", relaunch: true };
+  if (v?.checking) return { kind: "checking", mark: "[ .. ]", text: "새 버전이 있는지 보는 중이에요" };
+  if (v?.error) return { kind: "error", mark: "[FAIL]", tone: "bad", text: "새 버전을 확인하지 못했어요", detail: `${v.error}${checked(v.checkedAt)}` };
+  if (v?.checkedAt) return { kind: "ok", mark: "[ OK ]", text: `최신 버전이에요${checked(v.checkedAt)}` };
+  if (v?.canCheck) return { kind: "none", mark: "[ .. ]", text: "켜고 조금 뒤에 새 버전을 확인해요" };
+  return { kind: "none", mark: "[ -- ]", text: "저장소에서 켠 버전이에요", detail: "바탕화면 바로가기로 켜면 새 버전을 알아서 받아요." };
 }
 
 // the account row at the foot of the sidebar (docs/brand.md 뼈대): the app's
@@ -908,17 +908,17 @@ function updateStatus(v, u, now = Date.now()) {
 function AccountRow({ version, shellU, open, onOpen }) {
   const s = version?.version ? updateStatus(version, shellU) : null;
   const fresh = version?.fresh?.length || 0;
-  const tag = !s ? null : s.tone === "new" ? <span className="ver-tag new"><Tag tag="[NEW]" /> 새 판</span>
+  const tag = !s ? null : s.tone === "new" ? <span className="ver-tag new"><Tag tag="[NEW]" /> 새 버전</span>
     : s.kind === "downloading" ? <span className="ver-tag"><Tag tag="[ .. ]" />받는 중</span>
-    : s.tone === "warn" ? <span className="ver-tag warn">새 판 있음</span>
+    : s.tone === "warn" ? <span className="ver-tag warn">새 버전 있음</span>
     : fresh ? <span className="ver-tag">바뀐 것 {fresh}</span>
     : s.kind === "error" ? <span className="ver-tag faint">확인 못 함</span> : null;
   return (
-    <button type="button" className="acct" onClick={onOpen} aria-pressed={!!open} title="설정: 알림, 모드, 폴더, GPU, 판">
+    <button type="button" className="acct" onClick={onOpen} aria-pressed={!!open} title="설정: 알림, 모드, 폴더, GPU, 버전">
       <AppMark />
       <span className="acct-line">
         <span className="acct-name">RobinCode</span>
-        <span className="acct-sub">{version?.version ? <><span className="sr">판 </span>{verLabel(version.version).when}</> : "설정"}{tag}</span>
+        <span className="acct-sub">{version?.version ? <><span className="sr">버전 </span>{verLabel(version.version).when}</> : "설정"}{tag}</span>
       </span>
       <Chev />
     </button>
@@ -1073,7 +1073,7 @@ function Settings({ state, notify, shellU, onNotify, onMode, onThink, onGpu, onP
                 </button>
               </SetRow>
             )}
-            <SubRow name="판" val={!!v?.version} onClick={() => onPanel("version")} title="판과 바뀐 것, 새 판 (/version)"
+            <SubRow name="버전" val={!!v?.version} onClick={() => onPanel("version")} title="버전과 바뀐 것, 새 버전 (/version)"
               value={v?.version ? <>{verLabel(v.version).when}{us?.tone === "new" && <> <Tag tag="[NEW]" /></>}</> : "확인 중"} />
           </div>
           <h2 className="set-head">규칙과 지시</h2>
@@ -1097,7 +1097,7 @@ function VersionPanel({ version: v, shellU: u, running, onClose, onError }) {
   // looked at: what is new now is not new the next time (the marks stay here)
   useEffect(() => { if (v?.fresh?.length) api("/api/version", { seen: true }).catch(() => {}); }, [v?.version]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!v?.version) {
-    return <Sheet label="RobinCode 판" onClose={onClose}><p className="chg-note">판을 아직 몰라요. 잠시 뒤에 다시 열어 주세요.</p></Sheet>;
+    return <Sheet label="RobinCode 버전" onClose={onClose}><p className="chg-note">버전을 아직 몰라요. 잠시 뒤에 다시 열어 주세요.</p></Sheet>;
   }
   const s = updateStatus(v, u, now);
   const l = verLabel(v.version);
@@ -1123,13 +1123,13 @@ function VersionPanel({ version: v, shellU: u, running, onClose, onError }) {
     </>
   );
   return (
-    <Sheet label="RobinCode 판" foot={foot} onClose={onClose}>
+    <Sheet label="RobinCode 버전" foot={foot} onClose={onClose}>
       <div className="ver-now">
         <p className="ver-big">{l.when}</p>
         <p className="ver-sub">
           {l.hash && <span className="mono">{l.hash}</span>}
-          <span>{v.mode === "installed" ? "설치판" : "저장소"}</span>
-          {v.at && <span>{ago(new Date(v.at).getTime(), now)} 만든 판</span>}
+          <span>{v.mode === "installed" ? "설치 버전" : "저장소"}</span>
+          {v.at && <span>{ago(new Date(v.at).getTime(), now)} 만든 버전</span>}
         </p>
       </div>
       <div className={`ver-state${s.tone ? ` ${s.tone}` : ""}`} role="status">
@@ -2093,7 +2093,7 @@ export default function App() {
   }, []);
   const fail = useCallback((e) => say(e.message === "busy" ? "도는 중이라 지금은 못 해요. 끝나거나 멈춘 뒤에 해 주세요." : `하지 못했어요: ${e.message}`,
     e.gpuOff ? { label: "GPU 켜기…", run: () => setGpuOpen(true) } : undefined), [say]);
-  // the version: once a window after an update ("새 판으로 바뀌었어요", and it
+  // the version: once a window after an update ("새 버전으로 바뀌었어요", and it
   // is not new the next time), and once for each newer one that is ready
   const shellU = useShellUpdate();
   const toldFresh = useRef(false);
@@ -2102,7 +2102,7 @@ export default function App() {
     if (toldFresh.current || !v?.fresh?.length) return;
     toldFresh.current = true;
     api("/api/version", { seen: true }).catch(() => {});
-    say(`새 판으로 바뀌었어요 · ${verLabel(v.version).when}`, { label: "바뀐 것 보기", run: () => setPanel("version") });
+    say(`새 버전으로 바뀌었어요 · ${verLabel(v.version).when}`, { label: "바뀐 것 보기", run: () => setPanel("version") });
   }, [state.version, say]);
   const toldNew = useRef("");
   useEffect(() => {
@@ -2110,8 +2110,8 @@ export default function App() {
     const next = s.kind === "ready" ? shellU.ready : s.kind === "pending" ? state.version.pending.version : "";
     if (!next || toldNew.current === next) return;
     toldNew.current = next;
-    say(s.kind === "ready" ? "새 판을 받아 뒀어요. 다시 켜면 바뀌어요." : `새 판이 GitHub에 있어요 (바뀐 것 ${state.version.pending.count}개).`,
-      { label: "판 보기", run: () => setPanel("version") });
+    say(s.kind === "ready" ? "새 버전을 받아 뒀어요. 다시 켜면 바뀌어요." : `새 버전이 GitHub에 있어요 (바뀐 것 ${state.version.pending.count}개).`,
+      { label: "버전 보기", run: () => setPanel("version") });
   }, [state.version, shellU, say]);
   const loadSessions = useCallback(() => {
     api("/api/sessions").then((r) => dispatch({ type: "sessions", sessions: r.sessions })).catch(() => {});

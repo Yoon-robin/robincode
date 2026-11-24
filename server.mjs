@@ -2999,7 +2999,7 @@ async function checkNewer() {
   try {
     if (!(await git("fetch", "--quiet", "origin", "main")).ok) throw new Error("GitHub에 닿지 않아요");
     const r = await git("log", NOTE_FORMAT, "HEAD..origin/main", "--", ...RC_PATHS);
-    if (!r.ok) throw new Error("새 판을 읽지 못했어요");
+    if (!r.ok) throw new Error("새 버전을 읽지 못했어요");
     const notes = notesOf(r.out);
     let blocked = "";
     if (notes.length) {
@@ -3030,17 +3030,17 @@ async function selfUpdate() {
   const git = (...a) => run("git", ["-C", HOME_REPO, ...a], 20000);
   const branchNow = (await git("rev-parse", "--abbrev-ref", "HEAD")).out.trim();
   if (branchNow !== "main") return;
-  if (!(await git("fetch", "--quiet", "origin", "main")).ok) { log("GitHub에 닿지 않아서 새 판은 확인하지 못했어요."); return; }
+  if (!(await git("fetch", "--quiet", "origin", "main")).ok) { log("GitHub에 닿지 않아서 새 버전은 확인하지 못했어요."); return; }
   const behind = Number((await git("rev-list", "--count", "HEAD..origin/main")).out.trim()) || 0;
   if (!behind) return;
   const dirty = (await git("status", "--porcelain", "--untracked-files=no")).out.trim();
-  if (dirty) { log(`새 판(${behind}개 커밋)이 있지만 고친 파일이 있어서 받지 않았어요.`); return; }
+  if (dirty) { log(`새 버전(${behind}개 커밋)이 있지만 고친 파일이 있어서 받지 않았어요.`); return; }
   const before = (await git("rev-parse", "HEAD")).out.trim();
-  if (!(await git("merge", "--ff-only", "--quiet", "origin/main")).ok) { log("새 판을 받지 못했어요(앞으로 감기만 해요)."); return; }
-  log(`새 판을 받았어요(${behind}개 커밋).`);
+  if (!(await git("merge", "--ff-only", "--quiet", "origin/main")).ok) { log("새 버전을 받지 못했어요(앞으로 감기만 해요)."); return; }
+  log(`새 버전을 받았어요(${behind}개 커밋).`);
   const ours = (await git("diff", "--name-only", before, "HEAD", "--", "robincode", "ops/windows/robincode-picker")).out.trim();
   if (!ours) return;
-  log("RobinCode가 바뀌어서 새 판으로 다시 켜요.");
+  log("RobinCode가 바뀌어서 새 버전으로 다시 켜요.");
   const argv = process.argv.slice(1);
   const env = { ...process.env, ROBINCODE_UPDATED: "1" };
   if (HIDDEN) {

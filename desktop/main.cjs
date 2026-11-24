@@ -159,7 +159,7 @@ module.exports = function start(dir) {
     if (healthy || !downloaded || TEST || quitting) return false;
     const { markBad } = require("./update.cjs");
     if (!markBad(dir, why)) return false;
-    log(`[창] 새 판 ${mine.version}이 제대로 켜지지 않아서(${why}) 전 판으로 다시 켜요.\n`);
+    log(`[창] 새 버전 ${mine.version}이 제대로 켜지지 않아서(${why}) 이전 버전으로 다시 켜요.\n`);
     quitting = true;
     stopServer();
     app.relaunch();
@@ -174,7 +174,7 @@ module.exports = function start(dir) {
       checking = null;
       if (!win || healthy) return;
       const drawn = await win.webContents.executeJavaScript(`(document.getElementById("root")?.childElementCount || 0) > 0`).catch(() => false);
-      if (drawn && server) { healthy = true; log(`[창] 새 판 ${mine.version}이 잘 켜졌어요.\n`); return; }
+      if (drawn && server) { healthy = true; log(`[창] 새 버전 ${mine.version}이 잘 켜졌어요.\n`); return; }
       if (tries > 1) checkDrawn(tries - 1);
       else goBack("화면이 그려지지 않음");
     }, 3000);
