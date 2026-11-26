@@ -77,7 +77,7 @@
   --t-move: 220ms;
   --t-slow: 240ms;
   --t-reveal: 400ms;
-  --ring: rgb(75 125 254 / 60%);
+  --ring: #4b7dfe;  /* solid: 3:1 and more on every face (it was 60% blue, 2.6:1) */
   --side-w: 272px; /* wider than the original's 170: conversation titles are read here */
   --col: 780px;
   color-scheme: dark;
@@ -273,7 +273,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .lamp.bad { background: var(--red); }
 
 /* ---- GPU and context meters ---- */
-.gpu { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12.5px; color: var(--soft); font-variant-numeric: tabular-nums; }
+.gpu { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; color: var(--soft); font-variant-numeric: tabular-nums; }
 .gpu-line { display: inline-flex; align-items: center; gap: 7px; }
 .gpu-state { color: var(--text); }
 .gpu-rate { color: var(--soft); }
@@ -315,7 +315,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
 .ctx-pop-head { display: flex; align-items: baseline; justify-content: space-between; font: 600 13px var(--sans); color: var(--soft); }
 .ctx-pop-head b { font-size: 15px; color: var(--head); }
 .ctx-pop-num { margin-top: 2px !important; font-size: 12px; color: var(--soft); font-variant-numeric: tabular-nums; }
-.ctx-pop-note { margin-top: 10px !important; font-size: 12.5px; line-height: 1.55; color: var(--soft); }
+.ctx-pop-note { margin-top: 10px !important; font-size: 12px; line-height: 1.55; color: var(--soft); }
 .ctx-go { width: 100%; margin-top: 12px; justify-content: center; }
 .ctx-track { width: 64px; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
 .ctx-fill { display: block; width: 100%; height: 100%; background: var(--accent); transform-origin: left; transition: transform 0.2s var(--ease); }
@@ -384,7 +384,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .msg-edit:hover { color: var(--head); }
 @media (hover: none) { .msg-edit { opacity: 1; } }
 /* the messages side by side at this place (changed and sent again, answered again) */
-.msg-alt { display: flex; align-items: center; gap: 2px; margin-right: -6px; font-size: 11.5px; color: var(--faint); }
+.msg-alt { display: flex; align-items: center; gap: 2px; margin-right: -6px; font-size: 11px; color: var(--faint); }
 .msg-alt .icon-btn { width: 26px; height: 26px; color: var(--faint); }
 .msg-alt .icon-btn:hover:not(:disabled) { color: var(--head); }
 .msg-alt .icon-btn:disabled { opacity: 0.35; background: none; cursor: default; }
@@ -426,10 +426,10 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .bubble-more:hover { color: var(--head); }
 .msg-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 8px; }
 /* the turn's time and speed */
-.msg-meta { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; animation: fade-in 0.2s var(--ease); }
+.msg-meta { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; animation: fade-in 0.2s var(--ease); }
 .msg-tools { margin-bottom: 18px; }
 
-.line { display: flex; align-items: flex-start; gap: 0.6em; overflow-wrap: anywhere; margin: -6px 0 20px; font-size: 13.5px; line-height: 1.6; color: var(--soft); animation: rise 0.18s var(--ease) both; }
+.line { display: flex; align-items: flex-start; gap: 0.6em; overflow-wrap: anywhere; margin: -6px 0 20px; font-size: 13px; line-height: 1.6; color: var(--soft); animation: rise 0.18s var(--ease) both; }
 .line-tag { flex: none; display: inline-flex; padding-top: 0.15em; }
 .line .line-btn { flex: none; align-self: center; margin-left: 4px; font-family: var(--sans); }
 .line.fail { color: var(--red); }
@@ -562,7 +562,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .place-menu .place-item { background: var(--raise); }
 .place-menu .place-item:hover, .place-menu .place-item:focus-visible { background: var(--press); }
 .place-menu .place-item[aria-checked="true"] { border-color: var(--accent); }
-.place-branch { font-size: 11.5px; font-weight: 500; color: var(--soft); }
+.place-branch { font-size: 11px; font-weight: 500; color: var(--soft); }
 .place-item-note { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--soft); }
 .place-item-note.mono { font: 400 11.5px var(--mono); }
 .place-label, .place-wait { margin: 6px 4px 2px; font-size: 11px; font-weight: 500; line-height: 1.4; color: var(--faint); }
@@ -664,7 +664,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   border-radius: var(--radius-sm);
   background: none;
   text-align: left;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.6;
   color: var(--text);
   transition: background-color 0.15s;
@@ -759,7 +759,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   border-radius: var(--radius-sm);
   background: none;
   text-align: left;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.6;
   color: var(--text);
   transition: background-color 0.15s;
@@ -804,7 +804,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 }
 .ask-title { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-weight: 700; color: var(--head); letter-spacing: -0.01em; }
 .ask-title .ico { width: 17px; height: 17px; color: var(--amber); }
-.ask-risk { display: flex; align-items: center; gap: 6px; margin: -4px 0 10px; font-size: 12.5px; color: var(--amber); }
+.ask-risk { display: flex; align-items: center; gap: 6px; margin: -4px 0 10px; font-size: 12px; color: var(--amber); }
 .ask-risk svg { width: 14px; height: 14px; flex: none; }
 .ask-note { display: block; width: 100%; margin-top: 10px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--raise); color: var(--head); font: inherit; font-size: 13px; outline: 0; }
 .ask-note::placeholder { color: var(--faint); }
@@ -845,7 +845,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 /* ---- composer ---- */
 .composer { position: relative; padding: 0 24px 14px; }
 .composer > * { max-width: var(--col); margin-left: auto; margin-right: auto; }
-.status-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--soft); font-variant-numeric: tabular-nums; animation: fade-in 0.15s 0.1s var(--ease) both; }
+.status-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--soft); font-variant-numeric: tabular-nums; animation: fade-in 0.15s 0.1s var(--ease) both; }
 .status-row.quiet { visibility: hidden; }
 /* robin's messages sent while the turn runs: at the end of the thread, faint, until the turn ends */
 .queued { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; margin: 26px 0 22px; animation: rise 0.18s var(--ease) both; }
@@ -857,7 +857,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   color: var(--soft);
 }
 .queued-text { white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
-.queued-note { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 12.5px; color: var(--soft); }
+.queued-note { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 12px; color: var(--soft); }
 .link-act { padding: 2px 0; border: 0; background: none; font: inherit; color: var(--text); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgb(255 255 255 / 30%); border-radius: 4px; }
 .link-act:hover { color: var(--head); text-decoration-color: currentColor; }
 .status-mark { color: var(--accent); animation: blink 1s steps(1) infinite; }
@@ -984,8 +984,8 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 /* the notifications switch, at the foot of the sidebar */
 .notify { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 8px; min-width: 0; }
 .notify .toggle { flex: none; min-height: 22px; }
-.notify-note { flex: 1 1 100%; min-width: 0; font-size: 11.5px; line-height: 1.35; color: var(--faint); text-align: right; }
-.keys { margin-left: auto; min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; column-gap: 0; height: 1.5em; line-height: 1.5em; overflow: hidden; font-size: 11.5px; color: var(--faint); }
+.notify-note { flex: 1 1 100%; min-width: 0; font-size: 11px; line-height: 1.35; color: var(--faint); text-align: right; }
+.keys { margin-left: auto; min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; column-gap: 0; height: 1.5em; line-height: 1.5em; overflow: hidden; font-size: 11px; color: var(--faint); }
 .keys .key { white-space: nowrap; }
 .keys .key + .key::before { content: "·"; margin: 0 7px; }
 /* the four modes: one button, Shift+Tab goes on */
@@ -1001,8 +1001,8 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .mention.cmd { gap: 12px; font-family: var(--sans, inherit); }
 .cmd-name { flex: none; min-width: 112px; font-family: var(--mono); color: var(--head); font-size: 13px; }
 /* what to type after the command is words, not code: the page's face (the code face set Korean a cell apart) */
-.cmd-arg { font-family: var(--sans); font-size: 12.5px; letter-spacing: 0; color: var(--faint); }
-.cmd-hint { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; }
+.cmd-arg { font-family: var(--sans); font-size: 12px; letter-spacing: 0; color: var(--faint); }
+.cmd-hint { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
 .cmd-kind { flex: none; } /* a status chip */
 
 /* ---- `!명령`: the box says it goes to PowerShell ---- */
@@ -1017,7 +1017,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .shell-cmd .ps { color: var(--amber); }
 .shell-run .out { border-top: 1px solid var(--line-weak); }
 .shell-run .step-out { margin: 0; border: 0; border-radius: 0; }
-.shell-none { margin: 0; padding: 7px 12px 9px; border-top: 1px solid var(--line-weak); font-size: 12.5px; color: var(--faint); }
+.shell-none { margin: 0; padding: 7px 12px 9px; border-top: 1px solid var(--line-weak); font-size: 12px; color: var(--faint); }
 
 /* ---- what waits: when each goes in ---- */
 .queued-bubble { position: relative; padding-right: 38px; }
@@ -1035,7 +1035,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .todo-head {
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 12px;
   border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--card);
-  font-size: 12.5px; color: var(--text); text-align: left;
+  font-size: 12px; color: var(--text); text-align: left;
 }
 .todo.open .todo-head { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .todo-title { color: var(--head); font-weight: 700; }
@@ -1070,7 +1070,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .find-bar > .ico { flex: none; width: 14px; height: 14px; margin-right: 4px; color: var(--faint); }
 .find-bar input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--head); font: inherit; font-size: 13px; }
 .find-bar input::placeholder { color: var(--faint); }
-.find-count { flex: none; min-width: 42px; font-size: 11.5px; color: var(--soft); font-variant-numeric: tabular-nums; text-align: right; margin-right: 4px; }
+.find-count { flex: none; min-width: 42px; font-size: 11px; color: var(--soft); font-variant-numeric: tabular-nums; text-align: right; margin-right: 4px; }
 .find-bar .icon-btn { position: relative; width: 24px; height: 24px; }
 .find-bar .icon-btn::after { content: ""; position: absolute; inset: -4px -2px; }
 .find-bar .icon-btn .ico { width: 15px; height: 15px; }
@@ -1124,21 +1124,21 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .chg-toggle { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; padding: 6px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); text-align: left; font-size: 13px; }
 .chg-toggle:hover:not(:disabled) { background: var(--press); }
 .chg-toggle .ico { flex: none; width: 14px; height: 14px; color: var(--faint); }
-.chg-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--head); font-size: 12.5px; }
+.chg-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--head); font-size: 12px; }
 .chg-dir { color: var(--faint); }
 .chg-badge { flex: none; } /* a status chip */
-.chg-done { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--soft); }
+.chg-done { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--soft); }
 .mini-btn.sure, .mini-btn.sure:hover:not(:disabled) { color: var(--red); border-color: rgb(229 71 90 / 40%); }
 .chg-diff { max-height: 420px; overflow: auto; font: 400 12px/1.6 var(--mono); scrollbar-width: thin; }
 .chg-hunk + .chg-hunk { border-top: 1px dashed var(--line-weak); }
-.chg-at { display: flex; align-items: center; gap: 12px; padding: 2px 12px; color: var(--faint); font-size: 11.5px; background: rgb(255 255 255 / 2%); position: sticky; left: 0; }
+.chg-at { display: flex; align-items: center; gap: 12px; padding: 2px 12px; color: var(--faint); font-size: 11px; background: rgb(255 255 255 / 2%); position: sticky; left: 0; }
 .chg-at > span { margin-right: auto; }
 .chg-act { padding: 0 2px; border: 0; background: none; font: 500 11.5px/1.6 var(--sans); color: var(--soft); cursor: pointer; }
 .chg-act:hover:not(:disabled) { color: var(--head); }
 .chg-act:disabled { color: var(--faint); cursor: default; }
 .chg-act.sure, .chg-act.sure:hover:not(:disabled) { color: var(--red); }
 .chg-say { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--raise); position: sticky; left: 0; font-family: var(--sans); }
-.chg-say-at { flex: none; font-size: 11.5px; color: var(--faint); }
+.chg-say-at { flex: none; font-size: 11px; color: var(--faint); }
 .chg-say-box { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-item); background: var(--page); color: var(--head); font: 400 13px var(--sans); }
 .chg-no-btn { border: 0; background: none; font: inherit; cursor: pointer; }
 .chg-no-btn:hover { color: var(--accent); }
@@ -1156,16 +1156,16 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .chg-row.add .chg-sign, .chg-row.add .chg-text { color: #a6e8bd; }
 .chg-row.del { background: rgb(229 71 90 / 10%); }
 .chg-row.del .chg-sign, .chg-row.del .chg-text { color: #f7a3a5; }
-.chg-none { padding: 10px 12px; font-size: 12.5px; color: var(--faint); }
+.chg-none { padding: 10px 12px; font-size: 12px; color: var(--faint); }
 .mem-files { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .mem-file { border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); overflow: hidden; }
-.mem-head { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line); background: var(--raise); font-size: 12.5px; }
+.mem-head { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line); background: var(--raise); font-size: 12px; }
 .mem-path { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--head); }
 .mem-text { max-height: 220px; margin: 0; padding: 8px 12px; overflow: auto; font: 400 12px/1.55 var(--mono); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
 .mem-add { display: grid; gap: 6px; }
 .mem-add-row { display: flex; gap: 8px; }
 .mem-add-row .btn { border-radius: var(--radius); }
-.mem-add-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--raise); color: var(--head); font: inherit; font-size: 13.5px; outline: 0; }
+.mem-add-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--raise); color: var(--head); font: inherit; font-size: 13px; outline: 0; }
 .mem-add-row input:focus { border-color: rgb(75 125 254 / 55%); }
 /* a list's rows: 32 r8 on --raise, 4 apart */
 .use { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -1182,7 +1182,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .rule-label { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--head); }
 .help-list { display: grid; gap: 2px; margin: 0 0 6px; }
 .help-row { display: flex; gap: 14px; padding: 4px 0; font-size: 13px; }
-.help-row dt { flex: none; width: 150px; font-family: var(--mono); color: var(--head); font-size: 12.5px; }
+.help-row dt { flex: none; width: 150px; font-family: var(--mono); color: var(--head); font-size: 12px; }
 .help-row dd { margin: 0; color: var(--text); }
 
 /* ---- the folder's git branch ---- */
@@ -1252,7 +1252,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
 .search-key { flex: none; margin-right: 6px; font-size: 11px; color: var(--faint); }
 .search-x { flex: none; width: 24px; height: 24px; }
 .search-x .ico { width: 13px; height: 13px; }
-.conv-snip { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11.5px; line-height: 1.4; color: var(--soft); }
+.conv-snip { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 1.4; color: var(--soft); }
 .conv mark { background: none; color: var(--accent); font-weight: 700; }
 .conv-day + .conv-day { margin-top: 24px; }
 .conv {
@@ -1665,18 +1665,18 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 }
 .gpu-offer:hover { background: var(--press); }
 .gpu-offer.on { border-color: var(--accent); }
-.gpu-offer-main, .gpu-offer-side { display: grid; gap: 1px; min-width: 0; font-size: 12.5px; }
+.gpu-offer-main, .gpu-offer-side { display: grid; gap: 1px; min-width: 0; font-size: 12px; }
 .gpu-offer-main b { font-size: 14px; font-weight: 600; color: var(--head); }
 .gpu-offer-side { justify-items: end; text-align: right; flex: none; }
 .gpu-offer-side b { font-size: 14px; color: var(--head); }
 /* what the second press will do: said in the body, its buttons in the foot */
 .gpu-confirm { display: grid; gap: 12px; padding: 12px 14px; border: 1px solid rgb(194 116 99 / 30%); border-radius: var(--radius-item); background: rgb(194 116 99 / 6%); }
-.gpu-confirm p { font-size: 13.5px; line-height: 1.6; color: var(--text); }
+.gpu-confirm p { font-size: 13px; line-height: 1.6; color: var(--text); }
 .gpu-confirm b { color: var(--amber); }
 .btn-danger { border-color: rgb(229 71 90 / 50%); color: var(--red); font-weight: 600; }
 .btn-danger:hover { background: rgb(229 71 90 / 12%); color: var(--red); }
-.gpu-note { font-size: 12.5px; color: var(--soft); }
-.gpu-warn { font-size: 12.5px; color: var(--amber); }
+.gpu-note { font-size: 12px; color: var(--soft); }
+.gpu-warn { font-size: 12px; color: var(--amber); }
 .gpu-job { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); }
 .gpu-job-head { font-weight: 600; color: var(--head); }
 .gpu-job.bad .gpu-job-head { color: var(--red); }
@@ -1691,16 +1691,16 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .gpu-seg { position: relative; display: block; height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
 .gpu-seg.done { background: rgb(75 125 254 / 55%); }
 .gpu-seg.now i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--accent); transition: width 0.6s var(--ease); }
-.gpu-steps { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 11.5px; line-height: 1.35; color: var(--faint); }
+.gpu-steps { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 11px; line-height: 1.35; color: var(--faint); }
 .gpu-steps li { min-width: 0; overflow-wrap: anywhere; }
 .gpu-steps li.done { color: var(--soft); }
 .gpu-steps li.now { color: var(--accent); }
-.gpu-progress-dl { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.gpu-progress-dl { font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
 .gpu-progress-more { overflow-wrap: anywhere; }
 .gpu-mini { display: grid; gap: 5px; flex: 1 1 100%; min-width: 0; }
 .gpu-mini .gpu-segs { gap: 3px; }
 .gpu-mini .gpu-seg { height: 4px; }
-.gpu-mini-text { font-size: 11.5px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.gpu-mini-text { font-size: 11px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 /* the server deletes an unused GPU: the bar 3 minutes before, and the GPU window's line */
 .gpu-soon { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 20px 0; padding: 9px 12px; border: 1px solid rgb(194 116 99 / 35%); border-radius: var(--radius); background: rgb(194 116 99 / 7%); color: var(--amber); font-size: 14px; }
 .gpu-soon > span { flex: 1 1 18em; }
@@ -1713,7 +1713,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .ver-now { display: grid; gap: 6px; padding: 4px 0 2px; }
 /* the one big thing on this sheet: the kit's light, one layer */
 .ver-big { font-size: 32px; font-weight: 600; line-height: 1.1; letter-spacing: -0.02em; color: var(--head); font-variant-numeric: tabular-nums; }
-.ver-sub { display: flex; flex-wrap: wrap; align-items: baseline; font-size: 12.5px; color: var(--soft); }
+.ver-sub { display: flex; flex-wrap: wrap; align-items: baseline; font-size: 12px; color: var(--soft); }
 .ver-sub > * + *::before { content: "·"; margin: 0 0.5em; color: var(--faint); }
 .ver-sub .mono { font-size: 12px; color: var(--text); }
 .ver-state { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raise); }
@@ -1722,9 +1722,9 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .ver-state.bad { border-color: rgb(229 71 90 / 35%); }
 .ver-mark { flex: none; display: inline-flex; padding-top: 3px; }
 .ver-state-text { font-size: 14px; font-weight: 600; line-height: 1.6; color: var(--head); }
-.ver-detail { margin-top: 2px !important; font-size: 12.5px; line-height: 1.55; color: var(--soft); overflow-wrap: anywhere; }
+.ver-detail { margin-top: 2px !important; font-size: 12px; line-height: 1.55; color: var(--soft); overflow-wrap: anywhere; }
 .ver-detail a { color: var(--accent); text-underline-offset: 3px; }
-.ver-sure { font-size: 12.5px; color: var(--amber); text-align: right; }
+.ver-sure { font-size: 12px; color: var(--amber); text-align: right; }
 .ver-sec { display: grid; gap: 6px; }
 .ver-sec .side-label { margin: 0; }
 .ver-notes { display: grid; margin: 0; padding: 0 12px; list-style: none; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); }
@@ -1736,7 +1736,7 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
   gap: 10px;
   padding: 7px 2px;
   border-bottom: 1px solid var(--line-weak);
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
   animation: rise 0.2s calc(min(var(--i), 14) * 30ms + 80ms) var(--ease) both;
 }
@@ -1753,12 +1753,12 @@ button.head-btn:hover { background: rgb(255 255 255 / 3%); border-color: var(--p
 .ask-whole { margin-top: 6px; }
 /* sent, the model being checked: the bubble as it will be, faint, and a note */
 .msg-user.sending .bubble { opacity: 0.55; }
-.sending-note { display: block; margin-top: 4px; text-align: right; font-size: 11.5px; color: var(--faint); }
+.sending-note { display: block; margin-top: 4px; text-align: right; font-size: 11px; color: var(--faint); }
 /* the changes panel: what git sees besides this conversation's edits */
 .chg-others { margin: 2px 0 0; }
 .chg-others ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; font-size: 13px; }
 .chg-others li { overflow-wrap: anywhere; }
-.chg-how { display: inline-block; min-width: 4.5em; font-size: 11.5px; color: var(--faint); }
+.chg-how { display: inline-block; min-width: 4.5em; font-size: 11px; color: var(--faint); }
 
 /* "동작 줄이기" (design-motion-principles 점검, 2026-11-19): 자리·크기가 바뀌는
    것과 계속 깜빡이는 것은 멈추고 상태는 바로 그 자리에. 불투명도로 나타나기와
@@ -1816,7 +1816,7 @@ body { font-weight: 450; }
 .conv-search { border-color: transparent; border-radius: 9999px; padding-left: 14px; }
 .conv-search:hover { border-color: rgb(255 255 255 / 10%); }
 .conv-search:focus-within { border-color: rgb(75 125 254 / 60%); }
-.side-label { font-size: 12.8px; font-weight: 450; }
+.side-label { font-size: 13px; font-weight: 450; }
 .conv-open { font-weight: 450; }
 .conv[aria-current="true"] .conv-open { font-weight: 550; }
 
@@ -1943,7 +1943,7 @@ html.glass .conv { --conv-bg: #0c1013; }
 /* ==== end of V5 ==== */
 /* 검사와 시험 (B-420): the test's command under the card, in the fixed-width face */
 .checks-test { margin-top: 14px; }
-.checks-test input.mono { font-size: 12.5px; }
+.checks-test input.mono { font-size: 12px; }
 
 
 /* ==== V5.1: the feel (docs/brand.md "V5.1", 2026-11-26) ===============================
