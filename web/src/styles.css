@@ -122,7 +122,6 @@ a:hover { text-decoration-color: currentColor; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes blink { 50% { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
-@keyframes line-on { from { visibility: hidden; } }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
 @keyframes pop-up { from { opacity: 0; translate: 0 6px; filter: blur(6px); } }
