@@ -1975,5 +1975,3 @@ html.glass .conv { --conv-bg: #0c1013; }
   .toggle:active:not(:disabled) .switch::after { width: 16px; }
   .toggle.on:active:not(:disabled) .switch::after, .toggle[aria-pressed="true"]:active:not(:disabled) .switch::after { transform: translateX(12px); }
 }
-/* opened from the keyboard (↓ on the button): no motion (Emil: keyboard-initiated never animates) */
-.place:has(.place-btn:focus-visible) .place-menu { animation: none; }
