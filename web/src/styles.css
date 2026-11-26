@@ -1909,17 +1909,17 @@ html.glass .conv { --conv-bg: #0c1013; }
 /* what floats: the indicator's face. The toast is the log line. */
 .pop { background: #08090b; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .sheet, .gpu-panel { background: var(--card); box-shadow: 0 0 0 1px #17191b, 0 18px 60px rgb(0 0 0 / 55%); }
-.toast { border: 0; border-radius: 10px; padding-left: 16px; background: linear-gradient(var(--tick, #98a4b8), var(--tick, #98a4b8)) 6px 50% / 2px 44% no-repeat, #08090b; box-shadow: 0 0 0 1px #1c1e22, 0 0 14px rgb(0 0 0 / 60%); -webkit-backdrop-filter: none; backdrop-filter: none; }
-.toast[data-kind="ok"] { --tick: #4b7dfe; }
-.toast[data-kind="err"], .toast[data-kind="fail"] { --tick: #d52236; }
+.toast { border: 0; border-radius: 10px; padding-left: 16px; background: linear-gradient(var(--tick, #98a4b8), var(--tick, #98a4b8)) 6px 50% / 2px 44% no-repeat, radial-gradient(closest-side, var(--tick-glow, transparent), transparent) 1px 50% / 12px 70% no-repeat, #08090b; box-shadow: 0 0 0 1px #1c1e22, 0 0 14px rgb(0 0 0 / 60%); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.toast[data-kind="ok"] { --tick: #4b7dfe; --tick-glow: var(--glow-on); }
+.toast[data-kind="err"], .toast[data-kind="fail"] { --tick: #d52236; --tick-glow: var(--glow-alarm); }
 .toast[data-kind="ok"] .toast-ico { color: #4b7dfe; }
 
 /* a state chip is an indicator: the tick says it, so the lamp inside is not drawn twice */
 .chip-state { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#98a4b8, #98a4b8) 5px 50% / 2px 44% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: #f0f0f0; }
-.chip-state.ok { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#4b7dfe, #4b7dfe) 5px 50% / 2px 44% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: #f0f0f0; }
-.chip-state.run { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#4b7dfe, #4b7dfe) 5px 50% / 2px 44% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: #f0f0f0; }
-.chip-state.warn { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#c27463, #c27463) 5px 50% / 2px 44% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: #c27463; }
-.chip-state.bad { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#d52236, #d52236) 5px 50% / 2px 44% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: var(--red); }
+.chip-state.ok { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#4b7dfe, #4b7dfe) 5px 50% / 2px 44% no-repeat, radial-gradient(closest-side, var(--glow-on), transparent) 0px 50% / 12px 70% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: #f0f0f0; }
+.chip-state.run { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#4b7dfe, #4b7dfe) 5px 50% / 2px 44% no-repeat, radial-gradient(closest-side, var(--glow-on), transparent) 0px 50% / 12px 70% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: #f0f0f0; }
+.chip-state.warn { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#c27463, #c27463) 5px 50% / 2px 44% no-repeat, radial-gradient(closest-side, var(--glow-note), transparent) 0px 50% / 12px 70% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: #c27463; }
+.chip-state.bad { border: 0; border-radius: 9999px; padding: 0 8px 0 13px; background: linear-gradient(#d52236, #d52236) 5px 50% / 2px 44% no-repeat, radial-gradient(closest-side, var(--glow-alarm), transparent) 0px 50% / 12px 70% no-repeat, #08090b; box-shadow: inset 0 0 0 1px #25282d; color: var(--red); }
 .chip-state { height: 20px; }
 .chip-state .lamp, .chip-state.conv-done::before { display: none; }
 .lamp.on { background: #4b7dfe; }
@@ -1969,6 +1969,14 @@ html.glass .conv { --conv-bg: #0c1013; }
 .switch::after { transition: transform 0.165s ease-out, width 0.165s ease-out, background-color 0.165s ease-out; }
 .toggle:active:not(:disabled) .switch::after { width: 18px; }
 .toggle.on:active:not(:disabled) .switch::after, .toggle[aria-pressed="true"]:active:not(:disabled) .switch::after { transform: translateX(11px); }
+
+/* what is on glows a little in its own colour, and only that (docs/brand.md V5.1, robin 11-26
+   glow "B"): an on switch, a coloured tick (a background line, so a soft layer under it), the
+   open conversation's icon */
+:root { --glow: rgb(75 125 254 / 45%); --glow-icon: rgb(75 125 254 / 80%); --glow-on: rgb(75 125 254 / 55%); --glow-note: rgb(194 116 99 / 50%); --glow-alarm: rgb(213 34 54 / 55%); }
+.toggle.on .switch, .toggle[aria-pressed="true"] .switch { box-shadow: 0 0 12px var(--glow); }
+.toggle:disabled .switch { box-shadow: none; }
+.conv[aria-current="true"] .conv-open > .ico { filter: drop-shadow(0 0 5px var(--glow-icon)); }
 @media (prefers-reduced-motion: reduce) {
   .btn:active, .mini-btn:active, .place-btn:active, .ctx:active, .acct:active, .conv-open:active { transform: none; }
   .ctx-pop, .place-menu, .sheet, .gpu-panel { animation-name: v51-fade; }
