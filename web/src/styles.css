@@ -308,7 +308,7 @@ kbd { font: 500 0.95em var(--mono); color: var(--soft); }
   border-radius: var(--radius-pop);
   background: var(--card);
   box-shadow: var(--shadow);
-  transform: translateX(-50%);
+  translate: -50% 0;  /* `translate`, so the opening scale is about the middle */
   animation: pop-up var(--t-move) var(--ease-quart) both;
 }
 .ctx-pop p { margin: 0; }
@@ -521,7 +521,7 @@ html.glass .conv[aria-current="true"] { --conv-bg: var(--press); background: rgb
   max-height: min(420px, 60vh);
   padding: 6px;
   overflow-y: auto;
-  transform: translateX(-50%);
+  translate: -50% 0;  /* `translate`, so the opening scale is about the middle */
   border: 1px solid var(--pop-line);
   border-radius: var(--radius-pop);
   background: var(--pop-bg);
@@ -1952,12 +1952,13 @@ html.glass .conv { --conv-bg: #0c1013; }
    gives to 0.97 in 160ms; a hover band on in 90ms, off in 160ms; a menu grows from the side it
    opened on (0.97 → 1, 150ms, no blur); a held switch's knob stretches. */
 :root { --ease-out: cubic-bezier(0.23, 1, 0.32, 1); --t-in: 90ms; --t-out: 160ms; }
-@keyframes v51-pop { from { opacity: 0; transform: scale(0.97); } }
+/* `scale`, not `transform`: .ctx-pop and .place-menu are centred with `translate: -50% 0` */
+@keyframes v51-pop { from { opacity: 0; scale: 0.97; } }
 @keyframes v51-fade { from { opacity: 0; } }
 .ctx-pop, .place-menu, .mentions { box-shadow: var(--pop-shadow), inset 0 1px 0 rgb(255 255 255 / 5%); }
 .toast { box-shadow: 0 0 0 1px #1c1e22, inset 0 1px 0 rgb(255 255 255 / 5%), 0 0 14px rgb(0 0 0 / 60%); }
 .sheet, .gpu-panel { box-shadow: 0 0 0 1px #17191b, inset 0 1px 0 rgb(255 255 255 / 4%), 0 18px 60px rgb(0 0 0 / 55%); animation: v51-pop 200ms var(--ease-out) both; }
-.ctx-pop { transform-origin: bottom left; animation: v51-pop 150ms var(--ease-out) both; }
+.ctx-pop { transform-origin: bottom center; animation: v51-pop 150ms var(--ease-out) both; }
 .place-menu { transform-origin: top center; animation: v51-pop 150ms var(--ease-out) both; }
 .btn, .mini-btn, .place-btn, .acct, .ctx, .toggle { transition-property: background-color, border-color, box-shadow, color, transform; transition-duration: var(--t-fast, 150ms), var(--t-fast, 150ms), var(--t-fast, 150ms), var(--t-fast, 150ms), 200ms; transition-timing-function: ease-out, ease-out, ease-out, ease-out, var(--ease-out); }
 .btn:active, .mini-btn:active, .place-btn:active, .ctx:active { transform: scale(0.97); transition-duration: 150ms, 150ms, 150ms, 150ms, 160ms; }
@@ -1966,13 +1967,14 @@ html.glass .conv { --conv-bg: #0c1013; }
 .conv, .place-item { transition: background-color var(--t-out) ease-out, color var(--t-out) ease-out; }
 .conv:hover, .place-item:hover { transition-duration: var(--t-in); }
 .switch::after { transition: transform 0.165s ease-out, width 0.165s ease-out, background-color 0.165s ease-out; }
-.toggle:active:not(:disabled) .switch::after { width: 20px; }
-.toggle.on:active:not(:disabled) .switch::after, .toggle[aria-pressed="true"]:active:not(:disabled) .switch::after { transform: translateX(8px); }
+.toggle:active:not(:disabled) .switch::after { width: 18px; }
+.toggle.on:active:not(:disabled) .switch::after, .toggle[aria-pressed="true"]:active:not(:disabled) .switch::after { transform: translateX(11px); }
 @media (prefers-reduced-motion: reduce) {
   .btn:active, .mini-btn:active, .place-btn:active, .ctx:active, .acct:active, .conv-open:active { transform: none; }
   .ctx-pop, .place-menu, .sheet, .gpu-panel { animation-name: v51-fade; }
-  .toggle:active:not(:disabled) .switch::after { width: 16px; }
-  .toggle.on:active:not(:disabled) .switch::after, .toggle[aria-pressed="true"]:active:not(:disabled) .switch::after { transform: translateX(12px); }
+  .switch::after { transition: background-color 0.165s ease-out; }
+  .toggle:active:not(:disabled) .switch::after { width: 14px; }
+  .toggle.on:active:not(:disabled) .switch::after, .toggle[aria-pressed="true"]:active:not(:disabled) .switch::after { transform: translateX(15px); }
 }
 /* opened from the keyboard (↓ on the button): no motion (Emil: keyboard-initiated never animates) */
 .place:has(.place-btn:focus-visible) .place-menu { animation: none; }
